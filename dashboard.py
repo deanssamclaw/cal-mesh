@@ -233,6 +233,10 @@ table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:8px 16px;font-size:13px;border-bottom:1px solid var(--line)}
 th{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
 td.snr-good{color:var(--ok)} td.snr-bad{color:var(--warn)}
+#nodes-wrap{max-height:620px;overflow:auto}
+#nodes thead th{position:sticky;top:0;background:var(--card);z-index:1}
+#nodes th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+#nodes th.sortable:hover{color:var(--fg)}
 .trans{display:flex;gap:10px}
 .trans .t{flex:1;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 .trans .t.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
@@ -273,8 +277,13 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   <div style="margin-top:16px" class="card"><h2>🧠 Autonomous decisions <span class="badge" id="rstate">—</span></h2>
     <div id="decisions"></div></div>
   <div style="margin-top:16px" class="card"><h2>Neighbors heard <span class="badge" id="nn">0</span></h2>
-    <div style="overflow-x:auto"><table id="nodes"><thead><tr>
-      <th>Short</th><th>Name</th><th>HW</th><th>Hops</th><th>SNR</th><th>1h SNR trend</th></tr></thead><tbody></tbody></table></div>
+    <div id="nodes-wrap"><table id="nodes"><thead><tr>
+      <th class="sortable" data-key="short" onclick="setSort('short')">Short</th>
+      <th class="sortable" data-key="long" onclick="setSort('long')">Name</th>
+      <th class="sortable" data-key="hw" onclick="setSort('hw')">HW</th>
+      <th class="sortable" data-key="hops" onclick="setSort('hops')">Hops</th>
+      <th class="sortable" data-key="snr" onclick="setSort('snr')">SNR</th>
+      <th>1h SNR trend</th></tr></thead><tbody></tbody></table></div>
   </div>
   <div style="margin-top:16px" class="card faq" id="faq"><h2>FAQ — how Cal works on the mesh</h2>
     <details><summary>What is this?</summary><div class="a">
@@ -323,6 +332,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div style="margin-top:16px" class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-08</span>Neighbors table: capped height + interior scroll (sticky header) and click-to-sort columns (Name, SNR, hops, …).</div>
       <div class="ci"><span class="cd">2026-08-08</span>Changelog card now caps its height (~20 entries) and scrolls internally.</div>
       <div class="ci"><span class="cd">2026-08-08</span>From Bob's review: bridge reconnect backoff (8→60s), a <code>mesh nodes</code> CLI command, and clearer config hot-reload docs.</div>
       <div class="ci"><span class="cd">2026-08-08</span>FAQ: added an "is the code public?" entry.</div>
@@ -347,6 +357,25 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 const $=s=>document.querySelector(s);
 const DIR=location.pathname.endsWith('/')?location.pathname:location.pathname+'/';
 let SNR={};
+let lastNodes=[], nodeSort={key:null,dir:1};
+const NODE_LABELS={short:'Short',long:'Name',hw:'HW',hops:'Hops',snr:'SNR'};
+function setSort(k){ nodeSort=(nodeSort.key===k)?{key:k,dir:-nodeSort.dir}:{key:k,dir:1}; renderNodes(); }
+function renderNodes(){
+  let ns=lastNodes.slice();
+  if(nodeSort.key){ const k=nodeSort.key, dir=nodeSort.dir;
+    ns.sort((a,b)=>{ let x=a[k],y=b[k];
+      if(k==='hops'||k==='snr'){ if(x==null&&y==null)return 0; if(x==null)return 1; if(y==null)return -1; return (x-y)*dir; }
+      x=(x||'').toString().toLowerCase(); y=(y||'').toString().toLowerCase();
+      return x<y?-dir:(x>y?dir:0); }); }
+  const tb=$('#nodes').querySelector('tbody');
+  tb.innerHTML=ns.map(n=>{ const sg=(n.snr!=null&&n.snr>0)?'snr-good':'snr-bad';
+    return `<tr><td>${esc(n.short)}</td><td>${esc(n.long)}</td><td>${esc(n.hw)}</td>`+
+      `<td>${n.hops==null?'—':esc(n.hops)}</td><td class="${sg}">${n.snr==null?'—':esc(n.snr)}</td>`+
+      `<td>${sparkline((SNR[n.id]||{}).points, n.hops)}</td></tr>`; }).join('');
+  document.querySelectorAll('#nodes th.sortable').forEach(th=>{
+    const k=th.dataset.key, on=nodeSort.key===k;
+    th.textContent=NODE_LABELS[k]+(on?(nodeSort.dir>0?' ▲':' ▼'):''); });
+}
 async function loadSnr(){try{SNR=await (await fetch(DIR+'api/snr',{cache:'no-store'})).json();}catch(e){}}
 function sparkline(pts, hops){
   if(!pts||pts.length===0){
@@ -430,13 +459,9 @@ async function tick(){
      ${x.matched?'':`<span class="tag ch">${esc(x.reason)}</span>`}</div>
    <div class="body">${esc(x.text)}${x.reply?` <span style="color:var(--tx)">→ ${esc(x.reply)}</span>`:''}</div></div>`).join(''):'<div class="empty">no inbound evaluated yet</div>';
  // nodes
- const nodes=(d.nodes&&d.nodes.nodes)||[];
- $('#nn').textContent=nodes.length;
- $('#nodes').querySelector('tbody').innerHTML=nodes.map(n=>{
-   const sg=(n.snr!=null&&n.snr>0)?'snr-good':'snr-bad';
-   return `<tr><td>${esc(n.short)}</td><td>${esc(n.long)}</td><td>${esc(n.hw)}</td>
-     <td>${n.hops==null?'—':esc(n.hops)}</td><td class="${sg}">${n.snr==null?'—':esc(n.snr)}</td>
-     <td>${sparkline((SNR[n.id]||{}).points, n.hops)}</td></tr>`;}).join('');
+ lastNodes=(d.nodes&&d.nodes.nodes)||[];
+ $('#nn').textContent=lastNodes.length;
+ renderNodes();
 }
 function fmtDur(s){s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
  return h?`${h}h ${m}m`:(m?`${m}m ${ss}s`:`${ss}s`);}
