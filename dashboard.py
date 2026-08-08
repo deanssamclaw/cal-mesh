@@ -372,6 +372,12 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
       It only exists for nodes heard <b>directly</b> — SNR is a single-hop measurement. A node reached only through
       a relay shows <b>"multi-hop"</b> (there's no direct signal to trend); a node heard just once shows a single
       value; a direct node not heard yet shows "— no direct signal."</div></details>
+    <details><summary>Is Cal plugged in, or on WiFi?</summary><div class="a">
+      Cal HT runs over <b>WiFi</b> — it sits on the local network and the bridge reaches it over TCP,
+      so it can live anywhere with power and Wi-Fi instead of being tethered by USB (USB serial still
+      works as a fallback). One quirk worth knowing: Meshtastic's fancy touchscreen-UI firmware leaves
+      the network API compiled out, so the radio runs the simpler <b>BaseUI</b> build that actually
+      serves the connection.</div></details>
     <details><summary>Is the code public? Can I run my own?</summary><div class="a">
       Yes — cal-mesh is open source; the full code (bridge, responder, dashboard) is on GitHub
       (link in the header). It ships a <code>config.example</code> — point it at your own Meshtastic
@@ -379,6 +385,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div style="margin-top:16px" class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-08</span>Cal HT moved to <b>WiFi</b>: reflashed to the BaseUI firmware (the touchscreen-UI build excludes the webserver, so it never served the TCP API) and switched the bridge to TCP — the radio now runs untethered on the LAN, USB is just power.</div>
       <div class="ci"><span class="cd">2026-08-08</span>From Bob's PR: message latency tracking (gen_ms in decisions log + UI), /api/stats endpoint with daily aggregates (replies, skips, avg/min/max gen time).</div>
       <div class="ci"><span class="cd">2026-08-08</span>Neighbors table: capped height + interior scroll (sticky header) and click-to-sort columns (Name, SNR, hops, …).</div>
       <div class="ci"><span class="cd">2026-08-08</span>Changelog card now caps its height (~20 entries) and scrolls internally.</div>

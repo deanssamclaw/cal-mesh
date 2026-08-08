@@ -2,12 +2,16 @@
 # The real `config` is gitignored (machine-specific). Reload the bridge after edits:
 #   launchctl kickstart -k gui/$(id -u)/com.cal.mesh-bridge
 
-# --- USB (default, most reliable while the node is plugged into this machine) ---
+# --- USB (most reliable while the node is plugged into this machine) ---
 TRANSPORT=serial
 PORT=/dev/cu.usbmodemXXXXXXXXXXXX
 
-# --- WiFi (survives unplugging; needs the node on the same LAN + serving its API) ---
+# --- WiFi (survives unplugging; node runs untethered on the LAN) ---
 # Set TRANSPORT=tcp to use this. HOST is the node's mDNS name (survives DHCP changes).
+# NOTE: the node must run a firmware build that serves the TCP API on 4403. The heavy
+# touchscreen-UI build (LVGL "MUI" / *-tft on ESP32-S3) is compiled with the webserver
+# EXCLUDED -> 4403 is refused even though WiFi is up. Use the plain BaseUI (non-tft)
+# build, or point HOST at another node that serves 4403.
 HOST=Meshtastic.local
 
 # --- RESPONDER (Level 2: autonomous replies) ---
