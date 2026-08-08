@@ -15,9 +15,11 @@ case "$cmd" in
   send)
     if [ "${1:-}" = "-j" ]; then payload="${2:?json required}";
     else payload="${*:?text required}"; fi
-    f="$OUTBOX/msg.$(date +%s).$$"
-    printf '%s' "$payload" > "$f"
-    echo "queued -> $(basename "$f")"
+    name="msg.$(date +%s).$$"
+    # write a dotfile temp (invisible to the bridge's glob) then atomically rename
+    printf '%s' "$payload" > "$OUTBOX/.$name"
+    mv "$OUTBOX/.$name" "$OUTBOX/$name"
+    echo "queued -> $name"
     ;;
   read)
     n="${1:-15}"

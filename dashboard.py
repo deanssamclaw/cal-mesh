@@ -133,14 +133,17 @@ def build_snr(window=3600, cap=120):
 
 # Only these config keys are ever exposed on the (public) API. Everything else —
 # including ALLOW_FROM node IDs and any future secret — is withheld by default.
-PUBLIC_CONFIG_KEYS = ("TRANSPORT", "PORT", "HOST", "RESPONDER_ENABLED", "RESPONDER_MODEL")
+# PORT is deliberately excluded — the serial path embeds the device MAC.
+PUBLIC_CONFIG_KEYS = ("TRANSPORT", "HOST", "RESPONDER_ENABLED", "RESPONDER_MODEL")
 
 
 def build_state():
     cfg = read_config()
     safe_cfg = {k: cfg[k] for k in PUBLIC_CONFIG_KEYS if k in cfg}
+    status = read_json(STATUS, {})
+    status.pop("port", None)   # MAC-bearing serial path — never publish
     return {
-        "status": read_json(STATUS, {}),
+        "status": status,
         "config": safe_cfg,
         "bridge": launchd_running(),
         "nodes": read_json(NODES, {"nodes": [], "count": 0}),
@@ -229,7 +232,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 <header>
   <div><h1>📻 cal-mesh <span class="sub">— live levers</span></h1>
   <div class="sub" id="sub">connecting…</div></div>
-  <span class="navlinks"><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a></span>
+  <span class="navlinks"><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
   <span class="pill" id="conn">…</span>
 </header>
 <main>
@@ -355,8 +358,7 @@ async function tick(){
    tile('Uptime', st.uptime_s!=null?fmtDur(st.uptime_s):'—'),
    tile('Battery', m.battery!=null?m.battery+'%':'—', m.voltage!=null?m.voltage.toFixed(2)+'V':''),
    tile('Ch util', m.chUtil!=null?m.chUtil.toFixed(1)+'%':'—', m.airUtilTx!=null?('air '+m.airUtilTx.toFixed(2)+'%'):''),
-   tile('Sent', (d.totals&&d.totals.sent)??0),
-   tile('Received', (d.totals&&d.totals.recv)??0),
+   tile('Sent / Received', `${(d.totals&&d.totals.sent)??0} / ${(d.totals&&d.totals.recv)??0}`),
    tile('Responder', rp.enabled==='true'?'● armed':'○ off',
         rp.model?rp.model.replace('claude-','').replace(/-\d+$/,''):''),
  ].join('');
@@ -364,7 +366,7 @@ async function tick(){
  const cfg=d.config||{}, active=(st.transport||cfg.TRANSPORT||'serial');
  $('#active-t').textContent='active: '+active;
  $('#trans').innerHTML=[
-   `<div class="t ${active==='serial'?'active':''}"><div class="lbl"><span class="dot ${active==='serial'?'on':'off'}"></span>USB · serial</div><div class="val">${esc(cfg.PORT||'')}</div></div>`,
+   `<div class="t ${active==='serial'?'active':''}"><div class="lbl"><span class="dot ${active==='serial'?'on':'off'}"></span>USB · serial</div><div class="val">${esc(cfg.PORT||'local USB')}</div></div>`,
    `<div class="t ${active==='tcp'?'active':''}"><div class="lbl"><span class="dot ${active==='tcp'?'on':'off'}"></span>WiFi · tcp</div><div class="val">${esc(cfg.HOST||'')}:4403</div></div>`,
  ].join('');
  // sent
