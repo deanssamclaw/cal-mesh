@@ -1,0 +1,22 @@
+# --- machine-specific config (real values; use config.example as the template) ---
+/config
+
+# --- runtime data & state (not source) ---
+*.log
+inbox.jsonl
+sent.jsonl
+decisions.jsonl
+snr-history.jsonl
+status.json
+nodes.json
+responder-state.json
+*.lock
+*.tmp
+
+# --- runtime dirs ---
+outbox/
+sent/
+
+# --- python ---
+__pycache__/
+*.pyc

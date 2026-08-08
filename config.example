@@ -1,0 +1,25 @@
+# cal-mesh config — copy this to `config` and fill in your own values.
+# The real `config` is gitignored (machine-specific). Reload the bridge after edits:
+#   launchctl kickstart -k gui/$(id -u)/com.cal.mesh-bridge
+
+# --- USB (default, most reliable while the node is plugged into this machine) ---
+TRANSPORT=serial
+PORT=/dev/cu.usbmodemXXXXXXXXXXXX
+
+# --- WiFi (survives unplugging; needs the node on the same LAN + serving its API) ---
+# Set TRANSPORT=tcp to use this. HOST is the node's mDNS name (survives DHCP changes).
+HOST=Meshtastic.local
+
+# --- RESPONDER (Level 2: autonomous replies) ---
+# Master kill switch. false = capture/log only, never transmits autonomously.
+RESPONDER_ENABLED=false
+RESPONDER_MODEL=claude-haiku-4-5-20251001
+# Node IDs allowed to trigger a reply. ADVISORY ONLY — Meshtastic node IDs are
+# unauthenticated/spoofable, so this is not a security boundary (see README/runbook).
+ALLOW_FROM=!xxxxxxxx,!yyyyyyyy
+TRIGGER_WORD=cal
+RATE_MAX=5
+RATE_WINDOW_S=600
+COOLDOWN_S=8
+MAX_AGE_S=300
+GEN_TIMEOUT_S=90

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# cal-mesh helper — talk to Cal HT through the always-on bridge.
+#   mesh send "text"              broadcast on ch0 (public)
+#   mesh send -j '{"text":"hi","dest":"!aaaaaaaa","channel":0}'   raw JSON (DM/channel)
+#   mesh read [N]                 last N inbox messages (default 15)
+#   mesh watch                    live-tail incoming
+#   mesh status                   bridge + transport + port state
+#   mesh log [N]                  last N bridge log lines
+set -euo pipefail
+BASE="$HOME/cal-mesh"
+OUTBOX="$BASE/outbox"; INBOX="$BASE/inbox.jsonl"; LOG="$BASE/bridge.log"
+cmd="${1:-status}"; shift || true
+
+case "$cmd" in
+  send)
+    if [ "${1:-}" = "-j" ]; then payload="${2:?json required}";
+    else payload="${*:?text required}"; fi
+    f="$OUTBOX/msg.$(date +%s).$$"
+    printf '%s' "$payload" > "$f"
+    echo "queued -> $(basename "$f")"
+    ;;
+  read)
+    n="${1:-15}"
+    [ -f "$INBOX" ] || { echo "(no messages yet)"; exit 0; }
+    tail -n "$n" "$INBOX" | python3 "$BASE/_fmt.py"
+    ;;
+  watch)
+    touch "$INBOX"; tail -n 0 -f "$INBOX" | python3 "$BASE/_fmt.py"
+    ;;
+  status)
+    echo "== launchd =="; launchctl print "gui/$(id -u)/com.cal.mesh-bridge" 2>/dev/null | grep -E 'state =|pid =' || echo "  not loaded"
+    echo "== transport =="; grep -E '^(TRANSPORT|PORT|HOST)=' "$BASE/config"
+    echo "== port owner =="; P=$(grep -E '^PORT=' "$BASE/config"|cut -d= -f2); lsof "$P" 2>/dev/null | tail -n +1 || echo "  (nothing on $P)"
+    echo "== last log =="; tail -n 4 "$LOG" 2>/dev/null || echo "  (no log)"
+    ;;
+  log) tail -n "${1:-30}" "$LOG" ;;
+  *) echo "usage: mesh {send|read|watch|status|log}"; exit 1 ;;
+esac
