@@ -318,6 +318,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div style="margin-top:16px" class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-08</span>Transports panel simplified to just USB / WiFi (active highlighted).</div>
       <div class="ci"><span class="cd">2026-08-08</span>Responder status now reads "live" instead of "armed."</div>
       <div class="ci"><span class="cd">2026-08-08</span>Second security &amp; privacy audit + fixes: removed the device MAC from the public API, added DoS bounds (capped file reads, response cache, concurrency limit), and log rotation.</div>
       <div class="ci"><span class="cd">2026-08-08</span>Published as a public GitHub repo (scrubbed of node IDs, LAN IP &amp; host); added a GitHub header link and a combined "Sent / Received" tile.</div>
@@ -393,8 +394,8 @@ async function tick(){
  const cfg=d.config||{}, active=(st.transport||cfg.TRANSPORT||'serial');
  $('#active-t').textContent='active: '+active;
  $('#trans').innerHTML=[
-   `<div class="t ${active==='serial'?'active':''}"><div class="lbl"><span class="dot ${active==='serial'?'on':'off'}"></span>USB · serial</div><div class="val">${esc(cfg.PORT||'local USB')}</div></div>`,
-   `<div class="t ${active==='tcp'?'active':''}"><div class="lbl"><span class="dot ${active==='tcp'?'on':'off'}"></span>WiFi · tcp</div><div class="val">${esc(cfg.HOST||'')}:4403</div></div>`,
+   `<div class="t ${active==='serial'?'active':''}"><div class="lbl"><span class="dot ${active==='serial'?'on':'off'}"></span>USB</div></div>`,
+   `<div class="t ${active==='tcp'?'active':''}"><div class="lbl"><span class="dot ${active==='tcp'?'on':'off'}"></span>WiFi</div></div>`,
  ].join('');
  // sent
  $('#tx-n').textContent=(d.sent||[]).length;
