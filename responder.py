@@ -266,7 +266,9 @@ def main():
                              "text": rec.get("text", ""), "matched": should,
                              "reason": reason, "reply": None}
                         if should:
+                            gen_start = time.time()
                             reply, why = generate(cfg, rec.get("from"), rec.get("text", ""))
+                            gen_ms = round((time.time() - gen_start) * 1000)
                             if reply:
                                 enqueue(reply, dest, ch)
                                 ts = time.time()
@@ -274,11 +276,13 @@ def main():
                                 st["per_sender"].setdefault(rec.get("from"), []).append(ts)
                                 d["reply"] = reply
                                 d["dest"] = dest
-                                log(f"REPLY to {rec.get('from')} -> {dest}: {reply!r}")
+                                d["gen_ms"] = gen_ms
+                                log(f"REPLY to {rec.get('from')} -> {dest}: {reply!r} ({gen_ms}ms)")
                             else:
                                 d["matched"] = False
                                 d["reason"] = why
-                                log(f"gen failed for {rec.get('from')}: {why}")
+                                d["gen_ms"] = gen_ms
+                                log(f"gen failed for {rec.get('from')}: {why} ({gen_ms}ms)")
                         else:
                             log(f"skip {rec.get('from')}: {reason}")
                         record_decision(d)

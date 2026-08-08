@@ -4,6 +4,8 @@
 Serves:
     /            single-page dashboard (auto-refresh)
     /api/state   JSON aggregate of bridge status, transports, sent/recv logs, neighbors
+    /api/snr     per-node SNR time series (last hour)
+    /api/stats   daily decision aggregates (replies, skips, gen latency)
 
 No third-party deps (stdlib only) so it's trivially exposable via Tailscale Funnel later,
 just like the rflab mesh dashboard. Binds localhost for now.
@@ -159,6 +161,51 @@ def build_snr(window=3600, cap=120):
 # including ALLOW_FROM node IDs and any future secret — is withheld by default.
 # PORT is deliberately excluded — the serial path embeds the device MAC.
 PUBLIC_CONFIG_KEYS = ("TRANSPORT", "HOST", "RESPONDER_ENABLED", "RESPONDER_MODEL")
+
+
+def build_decision_stats():
+    """Aggregate decisions.jsonl into per-day stats: counts by verdict, avg gen_ms."""
+    from collections import defaultdict
+    by_day = defaultdict(lambda: {"replied": 0, "skipped": 0, "skip_reasons": {}, "gen_ms": []})
+    try:
+        with open(DECISIONS) as f:
+            for ln in f:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    r = json.loads(ln)
+                except Exception:
+                    continue
+                day = (r.get("ts") or "")[:10]  # YYYY-MM-DD
+                if not day:
+                    continue
+                e = by_day[day]
+                if r.get("matched"):
+                    e["replied"] += 1
+                    ms = r.get("gen_ms")
+                    if ms is not None:
+                        e["gen_ms"].append(ms)
+                else:
+                    e["skipped"] += 1
+                    reason = r.get("reason") or "unknown"
+                    e["skip_reasons"][reason] = e["skip_reasons"].get(reason, 0) + 1
+    except Exception:
+        pass
+    days = []
+    for day in sorted(by_day.keys(), reverse=True):
+        e = by_day[day]
+        ms_list = e["gen_ms"]
+        days.append({
+            "date": day,
+            "replied": e["replied"],
+            "skipped": e["skipped"],
+            "skip_reasons": e["skip_reasons"],
+            "avg_gen_ms": round(sum(ms_list) / len(ms_list)) if ms_list else None,
+            "max_gen_ms": max(ms_list) if ms_list else None,
+            "min_gen_ms": min(ms_list) if ms_list else None,
+        })
+    return {"days": days[:30]}
 
 
 def build_state():
@@ -332,6 +379,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div style="margin-top:16px" class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-08</span>From Bob's PR: message latency tracking (gen_ms in decisions log + UI), /api/stats endpoint with daily aggregates (replies, skips, avg/min/max gen time).</div>
       <div class="ci"><span class="cd">2026-08-08</span>Neighbors table: capped height + interior scroll (sticky header) and click-to-sort columns (Name, SNR, hops, …).</div>
       <div class="ci"><span class="cd">2026-08-08</span>Changelog card now caps its height (~20 entries) and scrolls internally.</div>
       <div class="ci"><span class="cd">2026-08-08</span>From Bob's review: bridge reconnect backoff (8→60s), a <code>mesh nodes</code> CLI command, and clearer config hot-reload docs.</div>
@@ -457,7 +505,7 @@ async function tick(){
      <span class="tag ${x.matched?'tx':'rx'}" style="${x.matched?'':'background:#2a2f38;color:#8b98a9'}">${x.matched?'REPLIED':'SKIP'}</span>
      <span>${hhmmss(x.ts)}</span><span>${esc(x.from)}</span>
      ${x.matched?'':`<span class="tag ch">${esc(x.reason)}</span>`}</div>
-   <div class="body">${esc(x.text)}${x.reply?` <span style="color:var(--tx)">→ ${esc(x.reply)}</span>`:''}</div></div>`).join(''):'<div class="empty">no inbound evaluated yet</div>';
+   <div class="body">${esc(x.text)}${x.reply?` <span style="color:var(--tx)">→ ${esc(x.reply)}</span>`:''}${x.gen_ms!=null?` <span style="color:var(--dim);font-size:11px">· ${esc(x.gen_ms)}ms</span>`:''}</div></div>`).join(''):'<div class="empty">no inbound evaluated yet</div>';
  // nodes
  lastNodes=(d.nodes&&d.nodes.nodes)||[];
  $('#nn').textContent=lastNodes.length;
@@ -501,6 +549,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, json.dumps(cached("state", 2, build_state)).encode(), "application/json")
             elif path == "/api/snr":
                 self._send(200, json.dumps(cached("snr", 5, build_snr)).encode(), "application/json")
+            elif path == "/api/stats":
+                self._send(200, json.dumps(cached("stats", 10, build_decision_stats)).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
         finally:
