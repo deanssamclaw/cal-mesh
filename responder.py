@@ -101,6 +101,20 @@ def record_decision(rec):
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
+def trim_file(path, keep=5000):
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+        if len(lines) > keep:
+            with open(path + ".tmp", "w") as f:
+                f.writelines(lines[-keep:])
+            os.replace(path + ".tmp", path)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        log(f"trim err {path}: {e!r}")
+
+
 def clean_reply(text):
     text = (text or "").strip()
     text = re.sub(r"\s+", " ", text)
@@ -234,12 +248,16 @@ def main():
     lf.flush()
 
     st = load_state()
+    last_trim = time.time()
     log("cal-mesh responder starting")
     log(f"our node: {our_id()}")
     while True:
         try:
             cfg = load_config()
             ours = our_id()
+            if time.time() - last_trim > 300:
+                trim_file(DECISIONS, 5000)
+                last_trim = time.time()
             for rec, new_off in read_new(st):
                 try:
                     if rec is not None:

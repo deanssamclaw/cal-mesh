@@ -76,15 +76,23 @@ def append_snr(node, snr):
 
 
 def trim_snr(keep=2000):
+    trim_file(SNR_HIST, keep)
+
+
+def trim_file(path, keep):
+    """Cap a jsonl file to its last `keep` lines. Safe for append-only files with no
+    external byte-offset reader (NOT inbox.jsonl — the responder tracks an offset there)."""
     try:
-        with open(SNR_HIST) as f:
+        with open(path) as f:
             lines = f.readlines()
         if len(lines) > keep:
-            with open(SNR_HIST + ".tmp", "w") as f:
+            with open(path + ".tmp", "w") as f:
                 f.writelines(lines[-keep:])
-            os.replace(SNR_HIST + ".tmp", SNR_HIST)
+            os.replace(path + ".tmp", path)
+    except FileNotFoundError:
+        pass
     except Exception as e:
-        log("trim_snr err: " + repr(e))
+        log(f"trim err {path}: {e!r}")
 
 
 def on_receive(packet=None, interface=None):
@@ -248,11 +256,15 @@ def main():
             write_status(cfg, True, iface)
             write_nodes(iface)
             last_nodes = time.time()
+            last_trim = time.time()
             while not lost.is_set():
                 drain_outbox(iface, cfg["TRANSPORT"])
                 if time.time() - last_nodes > 30:
                     write_nodes(iface)
                     last_nodes = time.time()
+                if time.time() - last_trim > 300:
+                    trim_file(SENT_LOG, 5000)   # inbox is NOT trimmed (responder offset)
+                    last_trim = time.time()
                 write_status(cfg, True, iface)
                 time.sleep(1)
             log("lost flag set -> cycling")

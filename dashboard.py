@@ -8,7 +8,7 @@ Serves:
 No third-party deps (stdlib only) so it's trivially exposable via Tailscale Funnel later,
 just like the rflab mesh dashboard. Binds localhost for now.
 """
-import os, json, http.server, socketserver, subprocess
+import os, json, http.server, socketserver, subprocess, threading, time
 from urllib.parse import urlparse
 
 BASE     = os.path.expanduser("~/cal-mesh")
@@ -40,14 +40,20 @@ def count_lines(path):
         return 0
 
 
-def tail_jsonl(path, n):
+def tail_jsonl(path, n, maxbytes=262144):
+    """Read only the last `maxbytes` of the file (never the whole thing), then take
+    the last n complete lines. Bounds memory/IO regardless of file size."""
     try:
-        with open(path) as f:
-            lines = f.readlines()
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            if size > maxbytes:
+                f.seek(size - maxbytes)
+                f.readline()   # discard the partial first line
+            data = f.read()
     except Exception:
         return []
     out = []
-    for ln in lines[-n:]:
+    for ln in data.decode("utf-8", "replace").splitlines()[-n:]:
         ln = ln.strip()
         if not ln:
             continue
@@ -57,6 +63,24 @@ def tail_jsonl(path, n):
             pass
     out.reverse()
     return out
+
+
+# --- short response cache + concurrency cap (public, unauthenticated endpoints) ---
+_CACHE = {}
+_CACHE_LOCK = threading.Lock()
+_SEM = threading.BoundedSemaphore(32)
+
+
+def cached(key, ttl, fn):
+    now = time.time()
+    with _CACHE_LOCK:
+        e = _CACHE.get(key)
+        if e and now - e[0] < ttl:
+            return e[1]
+    v = fn()
+    with _CACHE_LOCK:
+        _CACHE[key] = (now, v)
+    return v
 
 
 def read_config():
@@ -428,14 +452,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
-        if path == "/api/state":
-            self._send(200, json.dumps(build_state()).encode(), "application/json")
-        elif path == "/api/snr":
-            self._send(200, json.dumps(build_snr()).encode(), "application/json")
-        elif path in ("/", "/index.html"):
+        if path in ("/", "/index.html"):
             self._send(200, PAGE.encode(), "text/html; charset=utf-8")
-        else:
-            self._send(404, b"not found", "text/plain")
+            return
+        # API endpoints do file I/O — cap concurrency so a flood can't spawn unbounded work
+        if not _SEM.acquire(blocking=False):
+            self._send(503, b"busy", "text/plain")
+            return
+        try:
+            if path == "/api/state":
+                self._send(200, json.dumps(cached("state", 2, build_state)).encode(), "application/json")
+            elif path == "/api/snr":
+                self._send(200, json.dumps(cached("snr", 5, build_snr)).encode(), "application/json")
+            else:
+                self._send(404, b"not found", "text/plain")
+        finally:
+            _SEM.release()
 
 
 class Server(socketserver.ThreadingTCPServer):
