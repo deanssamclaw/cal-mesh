@@ -315,9 +315,14 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
       It only exists for nodes heard <b>directly</b> — SNR is a single-hop measurement. A node reached only through
       a relay shows <b>"multi-hop"</b> (there's no direct signal to trend); a node heard just once shows a single
       value; a direct node not heard yet shows "— no direct signal."</div></details>
+    <details><summary>Is the code public? Can I run my own?</summary><div class="a">
+      Yes — cal-mesh is open source; the full code (bridge, responder, dashboard) is on GitHub
+      (link in the header). It ships a <code>config.example</code> — point it at your own Meshtastic
+      node and you can run your own Cal-on-the-mesh.</div></details>
   </div>
   <div style="margin-top:16px" class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-08</span>FAQ: added an "is the code public?" entry.</div>
       <div class="ci"><span class="cd">2026-08-08</span>Transports panel simplified to just USB / WiFi (active highlighted).</div>
       <div class="ci"><span class="cd">2026-08-08</span>Responder status now reads "live" instead of "armed."</div>
       <div class="ci"><span class="cd">2026-08-08</span>Second security &amp; privacy audit + fixes: removed the device MAC from the public API, added DoS bounds (capped file reads, response cache, concurrency limit), and log rotation.</div>
