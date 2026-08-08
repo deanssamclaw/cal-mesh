@@ -322,6 +322,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div style="margin-top:16px" class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-08</span>From Bob's review: bridge reconnect backoff (8→60s), a <code>mesh nodes</code> CLI command, and clearer config hot-reload docs.</div>
       <div class="ci"><span class="cd">2026-08-08</span>FAQ: added an "is the code public?" entry.</div>
       <div class="ci"><span class="cd">2026-08-08</span>Transports panel simplified to just USB / WiFi (active highlighted).</div>
       <div class="ci"><span class="cd">2026-08-08</span>Responder status now reads "live" instead of "armed."</div>

@@ -35,7 +35,7 @@ Restart any: `launchctl kickstart -k gui/$(id -u)/com.cal.mesh-<name>`
 - `inbox.jsonl` — received text. `sent.jsonl` — sent text + metadata (`source`: manual/responder).
 - `decisions.jsonl` — every inbound the responder evaluated: matched? reason? reply?
 - `status.json` / `nodes.json` / `responder-state.json` — live state.
-- `mesh` — CLI: `mesh send "…"` · `mesh read [N]` · `mesh watch` · `mesh status` · `mesh log`
+- `mesh` — CLI: `mesh send "…"` · `mesh read [N]` · `mesh watch` · `mesh nodes` · `mesh status` · `mesh log`
 - `bridge.log` / `responder.log` / `dashboard.log`
 
 ## Send manually
@@ -45,6 +45,13 @@ DM/JSON: `mesh send -j '{"text":"hi","dest":"!aaaaaaaa","channel":0}'`
 ## Switch transport (USB ↔ WiFi)
 Edit `config` → `TRANSPORT=serial` (USB, default) or `tcp` (WiFi, `Meshtastic.local:4403`),
 then kickstart the bridge. Both are configured and proven.
+
+## Config hot-reload
+The **responder** re-reads `config` every loop (~1s): `RESPONDER_ENABLED`, `ALLOW_FROM`,
+`TRIGGER_WORD`, and the rate limits all take effect **live — no restart** (e.g. flip
+`RESPONDER_ENABLED=false` to silence Cal instantly). The **bridge** re-reads `config` on each
+(re)connect, so **transport** changes (`TRANSPORT`/`PORT`/`HOST`) apply on the next reconnect —
+kickstart the bridge to apply immediately. Reconnects use exponential backoff (8→60s) when a link flaps.
 
 ## Responder — training wheels (current)
 Conservative by design; widen deliberately as trust grows.

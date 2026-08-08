@@ -244,14 +244,17 @@ def main():
     pub.subscribe(on_lost, "meshtastic.connection.lost")
     log("cal-mesh bridge starting")
 
+    backoff = 8
     while True:
         cfg = load_config()
         iface = None
+        conn_start = None
         lost.clear()
         write_status(cfg, False)
         try:
             iface = connect(cfg)
             CURRENT["iface"] = iface
+            conn_start = time.time()
             log(f"connected via {cfg['TRANSPORT']}")
             write_status(cfg, True, iface)
             write_nodes(iface)
@@ -279,8 +282,13 @@ def main():
                 except Exception as e:
                     log("close err: " + repr(e))
         write_status(cfg, False)
-        time.sleep(8)
-        log("reconnecting")
+        # Exponential backoff: reset after a healthy session, grow when flapping.
+        if conn_start and time.time() - conn_start > 30:
+            backoff = 8
+        else:
+            backoff = min(backoff * 2, 60)
+        log(f"reconnecting in {backoff}s")
+        time.sleep(backoff)
 
 
 if __name__ == "__main__":

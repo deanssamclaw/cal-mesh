@@ -4,11 +4,12 @@
 #   mesh send -j '{"text":"hi","dest":"!aaaaaaaa","channel":0}'   raw JSON (DM/channel)
 #   mesh read [N]                 last N inbox messages (default 15)
 #   mesh watch                    live-tail incoming
+#   mesh nodes                    neighbors heard (from nodes.json)
 #   mesh status                   bridge + transport + port state
 #   mesh log [N]                  last N bridge log lines
 set -euo pipefail
 BASE="$HOME/cal-mesh"
-OUTBOX="$BASE/outbox"; INBOX="$BASE/inbox.jsonl"; LOG="$BASE/bridge.log"
+OUTBOX="$BASE/outbox"; INBOX="$BASE/inbox.jsonl"; LOG="$BASE/bridge.log"; NODES="$BASE/nodes.json"
 cmd="${1:-status}"; shift || true
 
 case "$cmd" in
@@ -35,6 +36,19 @@ case "$cmd" in
     echo "== port owner =="; P=$(grep -E '^PORT=' "$BASE/config"|cut -d= -f2); lsof "$P" 2>/dev/null | tail -n +1 || echo "  (nothing on $P)"
     echo "== last log =="; tail -n 4 "$LOG" 2>/dev/null || echo "  (no log)"
     ;;
+  nodes)
+    [ -f "$NODES" ] || { echo "(no nodes yet)"; exit 0; }
+    python3 - "$NODES" <<'PY'
+import sys, json
+d = json.load(open(sys.argv[1]))
+ns = d.get("nodes", [])
+print(f'{d.get("count", len(ns))} neighbors (as of {str(d.get("ts",""))[11:19]}):')
+print(f'{"SHORT":<6} {"NAME":<22} {"HW":<16} {"HOP":>3} {"SNR":>6}')
+for n in ns:
+    hop = n.get("hops"); snr = n.get("snr")
+    print(f'{str(n.get("short") or ""):<6} {str(n.get("long") or "")[:22]:<22} {str(n.get("hw") or "")[:16]:<16} {("-" if hop is None else str(hop)):>3} {("-" if snr is None else str(snr)):>6}')
+PY
+    ;;
   log) tail -n "${1:-30}" "$LOG" ;;
-  *) echo "usage: mesh {send|read|watch|status|log}"; exit 1 ;;
+  *) echo "usage: mesh {send|read|watch|nodes|status|log}"; exit 1 ;;
 esac
