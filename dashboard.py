@@ -318,6 +318,9 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div style="margin-top:16px" class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-08</span>Responder status now reads "live" instead of "armed."</div>
+      <div class="ci"><span class="cd">2026-08-08</span>Second security &amp; privacy audit + fixes: removed the device MAC from the public API, added DoS bounds (capped file reads, response cache, concurrency limit), and log rotation.</div>
+      <div class="ci"><span class="cd">2026-08-08</span>Published as a public GitHub repo (scrubbed of node IDs, LAN IP &amp; host); added a GitHub header link and a combined "Sent / Received" tile.</div>
       <div class="ci"><span class="cd">2026-08-08</span>Neighbor "1h SNR" column now distinguishes trend vs single-reading vs multi-hop vs no-signal; added this changelog + header links.</div>
       <div class="ci"><span class="cd">2026-08-08</span>Adversarial security review &amp; hardening — reply generation locked so tools cannot execute (plan mode + no MCP); public API config whitelisted; mesh content fully escaped + CSP headers; responder single-instance lock; per-record inbox safety.</div>
       <div class="ci"><span class="cd">2026-08-08</span>Added per-neighbor 1-hour SNR sparklines — signal stability at a glance (idea from Bob).</div>
