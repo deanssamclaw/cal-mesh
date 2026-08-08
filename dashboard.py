@@ -383,7 +383,7 @@ async function tick(){
    tile('Battery', m.battery!=null?m.battery+'%':'—', m.voltage!=null?m.voltage.toFixed(2)+'V':''),
    tile('Ch util', m.chUtil!=null?m.chUtil.toFixed(1)+'%':'—', m.airUtilTx!=null?('air '+m.airUtilTx.toFixed(2)+'%'):''),
    tile('Sent / Received', `${(d.totals&&d.totals.sent)??0} / ${(d.totals&&d.totals.recv)??0}`),
-   tile('Responder', rp.enabled==='true'?'● armed':'○ off',
+   tile('Responder', rp.enabled==='true'?'● live':'○ off',
         rp.model?rp.model.replace('claude-','').replace(/-\d+$/,''):''),
  ].join('');
  // transports
@@ -410,7 +410,7 @@ async function tick(){
    <div class="body">${esc(x.text)}</div></div>`).join(''):'<div class="empty">nothing received yet — mesh is quiet or awaiting first inbound</div>';
  // responder decisions
  const dec=(rp.decisions)||[];
- $('#rstate').textContent=(rp.enabled==='true'?'armed':'disabled')+' · '+(rp.allow_count||0)+' allowed';
+ $('#rstate').textContent=(rp.enabled==='true'?'live':'disabled')+' · '+(rp.allow_count||0)+' allowed';
  $('#decisions').innerHTML=dec.length?dec.map(x=>`
    <div class="msg"><div class="meta">
      <span class="tag ${x.matched?'tx':'rx'}" style="${x.matched?'':'background:#2a2f38;color:#8b98a9'}">${x.matched?'REPLIED':'SKIP'}</span>
