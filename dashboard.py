@@ -959,7 +959,14 @@ function nodeName(id){
 // station sits at a fixed private location.
 function linkSvg(x){
   const hops=x.hops;
-  const stops=[{lab:esc(nodeName(x.from)), sub:esc(x.from)}];
+  // Colour the sender box by what Cal DID with it, so the diagram carries the same signal as
+  // the verdict badge above. Green on an off-list sender read as "allowed" — backwards.
+  const offlist = x.verdict==='skipped' && x.reason==='sender_not_allowed';
+  const quiet   = x.verdict==='skipped' && !offlist;
+  const senderC = offlist ? {fill:'#3a2f12', stroke:'#6b5416'}      // matches the OFF-LIST tag
+                : quiet   ? {fill:'#11161d', stroke:'#3d4a5c'}
+                          : {fill:'#11161d', stroke:'#3fb950'};
+  const stops=[{lab:esc(nodeName(x.from)), sub:esc(x.from), fill:senderC.fill, stroke:senderC.stroke}];
   if(hops>0){
     stops.push({lab: x.relay_byte!=null?('relay ·'+x.relay_byte.toString(16).padStart(2,'0')):'relay',
                 sub: hops>1?(hops+' hops total'):'1 hop', dim:true});
@@ -977,8 +984,10 @@ function linkSvg(x){
          +`<text x="${mid}" y="${by+bh/2-9}" fill="#8b98a9" font-size="11" text-anchor="middle">`
          +`${i===stops.length-1&&x.snr!=null?('snr '+esc(x.snr)+(x.rssi!=null?' · rssi '+esc(x.rssi):'')):''}</text>`;
     }
-    svg+=`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="8" fill="${s.self?'#171320':'#11161d'}" `
-       +`stroke="${s.self?'#a371f7':(s.dim?'#3d4a5c':'#3fb950')}" stroke-width="1.5"/>`
+    const fill=s.fill||(s.self?'#171320':'#11161d');
+    const stroke=s.stroke||(s.self?'#a371f7':(s.dim?'#3d4a5c':'#3fb950'));
+    svg+=`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="8" fill="${fill}" `
+       +`stroke="${stroke}" stroke-width="1.5"/>`
        +`<text x="${bx+bw/2}" y="${by+19}" fill="#e6edf3" font-size="13" font-weight="600" text-anchor="middle">${s.lab}</text>`
        +`<text x="${bx+bw/2}" y="${by+34}" fill="#8b98a9" font-size="10.5" text-anchor="middle">${s.sub}</text>`;
     prevX=bx;
