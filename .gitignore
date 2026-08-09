@@ -21,3 +21,4 @@ sent/
 __pycache__/
 *.pyc
 weather-cache.json
+.claude-sandbox/

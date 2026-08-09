@@ -40,7 +40,5 @@ WEATHER_POINT=39.0000,-95.0000
 WEATHER_PLACES=
 # NWS requires a User-Agent; a contact URL/email is polite.
 WEATHER_UA=cal-mesh/1.0 (github.com/deanssamclaw/cal-mesh)
-WEATHER_TIMEOUT_S=6
-# Minimum distinct weather keywords to treat a message as a weather query (raise to 2 if
-# false triggers appear).
-WEATHER_MIN_KW=1
+# Per-request fetch timeout (seconds). The station is cached, so steady state is one GET.
+WEATHER_TIMEOUT_S=4

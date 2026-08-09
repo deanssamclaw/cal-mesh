@@ -13,24 +13,29 @@ Design invariants (see docs/proposals/level3-weather.md):
     arbitrary user-named place is dropped (never propagated into the prompt or a URL)
   * output is imperial (F, mph) per Dean's standing preference
 """
-import os, re, json, time, urllib.request
+import os, re, json, time, urllib.request, urllib.parse
 
 BASE  = os.path.expanduser("~/cal-mesh")
 CACHE = os.path.join(BASE, "weather-cache.json")   # {latlon: {station, ts}} — station resolution TTL
 CACHE_TTL_S = 86400
+ALLOWED_HOST = "api.weather.gov"                   # the ONLY host this module will ever fetch
 
 # --- intent ---------------------------------------------------------------
-_WEATHER_KW = re.compile(
-    r"\b(weather|temp|temperature|forecast|rain|raining|snow|snowing|sleet|"
-    r"wind|windy|humid|humidity|hot|cold|freezing|storm|storms|sunny|cloudy|"
-    r"degrees|precip)\b", re.I)
+# Strong words fire on their own; weak words need reinforcement (2+ distinct, or a '?').
+# This kills single-word false-fires like "I have a cold" / "that's hot" (review #8).
+_STRONG = re.compile(r"\b(weather|forecast|temperature|temp)\b", re.I)
+_WEAK   = re.compile(r"\b(rain|raining|snow|snowing|sleet|wind|windy|humid|humidity|"
+                     r"hot|cold|freezing|storm|storms|sunny|cloudy|degrees|precip)\b", re.I)
 
 
-def wants_weather(text, min_kw=1):
-    """True if the (already-sanitized, already-addressed-to-Cal) text is a weather query.
-    Counts DISTINCT keywords; caller can raise the threshold via min_kw if false triggers appear."""
-    hits = {m.group(0).lower() for m in _WEATHER_KW.finditer(text or "")}
-    return len(hits) >= max(1, int(min_kw))
+def wants_weather(text):
+    """True if the (addressed-to-Cal) text is a weather query. Run on the RAW text so a
+    trailing '?' survives (sanitize strips it)."""
+    t = text or ""
+    if _STRONG.search(t):
+        return True
+    weak = {m.group(0).lower() for m in _WEAK.finditer(t)}
+    return len(weak) >= 2 or (len(weak) >= 1 and "?" in t)
 
 
 # --- location whitelist ---------------------------------------------------
@@ -60,11 +65,25 @@ def resolve_location(cfg, text):
 
 
 # --- fetch (NWS) ----------------------------------------------------------
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects — a 3xx to another host would be SSRF (review #3)."""
+    def redirect_request(self, *a, **k):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def _get_json(url, cfg, timeout, max_bytes=200_000):
+    # Enforce the allow-list on EVERY fetch, including URLs that came back inside an NWS
+    # response (observationStations, station id). https + api.weather.gov only, no redirects.
+    u = urllib.parse.urlparse(url)
+    if u.scheme != "https" or u.hostname != ALLOWED_HOST:
+        raise ValueError(f"blocked non-allowlisted URL: {u.scheme}://{u.hostname}")
     req = urllib.request.Request(url, headers={
         "User-Agent": cfg.get("WEATHER_UA", "cal-mesh/1.0"),
         "Accept": "application/geo+json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with _OPENER.open(req, timeout=timeout) as r:
         data = r.read(max_bytes + 1)
     if len(data) > max_bytes:
         raise ValueError("weather response too large")
@@ -114,29 +133,59 @@ _DIRS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
          "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
 
 
-def _c_to_f(c):    return round(c * 9 / 5 + 32)
-def _kmh_to_mph(k): return round(k * 0.621371)
 def _compass(d):   return _DIRS[int((d / 22.5) + 0.5) % 16]
+
+
+def _to_F(v, unit):
+    """Convert to whole degrees F by declared unit. Unknown unit -> None (fail-safe)."""
+    if v is None:
+        return None
+    u = (unit or "").lower()
+    if u.endswith("degc"):
+        return round(v * 9 / 5 + 32)
+    if u.endswith("degf"):
+        return round(v)
+    return None
+
+
+def _to_mph(v, unit):
+    """Convert to whole mph by declared unit. Unknown unit -> None (fail-safe)."""
+    if v is None:
+        return None
+    u = (unit or "").lower()
+    if u.endswith("km_h-1"):
+        return round(v * 0.621371)
+    if u.endswith("m_s-1"):
+        return round(v * 2.2369363)
+    if u.endswith("mi_h-1"):
+        return round(v)
+    return None
 
 
 def format_fact(obs, label="default"):
     """Turn an NWS latest-observation payload into a compact imperial fact string, or None
-    if there's nothing usable (which the responder treats as 'can't reach weather')."""
+    if there's nothing usable (which the responder treats as 'can't reach weather').
+    Conversions are driven by each field's declared unitCode — a value in an UNEXPECTED unit
+    is dropped rather than mis-converted, so a wrong-but-plausible number never goes on air."""
     p = (obs or {}).get("properties") or {}
 
-    def val(k):
-        return (p.get(k) or {}).get("value")
+    def fld(k):
+        x = p.get(k) or {}
+        return x.get("value"), x.get("unitCode")
 
-    tC, desc, wS, wD = val("temperature"), (p.get("textDescription") or "").strip(), \
-        val("windSpeed"), val("windDirection")
+    tv, tu = fld("temperature")
+    wv, wu = fld("windSpeed")
+    dv, _  = fld("windDirection")
+    desc = (p.get("textDescription") or "").strip()
+
+    tF, mph = _to_F(tv, tu), _to_mph(wv, wu)
     parts = []
-    if tC is not None:
-        parts.append(f"{_c_to_f(tC)}F")
+    if tF is not None:
+        parts.append(f"{tF}F")
     if desc:
         parts.append(desc)
-    if wS is not None:
-        parts.append(f"wind {_compass(wD)} {_kmh_to_mph(wS)} mph" if wD is not None
-                     else f"wind {_kmh_to_mph(wS)} mph")
+    if mph is not None:
+        parts.append(f"wind {_compass(dv)} {mph} mph" if dv is not None else f"wind {mph} mph")
     if not parts:
         return None
     prefix = "" if label == "default" else f"{label}: "
