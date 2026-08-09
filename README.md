@@ -15,6 +15,8 @@ Three independent layers, each its own always-on launchd agent:
         │  status.json / sent.jsonl / nodes.json / decisions.jsonl
         ▼
    dashboard.py  →  http://localhost:8787  ·  https://<your-funnel-host>/cal-mesh
+                    the current page is at "/"; retired versions keep a
+                    permanent /old-N address (old-1 = the first retired)
 ```
 
 **Design principle:** the bridge is the *only* owner of the radio. The responder never

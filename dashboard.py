@@ -2,9 +2,10 @@
 """cal-mesh dashboard — a read-only view of every lever behind Cal on the mesh.
 
 Serves:
-    /            v1 dashboard (FROZEN — two-column inbound/outbound; stays here as the
-                 rollback while v2 is on trial, so the published URL cannot break)
-    /v2          v2 dashboard — one "Exchanges" stream + a per-exchange decision trace
+    /            the CURRENT dashboard (v2 — one "Exchanges" stream + per-exchange trace)
+    /old-1       v1, retired 2026-08-09 (two-column inbound/outbound). See PAGES below:
+                 an old-N slot is assigned once and never renumbered, so a link keeps
+                 pointing at the same page forever.
     /api/state   JSON aggregate of bridge status, transports, sent/recv logs, neighbors
     /api/snr     per-node SNR time series (last hour)
     /api/stats   daily decision aggregates (replies, skips, gen latency)
@@ -334,8 +335,10 @@ def build_state():
     }
 
 
-# --- v1 page: FROZEN. Served at "/" so the public URL cannot break while v2 is on trial.
-# Do not edit; changes belong in PAGE_V2. Reads only fields the API still returns.
+# --- v1 page: RETIRED 2026-08-09, served at /old-1. Frozen — the only thing ever added is
+# the self-disabling retired banner below, which renders nothing unless the URL is an old-N
+# slot, so this file stays usable as-is if it is ever restored to "/" as a rollback.
+# Changes belong in the current page. Reads only fields the API still returns.
 PAGE_V1 = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -684,6 +687,19 @@ async function tick(){
 }
 function fmtDur(s){s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
  return h?`${h}h ${m}m`:(m?`${m}m ${ss}s`:`${ss}s`);}
+// Retired-version banner. Renders ONLY when this page is being served from an /old-N slot,
+// so if it is ever restored to "/" as a rollback it shows nothing and behaves as it always did.
+(function(){
+  const m=location.pathname.match(/\/(old-\d+)\/?$/);
+  if(!m) return;
+  const cur=location.pathname.replace(/\/old-\d+\/?$/,'/');
+  const b=document.createElement('div');
+  b.style.cssText='background:#3a2f12;color:#d29922;border-bottom:1px solid #6b5416;'+
+    'padding:9px 22px;font-size:13px;text-align:center';
+  b.innerHTML='This is <b>'+m[1]+'</b>, a retired version of the dashboard, kept for reference. '+
+    '<a href="'+cur+'" style="color:#4ea1ff;font-weight:600">Go to the current page →</a>';
+  document.body.insertBefore(b, document.body.firstChild);
+})();
 loadSnr(); tick(); setInterval(tick,3000); setInterval(loadSnr,30000);
 </script></body></html>"""
 
@@ -716,8 +732,8 @@ header .sub{color:var(--dim);font-size:12px}
 .faqlink:hover{text-decoration:underline}
 .navlinks{margin-left:auto;display:inline-flex;gap:14px;align-items:center}
 html{scroll-behavior:smooth}
-main{padding:20px;max-width:900px;margin:0 auto}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+main{padding:20px;max-width:1200px;margin:0 auto}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px}
 .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
 .tile .k{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
 .tile .v{font-size:22px;font-weight:650;margin-top:4px}
@@ -735,7 +751,8 @@ color:var(--dim);text-transform:uppercase;letter-spacing:.6px;display:flex;gap:8
 .xc{padding:14px 16px;border-bottom:1px solid var(--line)}
 .xc:last-child{border-bottom:0}
 .xc .meta{color:var(--dim);font-size:11px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:5px}
-.xc .ask{font-size:15px;word-break:break-word}
+.xc .ask{font-size:15px;word-break:break-word;max-width:78ch}
+.rep .txt,.norep{max-width:78ch}
 .xc.unprompted{background:#12161d}
 .rep{margin:9px 0 0 16px;padding:8px 12px;border-left:2px solid var(--tx);background:#171320;
 border-radius:0 8px 8px 0}
@@ -766,7 +783,7 @@ table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:8px 16px;font-size:13px;border-bottom:1px solid var(--line)}
 th{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
 td.snr-good{color:var(--ok)} td.snr-bad{color:var(--warn)}
-#nodes-wrap{max-height:420px;overflow:auto}
+#nodes-wrap{max-height:620px;overflow:auto}
 #nodes thead th{position:sticky;top:0;background:var(--card);z-index:1}
 #nodes th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 .trans{display:flex;gap:10px;padding:14px 16px}
@@ -795,7 +812,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 <header>
   <div><h1>📻 cal-mesh <span class="sub">— live levers (v2)</span></h1>
   <div class="sub" id="sub">connecting…</div></div>
-  <span class="navlinks"><a class="faqlink" href="../">← v1</a><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
+  <span class="navlinks"><a class="faqlink" id="oldlink" href="old-1">← old-1</a><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
   <span class="pill" id="conn">…</span>
 </header>
 <main>
@@ -865,7 +882,8 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
-      <div class="ci"><span class="cd">2026-08-09</span><b>v2 (this page).</b> Inbound and Outbound merged into a single <b>Exchanges</b> stream — the ask is the head, Cal's reply is indented beneath it. Removes the duplication that made v1 busy (every reply used to render twice) and reads properly on a phone. v1 is still served at <code>/</code>.</div>
+      <div class="ci"><span class="cd">2026-08-09</span><b>v2 is now the main page.</b> The previous two-column layout is retired but still readable at <code>old-1</code>. Retired versions keep a permanent <code>old-N</code> address — numbered by when they were retired, never renumbered — so a link to one always shows the same page.</div>
+      <div class="ci"><span class="cd">2026-08-09</span><b>v2.</b> Inbound and Outbound merged into a single <b>Exchanges</b> stream — the ask is the head, Cal's reply is indented beneath it. Removes the duplication that made v1 busy (every reply used to render twice) and reads properly on a phone.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>Decision trace.</b> Every exchange opens into the machinery behind it: the gate ladder, what the sanitizer changed, the capability and the exact injected fact, the model and generation time. Deliberately no model "reasoning" — see the FAQ.</div>
       <div class="ci"><span class="cd">2026-08-09</span>Inbound/Outbound paired, reply latency in seconds, and the battery tile made sentinel-aware (a reading over 100 means external power, not a charge).</div>
       <div class="ci"><span class="cd">2026-08-08</span>Cal HT moved to <b>WiFi</b>: reflashed to the BaseUI firmware and switched the bridge to TCP — the radio runs untethered, USB is just power.</div>
@@ -877,10 +895,11 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
     </div>
   </div>
 </main>
-<footer>cal-mesh dashboard v2 · auto-refresh 3s · read-only · <a class="faqlink" href="../">v1</a></footer>
+<footer>cal-mesh dashboard v2 · auto-refresh 3s · read-only · <a class="faqlink" id="oldlink2" href="old-1">old-1</a></footer>
 <script>
 const $=s=>document.querySelector(s);
-const DIR=(location.pathname.replace(/\/v2\/?$/,'/'))||'/';
+const DIR=(function(){let p=location.pathname.replace(/\/(v2|old-\d+)\/?$/,'/');
+ return p.endsWith('/')?p:p+'/';})();
 let SNR={}, lastNodes=[], nodeSort={key:null,dir:1}, lastXsig=null;
 const NODE_LABELS={short:'Short',long:'Name',hw:'HW',hops:'Hops',snr:'SNR'};
 function esc(s){return (s??"").toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -1048,6 +1067,9 @@ async function tick(){
 }
 // 'toggle' does not bubble, so listen in the capture phase on the container. Survives every
 // re-render because the listener is on #exchanges, not on the details elements themselves.
+// resolve the retired-version links against the app root, so they work at "/" and under a
+// funnel path prefix alike
+document.querySelectorAll('#oldlink,#oldlink2').forEach(a=>{a.href=DIR+'old-1';});
 $('#exchanges').addEventListener('toggle', e=>{
   const el=e.target;
   if(!el.matches||!el.matches('details.tr')) return;
@@ -1057,6 +1079,22 @@ $('#exchanges').addEventListener('toggle', e=>{
 }, true);
 loadSnr(); tick(); setInterval(tick,3000); setInterval(loadSnr,30000);
 </script></body></html>"""
+
+
+# --- page routing ------------------------------------------------------------------
+# "/" is always the current page. A retired page keeps a PERMANENT /old-N slot, numbered by
+# the order it was RETIRED — old-1 is the first version retired and stays that page forever.
+# Renumbering on each release would make a published link silently change meaning, so don't.
+#
+# To promote the next version: build PAGE_V3, move PAGE_V2 into RETIRED_PAGES as "old-2",
+# point CURRENT_PAGE at PAGE_V3, and drop the stale entry from LEGACY_ALIASES.
+CURRENT_PAGE = PAGE_V2
+RETIRED_PAGES = {
+    "old-1": PAGE_V1,      # v1 — two-column inbound/outbound. Retired 2026-08-09.
+}
+# Trial URLs that should keep resolving to whatever they were promoted into, so a link handed
+# out during the trial doesn't 404. Retire an alias when its version does.
+LEGACY_ALIASES = {"v2"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -1079,13 +1117,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
-        # v1 keeps "/" while v2 is on trial, so the published URL can never break. Promoting
-        # v2 is a one-line swap here; rolling back is the same line.
-        if path in ("/", "/index.html"):
-            self._send(200, PAGE_V1.encode(), "text/html; charset=utf-8")
+        slug = path.strip("/")
+        if slug in ("", "index.html") or slug in LEGACY_ALIASES:
+            self._send(200, CURRENT_PAGE.encode(), "text/html; charset=utf-8")
             return
-        if path in ("/v2", "/v2/"):
-            self._send(200, PAGE_V2.encode(), "text/html; charset=utf-8")
+        if slug in RETIRED_PAGES:
+            self._send(200, RETIRED_PAGES[slug].encode(), "text/html; charset=utf-8")
             return
         # API endpoints do file I/O — cap concurrency so a flood can't spawn unbounded work
         if not _SEM.acquire(blocking=False):
