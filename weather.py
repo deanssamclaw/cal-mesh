@@ -24,8 +24,22 @@ ALLOWED_HOST = "api.weather.gov"                   # the ONLY host this module w
 # Strong words fire on their own; weak words need reinforcement (2+ distinct, or a '?').
 # This kills single-word false-fires like "I have a cold" / "that's hot" (review #8).
 _STRONG = re.compile(r"\b(weather|forecast|temperature|temp)\b", re.I)
+# Forecast-shaped asks. The capability holds CURRENT OBSERVATIONS ONLY, so these cannot be
+# answered — and answering them with current conditions is the exact confident-wrongness the
+# roadmap forbids ("clear skies" to "is it going to rain?"). Detected deterministically here
+# and answered with a FIXED string; the model is never asked to narrate a caveat, because at
+# 5-7 words it drops caveats (measured 4/4). Remove this gate only when a real forecast fact
+# is being injected — see docs/proposals/level3-weather-point-accuracy.md.
+_FORECAST = re.compile(r"\b(forecast|tomorrow|tonight|later|overnight|this\s+(afternoon|evening|week|weekend)|"
+                       r"next\s+(hour|day|week)|going\s+to\s+(rain|snow|storm)|will\s+it|gonna)\b", re.I)
 _WEAK   = re.compile(r"\b(rain|raining|snow|snowing|sleet|wind|windy|humid|humidity|"
                      r"hot|cold|freezing|storm|storms|sunny|cloudy|degrees|precip)\b", re.I)
+
+
+def wants_forecast(text):
+    """True if the ask is about a FUTURE state we cannot source. Run on RAW text, same as
+    wants_weather — the words live in parts sanitize would trim."""
+    return bool(_FORECAST.search(text or ""))
 
 
 def wants_weather(text):

@@ -96,6 +96,21 @@ check("whitelisted place used", weather.resolve_location(cfg(), "weather in town
 check("unlisted place -> default", weather.resolve_location(cfg(), "weather in eviltown")[0] == "default")
 check("no place -> default", weather.resolve_location(cfg(), "weather")[0] == "default")
 
+print("\n== unit: forecast asks are refused, not answered with present-tense data ==")
+for t in ["cal whats the forecast", "Cal, is it going to rain?", "cal will it rain later",
+          "cal hows the weather tonight", "cal temp tomorrow", "cal gonna storm?"]:
+    check(f"forecast-shaped: {t!r}", weather.wants_forecast(t), t)
+for t in ["cal whats the weather", "cal hows the temp", "cal is it windy out"]:
+    check(f"present-tense NOT forecast: {t!r}", not weather.wants_forecast(t), t)
+p = responder.plan_response(cfg(), "n1", "cal whats the forecast", get=Stub())
+check("forecast ask -> fixed reply, no generation", p["mode"] == "fixed" and p["forecast_asked"])
+check("forecast ask -> reply states we only have current conditions",
+      "current conditions" in (p["fixed_reply"] or "").lower(), p["fixed_reply"])
+check("forecast ask -> NO fetch happened (never dresses an ob as a forecast)",
+      p["weather_fact"] is None and p["prompt"] is None)
+p2 = responder.plan_response(cfg(), "n1", "cal whats the weather", get=Stub())
+check("present-tense ask still answers normally", p2["mode"] == "generate" and p2["weather_fact"])
+
 print("\n== unit: observation freshness (a stalled station must not read as current) ==")
 check("no max_age -> unchanged behaviour", weather.format_fact(_obs(600)) is not None)
 check("fresh obs passes", weather.format_fact(_obs(10), max_age_s=5400) is not None)

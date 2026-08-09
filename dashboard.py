@@ -221,7 +221,7 @@ def correlate(inbox, sent, decisions):
         rec["trace"] = {k: dec.get(k) for k in
                         ("gates", "sanitize", "prompt_kind", "model", "injected_fact",
                          "weather_ok", "gen_status", "injection_flagged", "dest",
-                         "obs_station", "obs_age_s")
+                         "obs_station", "obs_age_s", "forecast_asked")
                         if dec.get(k) is not None}
 
     replied = [d for d in decisions if d.get("matched") and d.get("reply")]
@@ -923,6 +923,8 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
       The US National Weather Service, and nothing else — one allow-listed source, fetched by the
       software, never by the model. Cal reads the <b>latest observation from the nearest weather
       station</b> to a fixed reference point, and refuses to answer at all if that reading is too old.
+      Cal has <b>no forecast</b>: ask about tonight, tomorrow or whether it's going to rain and it
+      says so outright rather than reading you a present-tense number as though it were a prediction.
       Known limitation, stated plainly: a station can be several miles away, and its reading can differ
       from the estimate for a specific spot by <b>five degrees or more</b>. What Cal reports is a real
       measurement of somewhere nearby, not a forecast for where you're standing.
@@ -986,6 +988,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-09</span><b>Forecast questions are now refused, not answered.</b> Asking about tonight, tomorrow, or whether it's going to rain used to return <i>current</i> conditions — a present-tense reading dressed as a prediction. Cal now recognises a forecast-shaped question deterministically and replies "Only current conditions, no forecast yet," making no lookup at all.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>FAQ rewritten and grouped.</b> It assumed you already knew what a mesh network, Meshtastic and LoRa were, and never said why an AI on a radio is worth building. It now starts from those, explains how the project got here in stages, and links out to the source and to the design proposals — including the arguments that lost.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>Link diagram in every trace.</b> Shows the path a message took — sender, any relay, Cal HT — with the hop count and the signal on the last leg. The bridge now records per-message routing (hops taken, and the one-byte relay id when the firmware supplies it); messages received before that show "hops unknown" rather than implying they were direct. It is a topology diagram, not a geographic one, on purpose — see the FAQ.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>v2 is now the main page.</b> The previous two-column layout is retired but still readable at <code>old-1</code>. Retired versions keep a permanent <code>old-N</code> address — numbered by when they were retired, never renumbered — so a link to one always shows the same page.</div>
@@ -1108,6 +1111,8 @@ function traceHtml(x){
     if(s.flagged) b.push('injection-shaped tokens flagged');
     if(b.length===1) b.push('unchanged');
     h+=row('sanitizer', esc(b.join(' · ')));}
+  if(t.forecast_asked) h+=row('refused', 'asked about a FUTURE condition — the capability holds '
+    +'current observations only, so a fixed reply was sent and no lookup was made');
   if(t.prompt_kind) h+=row('prompt', t.prompt_kind==='weather'
       ? 'capability template — <b>the message itself is not included</b>'
       : 'general template — the sanitized message is quoted to the model');

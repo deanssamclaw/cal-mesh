@@ -231,7 +231,7 @@ def plan_response(cfg, sender_short, raw_text, get=None):
     clean, flagged = sanitize_inbound(raw_text)
     out = {"clean": clean, "flagged": flagged, "capability": None, "weather_ok": None,
            "weather_fact": None, "mode": "generate", "fixed_reply": None, "prompt": None,
-           "weather_meta": {}}
+           "weather_meta": {}, "forecast_asked": False}
     fact = None
     # intent/location on the RAW text: a trailing '?' (needed for weak-keyword intent) and a
     # whitelisted place name must survive; sanitize would strip them. Nothing from raw_text
@@ -239,6 +239,13 @@ def plan_response(cfg, sender_short, raw_text, get=None):
     if cfg.get("WEATHER_ENABLED", "false").lower() == "true" and \
        weather.wants_weather(raw_text):
         out["capability"] = "weather"
+        # Forecast-shaped ask: we have current observations only. Answer honestly with a fixed
+        # string and skip the fetch entirely — never dress a present-tense reading as a forecast.
+        if weather.wants_forecast(raw_text):
+            out["forecast_asked"] = True
+            out["mode"] = "fixed"
+            out["fixed_reply"] = "Only current conditions, no forecast yet."
+            return out
         _, latlon = weather.resolve_location(cfg, raw_text)
         meta = {}
         fact = weather.fetch_current(cfg, latlon, get=get, meta=meta) if get is not None \
@@ -430,6 +437,8 @@ def main():
                             d["model"] = cfg["RESPONDER_MODEL"]
                             if plan["flagged"]:
                                 d["injection_flagged"] = True
+                            if plan.get("forecast_asked"):
+                                d["forecast_asked"] = True
                             if plan["capability"]:
                                 d["capability"] = plan["capability"]
                                 d["weather_ok"] = plan["weather_ok"]
