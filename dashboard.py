@@ -220,7 +220,8 @@ def correlate(inbox, sent, decisions):
         # before the responder logged it — the UI degrades to "no trace recorded".
         rec["trace"] = {k: dec.get(k) for k in
                         ("gates", "sanitize", "prompt_kind", "model", "injected_fact",
-                         "weather_ok", "gen_status", "injection_flagged", "dest")
+                         "weather_ok", "gen_status", "injection_flagged", "dest",
+                         "obs_station", "obs_age_s")
                         if dec.get(k) is not None}
 
     replied = [d for d in decisions if d.get("matched") and d.get("reply")]
@@ -1015,6 +1016,11 @@ function traceHtml(x){
       : 'general template — the sanitized message is quoted to the model');
   if(x.capability) h+=row('capability', `${esc(x.capability)} · fetch ${t.weather_ok?'ok':'FAILED'}`);
   if(t.injected_fact) h+=row('fact in', `<code>${esc(t.injected_fact)}</code>`);
+  if(t.obs_station||t.obs_age_s!=null){
+    const age=t.obs_age_s!=null?`${Math.round(t.obs_age_s/60)} min old`:'age unknown';
+    h+=row('measured at', `station <code>${esc(t.obs_station||'?')}</code> · reading ${esc(age)}`
+      +` <span style="color:var(--dim)">— a real observation from the nearest station, not an`
+      +` estimate for any particular spot</span>`);}
   if(t.model) h+=row('model', `<code>${esc(t.model)}</code>`+(x.gen_ms!=null?` · ${secs(x.gen_ms)}`:''));
   if(t.gen_status&&t.gen_status!=='ok') h+=row('generation', `<code>${esc(t.gen_status)}</code>`);
   if(t.dest) h+=row('sent to', `<code>${esc(t.dest)}</code>`);

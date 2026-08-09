@@ -106,6 +106,40 @@ def _save_cache(c):
         pass
 
 
+def _miles(lat1, lon1, lat2, lon2):
+    """Great-circle distance in miles (imperial per the operator's standing preference)."""
+    import math
+    r = 3958.8
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(h))
+
+
+def _nearest(feats, latlon):
+    """Pick the station actually closest to the point.
+
+    The list from `observationStations` is NOT distance-sorted — measured against a real
+    point, features[0] was 5.4 mi away while features[1] was 4.8 mi. Taking [0] was an
+    unverified assumption. Stations without usable geometry are skipped; if none has any,
+    fall back to the first entry rather than failing (a slightly-farther station beats no
+    weather at all)."""
+    try:
+        lat, lon = [float(x) for x in latlon.split(",")]
+    except Exception:
+        return feats[0] if feats else None
+    best, best_d = None, None
+    for f in feats:
+        try:
+            c = (f.get("geometry") or {}).get("coordinates") or []
+            d = _miles(lat, lon, float(c[1]), float(c[0]))
+        except Exception:
+            continue
+        if best_d is None or d < best_d:
+            best, best_d = f, d
+    return best if best is not None else (feats[0] if feats else None)
+
+
 def _station_for(cfg, latlon, timeout, get):
     """Resolve (and cache) the nearest observation-station URL for a 'lat,lon' point."""
     cache = _load_cache()
@@ -120,7 +154,8 @@ def _station_for(cfg, latlon, timeout, get):
     feats = st.get("features") or []
     if not feats:
         return None
-    station = feats[0].get("id")            # full URL, e.g. https://api.weather.gov/stations/KXYZ
+    pick = _nearest(feats, latlon)
+    station = (pick or {}).get("id")        # full URL, e.g. https://api.weather.gov/stations/KXYZ
     if not station:
         return None
     cache[latlon] = {"station": station, "ts": time.time()}
@@ -162,11 +197,34 @@ def _to_mph(v, unit):
     return None
 
 
-def format_fact(obs, label="default"):
+def obs_age_s(obs, now=None):
+    """Seconds since the observation was taken, or None if it has no parsable timestamp."""
+    ts = ((obs or {}).get("properties") or {}).get("timestamp")
+    if not ts:
+        return None
+    try:
+        from datetime import datetime, timezone
+        t = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        return ((now or datetime.now(timezone.utc)) - t).total_seconds()
+    except Exception:
+        return None
+
+
+def format_fact(obs, label="default", max_age_s=None, now=None):
     """Turn an NWS latest-observation payload into a compact imperial fact string, or None
     if there's nothing usable (which the responder treats as 'can't reach weather').
     Conversions are driven by each field's declared unitCode — a value in an UNEXPECTED unit
-    is dropped rather than mis-converted, so a wrong-but-plausible number never goes on air."""
+    is dropped rather than mis-converted, so a wrong-but-plausible number never goes on air.
+
+    `max_age_s`, when given, applies the same discipline to TIME: a station that has stopped
+    reporting would otherwise be served as "current" indefinitely with nothing to show for it.
+    An observation older than the limit — or one with no usable timestamp while a limit is in
+    force — returns None, which the responder already treats as "can't reach weather." Default
+    None keeps the function's old behaviour for callers (and tests) that pass raw payloads."""
+    if max_age_s is not None:
+        age = obs_age_s(obs, now=now)
+        if age is None or age > max_age_s:
+            return None
     p = (obs or {}).get("properties") or {}
 
     def fld(k):
@@ -192,17 +250,28 @@ def format_fact(obs, label="default"):
     return prefix + ", ".join(parts)
 
 
-def fetch_current(cfg, latlon, label="default", get=_get_json):
+def fetch_current(cfg, latlon, label="default", get=_get_json, meta=None):
     """Compact current-conditions fact for 'lat,lon', or None on ANY failure (fail-safe).
-    `get` is injectable so the eval can exercise this without touching the network."""
+    `get` is injectable so the eval can exercise this without touching the network.
+    `meta`, if a dict is passed, is filled with provenance (station URL, observation age) for
+    the decision trace — optional so no existing caller has to change.
+
+    NOTE ON WHAT THIS IS: a single station's point observation, which can be several miles
+    from `latlon`. It is a real measurement of somewhere nearby, NOT an estimate for the
+    point itself — those differ by several degrees routinely. See docs/proposals/."""
     if not latlon or "," not in latlon:
         return None
     try:
         timeout = float(cfg.get("WEATHER_TIMEOUT_S", "6"))
+        max_age = float(cfg.get("WEATHER_MAX_OBS_AGE_S", "5400"))
         station = _station_for(cfg, latlon, timeout, get)
         if not station:
             return None
         obs = get(station.rstrip("/") + "/observations/latest", cfg, timeout)
-        return format_fact(obs, label)
+        if meta is not None:
+            meta["station"] = station.rstrip("/").rsplit("/", 1)[-1]
+            age = obs_age_s(obs)
+            meta["obs_age_s"] = round(age) if age is not None else None
+        return format_fact(obs, label, max_age_s=max_age)
     except Exception:
         return None

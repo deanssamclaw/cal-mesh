@@ -31,21 +31,40 @@ def cfg(**over):
     return c
 
 # --- stub NWS: records the points-lookup latlon it was asked for ---
-OBS = {"properties": {"temperature": {"value": 22.0, "unitCode": "wmoUnit:degC"},
-                      "textDescription": "Clear",
-                      "windSpeed": {"value": 16.0, "unitCode": "wmoUnit:km_h-1"},
-                      "windDirection": {"value": 180, "unitCode": "wmoUnit:degree_(angle)"}}}
+def _iso(minutes_ago):
+    from datetime import datetime, timezone, timedelta
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat()
+
+def _obs(minutes_ago=10):
+    return {"properties": {"timestamp": _iso(minutes_ago),
+                           "temperature": {"value": 22.0, "unitCode": "wmoUnit:degC"},
+                           "textDescription": "Clear",
+                           "windSpeed": {"value": 16.0, "unitCode": "wmoUnit:km_h-1"},
+                           "windDirection": {"value": 180, "unitCode": "wmoUnit:degree_(angle)"}}}
+
+OBS = _obs()
+OBS_NO_TS = {"properties": dict(_obs()["properties"])}
+OBS_NO_TS["properties"].pop("timestamp")
 class Stub:
-    def __init__(self, fail=False): self.fail, self.points = fail, []
+    def __init__(self, fail=False, obs=None):
+        self.fail, self.points, self.obs_urls = fail, [], []
+        self.obs = obs if obs is not None else OBS
     def __call__(self, url, cfg, timeout, **k):
         if self.fail: raise RuntimeError("network down")
         if "/points/" in url:
             self.points.append(url.split("/points/", 1)[1])
             return {"properties": {"observationStations": "https://api.weather.gov/S/stations"}}
         if url.endswith("/stations"):
-            return {"features": [{"id": "https://api.weather.gov/stations/KTST"}]}
+            # deliberately NOT distance-sorted: KFAR is first, KNEAR is closer to 39.0,-95.0.
+            # Mirrors real NWS behaviour (measured: features[0] 5.4 mi, features[1] 4.8 mi).
+            return {"features": [
+                {"id": "https://api.weather.gov/stations/KFAR",
+                 "geometry": {"coordinates": [-95.20, 39.20]}},
+                {"id": "https://api.weather.gov/stations/KNEAR",
+                 "geometry": {"coordinates": [-95.02, 39.02]}}]}
         if url.endswith("/observations/latest"):
-            return OBS
+            self.obs_urls.append(url)
+            return self.obs
         raise RuntimeError("unexpected url " + url)
 
 print("\n== unit: sanitize ==")
@@ -76,6 +95,32 @@ print("\n== unit: location whitelist ==")
 check("whitelisted place used", weather.resolve_location(cfg(), "weather in townx") == ("townx", "40.0,-96.0"))
 check("unlisted place -> default", weather.resolve_location(cfg(), "weather in eviltown")[0] == "default")
 check("no place -> default", weather.resolve_location(cfg(), "weather")[0] == "default")
+
+print("\n== unit: observation freshness (a stalled station must not read as current) ==")
+check("no max_age -> unchanged behaviour", weather.format_fact(_obs(600)) is not None)
+check("fresh obs passes", weather.format_fact(_obs(10), max_age_s=5400) is not None)
+check("stale obs -> None", weather.format_fact(_obs(200), max_age_s=5400) is None)
+check("missing timestamp + limit -> None (fail-safe)",
+      weather.format_fact(OBS_NO_TS, max_age_s=5400) is None)
+check("obs_age_s parses", 500 < (weather.obs_age_s(_obs(10)) or 0) < 700)
+check("obs_age_s of junk -> None", weather.obs_age_s({"properties": {"timestamp": "nope"}}) is None)
+st = Stub(obs=_obs(200))
+check("stale obs through fetch_current -> None (never served)",
+      weather.fetch_current(cfg(), "39.0,-95.0", get=st) is None)
+
+print("\n== unit: nearest station (list order is NOT distance order) ==")
+st = Stub()
+weather.fetch_current(cfg(), "39.0,-95.0", get=st)
+check("picks the CLOSEST station, not features[0]",
+      any("KNEAR" in u for u in st.obs_urls) and not any("KFAR" in u for u in st.obs_urls),
+      str(st.obs_urls))
+check("station without geometry is skipped, not crashed",
+      weather._nearest([{"id": "a"}, {"id": "b", "geometry": {"coordinates": [-95.0, 39.0]}}],
+                       "39.0,-95.0")["id"] == "b")
+check("no geometry anywhere -> falls back to first (weather beats no weather)",
+      weather._nearest([{"id": "a"}, {"id": "b"}], "39.0,-95.0")["id"] == "a")
+check("meta records station + age for the trace",
+      (lambda m: (weather.fetch_current(cfg(), "39.0,-95.0", get=Stub(), meta=m), m)[1])({}).get("station") == "KNEAR")
 
 print("\n== unit: format_fact (imperial, unit-aware; review #4) ==")
 fact = weather.format_fact(OBS)

@@ -67,6 +67,9 @@ DEFAULTS = {
     "WEATHER_PLACES": "",           # optional whitelist: 'name:lat,lon;name2:lat,lon'
     "WEATHER_UA": "cal-mesh/1.0 (github.com/deanssamclaw/cal-mesh)",
     "WEATHER_TIMEOUT_S": "4",       # per-request; station is cached so steady state is 1 GET
+    "WEATHER_MAX_OBS_AGE_S": "5400",  # stations report ~hourly; 90 min tolerates one late
+                                      # cycle. Older than this = unusable, same as a failed
+                                      # fetch — a stalled station must not read as "current".
 }
 
 URL_RE = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.[a-z]{2,}\b", re.I)  # incl. schemeless domains
@@ -227,7 +230,8 @@ def plan_response(cfg, sender_short, raw_text, get=None):
     GENERATE prompt. Separated from side effects so the whole path is offline-testable."""
     clean, flagged = sanitize_inbound(raw_text)
     out = {"clean": clean, "flagged": flagged, "capability": None, "weather_ok": None,
-           "weather_fact": None, "mode": "generate", "fixed_reply": None, "prompt": None}
+           "weather_fact": None, "mode": "generate", "fixed_reply": None, "prompt": None,
+           "weather_meta": {}}
     fact = None
     # intent/location on the RAW text: a trailing '?' (needed for weak-keyword intent) and a
     # whitelisted place name must survive; sanitize would strip them. Nothing from raw_text
@@ -236,9 +240,13 @@ def plan_response(cfg, sender_short, raw_text, get=None):
        weather.wants_weather(raw_text):
         out["capability"] = "weather"
         _, latlon = weather.resolve_location(cfg, raw_text)
-        fact = weather.fetch_current(cfg, latlon, get=get) if get is not None \
-            else weather.fetch_current(cfg, latlon)
+        meta = {}
+        fact = weather.fetch_current(cfg, latlon, get=get, meta=meta) if get is not None \
+            else weather.fetch_current(cfg, latlon, meta=meta)
         out["weather_ok"], out["weather_fact"] = fact is not None, fact
+        # provenance for the trace: WHICH station, and how old the reading was. The station
+        # id is public infrastructure (an airport code), not a location of ours.
+        out["weather_meta"] = meta
         if fact is None:                       # fail-safe: NEVER invent weather from the text
             out["mode"], out["fixed_reply"] = "fixed", "Can't reach weather right now."
             return out
@@ -426,6 +434,11 @@ def main():
                                 d["capability"] = plan["capability"]
                                 d["weather_ok"] = plan["weather_ok"]
                                 d["injected_fact"] = public_fact(plan["weather_fact"])
+                                wm = plan.get("weather_meta") or {}
+                                if wm.get("station"):
+                                    d["obs_station"] = wm["station"]
+                                if wm.get("obs_age_s") is not None:
+                                    d["obs_age_s"] = wm["obs_age_s"]
                             gen_start = time.time()
                             if plan["mode"] == "fixed":
                                 reply, why = plan["fixed_reply"], "ok_weather_unavailable"
