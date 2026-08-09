@@ -799,6 +799,9 @@ td.snr-good{color:var(--ok)} td.snr-bad{color:var(--warn)}
 .dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
 footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 .empty{padding:16px;color:var(--dim);font-size:13px}
+.faq h3{margin:0;padding:14px 16px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent);border-bottom:1px solid var(--line);background:#12161d}
+.faq .a a{color:var(--accent);text-decoration:none;font-weight:600}
+.faq .a a:hover{text-decoration:underline}
 .faq details{border-bottom:1px solid var(--line)}
 .faq details:last-child{border-bottom:0}
 .faq summary{padding:12px 16px;cursor:pointer;font-weight:600;list-style:none;display:flex;align-items:center;gap:10px}
@@ -834,71 +837,156 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
       <th class="sortable" data-key="snr" onclick="setSort('snr')">SNR</th>
       <th>1h SNR trend</th></tr></thead><tbody></tbody></table></div>
   </div>
-  <div class="card faq" id="faq"><h2>FAQ — how Cal works on the mesh</h2>
-    <details><summary>What is this?</summary><div class="a">
-      This is <b>Cal</b>, Dean's AI, living on a LoRa mesh radio via the node <b>Cal HT</b>.
-      It's always on: it listens to the local mesh and answers when it's addressed. This page shows
-      every lever live — the radio's state, every exchange, and the full reasoning trace behind each
-      autonomous reply.</div></details>
+  <div class="card faq" id="faq"><h2>FAQ — what this is and how it works</h2>
+    <h3>Start here</h3>
+    <details><summary>What is this page?</summary><div class="a">
+      A live, read-only window into <b>Cal</b> — an AI that lives on a <b>radio mesh network</b> and
+      answers people over the air, with no internet on the far end. Everything here is real: the radio's
+      state, every message in and out, and the full reasoning trace behind each automatic reply. Nothing
+      is a mock-up. If Cal answered someone thirty seconds ago, it's below.</div></details>
+    <details><summary>What is a mesh network?</summary><div class="a">
+      A network with <b>no towers, no carrier and no internet</b>. Every radio is also a repeater: if
+      two nodes are too far apart to hear each other, a third in the middle passes the message along,
+      and so on. That's a <b>hop</b>. Coverage comes from the participants rather than infrastructure,
+      so the network exists wherever people bring radios — and keeps working when the grid doesn't.
+      That last property is the whole point: it's the tool you reach for when cell service is gone.</div></details>
+    <details><summary>What is Meshtastic?</summary><div class="a">
+      Free, open-source firmware that turns inexpensive <b>LoRa</b> radios (typically $30–100) into a
+      mesh network for text messages and location sharing. You flash it onto a small board, pair it to
+      your phone, and you're on the mesh — encrypted by channel, no account, no subscription, no
+      monthly fee. It's a volunteer project with a large community, and it's what Cal's radio runs.
+      <br><a href="https://meshtastic.org" target="_blank" rel="noopener noreferrer">meshtastic.org ↗</a></div></details>
+    <details><summary>What is LoRa, and why does it matter here?</summary><div class="a">
+      <b>Lo</b>ng <b>Ra</b>nge radio: a modulation designed to get a very small amount of data a very
+      long way on very little power — miles between nodes, on a battery, with no licence required on
+      the public bands. The trade is <b>bandwidth</b>. A LoRa channel carries on the order of a few
+      hundred to a few thousand bits per second, and <b>every node in earshot shares it</b>. One long
+      message blocks the channel for everyone. That single constraint explains most of Cal's design,
+      starting with why it never says more than a few words.</div></details>
+    <details><summary>Why put an AI on a mesh radio at all?</summary><div class="a">
+      Because a mesh is what you use <b>when the grid isn't there</b> — off-grid, field work, dead
+      coverage, emergencies — and that's exactly when knowledge is hardest to reach. The insight the
+      project runs on: the mesh is off-grid, but the <b>base station usually isn't</b>. Cal's radio is
+      connected to a computer with internet, so someone miles out with nothing but a handheld can ask a
+      question over RF and get a real answer relayed back. Cal extends connected knowledge to the
+      unconnected edge. Before this, a node could prove it was alive but couldn't actually
+      <i>help</i> — presence without utility.</div></details>
+    <details><summary>How did it get here?</summary><div class="a">
+      Three deliberate stages, each gated before the next. <b>Level 1</b> — a bridge that owns the
+      radio and can send and receive text. <b>Level 2</b> — an autonomous responder that decides on its
+      own whether to answer and writes the reply, with training wheels (a small allow-list, rate limits,
+      a kill switch). <b>Level 3</b> — real capabilities, where the software fetches a verified fact and
+      the model only puts it into words. Each stage shipped switched <b>off</b>, went through
+      adversarial review, and was turned on deliberately. The reviews have caught real problems,
+      including a privacy leak in the reply path.</div></details>
+
+    <h3>How Cal behaves</h3>
+    <details><summary>How does Cal know a message is meant for it?</summary><div class="a">
+      A message qualifies if it's a <b>direct message</b> to Cal's node, <i>or</i> the text contains
+      <code>cal</code> as a whole word (case-insensitive). Whole-word matching means "lo<b>cal</b>",
+      "<b>cal</b>endar" and "physi<b>cal</b>" do <i>not</i> trigger it.</div></details>
+    <details><summary>What has to be true before Cal replies?</summary><div class="a">
+      Being named isn't enough. In order, a message must pass every gate: it's <b>not Cal's own</b> ·
+      it's <b>fresh</b> · the responder is <b>enabled</b> · the sender is on the <b>allow-list</b> ·
+      it's <b>addressed</b> · it's <b>within rate limits</b>. Miss one and Cal stays quiet and records
+      why — open <b>trace</b> on any exchange to see the whole ladder and exactly where it stopped.</div></details>
+    <details><summary>Why do some messages say "OFF-LIST"?</summary><div class="a">
+      Because Cal <b>heard them perfectly well</b> and chose not to answer. Reception and reply are two
+      different things: every message on the channel is received and shown here, but only senders on the
+      allow-list can trigger an automatic reply. <i>Whether silence is the right behaviour is under
+      active review</i> — the argument against it is that on a shared channel, staying quiet to one
+      person while answering another isn't neutral, it reads as a snub.
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/unknown-sender-tier.md" target="_blank" rel="noopener noreferrer">The proposal to fix it ↗</a></div></details>
+    <details><summary>Why are the replies so short?</summary><div class="a">
+      Airtime is <b>shared by every node in range</b>, and LoRa has very little of it. A long message
+      is not just slow, it takes the channel away from everyone else — including traffic that might
+      matter more than a chat reply. So Cal is held to <b>5–7 words</b>. It's etiquette enforced in
+      code, and it's why the answers read like radio traffic rather than chat.</div></details>
+    <details><summary>Who can Cal talk to, and can it be switched off?</summary><div class="a">
+      Right now only a small allow-list of nodes can trigger a reply, though <b>anyone</b> on the mesh
+      can read what Cal says — the channel is public. Three independent always-on services do the work
+      (radio, cognition, this dashboard), so one can restart without dropping the others, and a single
+      kill switch silences all automatic replies instantly. Note that node IDs are <b>not
+      authenticated</b> and can be spoofed, so the allow-list is a courtesy control, not a security
+      boundary. The real controls are the kill switch and the fact that the model can't run tools.</div></details>
+
+    <h3>How the answers are made</h3>
+    <details><summary>How does Cal choose what to say?</summary><div class="a">
+      A headless Claude writes the reply under a fixed persona — <b>5–7 words, plain text, warm and
+      useful, never reveal the operator's location, schedule or personal life</b> — running with
+      <b>no tools</b> and with no access to any private context. The important part is what it
+      <i>isn't</i> allowed to do: for anything factual, Cal never looks something up. The software
+      fetches a verified fact from a known source and hands it over, and the model's only job is to put
+      that fact into words. We call it <b>capability injection</b>, and it's why Cal can't invent a
+      temperature — if the fetch fails, it says so instead of guessing.</div></details>
+    <details><summary>Where does the weather come from?</summary><div class="a">
+      The US National Weather Service, and nothing else — one allow-listed source, fetched by the
+      software, never by the model. Cal reads the <b>latest observation from the nearest weather
+      station</b> to a fixed reference point, and refuses to answer at all if that reading is too old.
+      Known limitation, stated plainly: a station can be several miles away, and its reading can differ
+      from the estimate for a specific spot by <b>five degrees or more</b>. What Cal reports is a real
+      measurement of somewhere nearby, not a forecast for where you're standing.
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/level3-weather-point-accuracy.md" target="_blank" rel="noopener noreferrer">The write-up, including the fix ↗</a></div></details>
     <details><summary>What is an "exchange"?</summary><div class="a">
       Almost everything Cal transmits is a response to being prompted, so the page is organised that
       way: the incoming message is the head, and Cal's reply is indented beneath it. Two things don't
       fit that shape and are marked separately — <b>unprompted</b> sends (an operator message, with no
-      ask above it) and messages that were overheard but never addressed to Cal.</div></details>
+      ask above it) and messages overheard but never addressed to Cal.</div></details>
     <details><summary>What's in the decision trace?</summary><div class="a">
-      Open <b>trace</b> on any exchange to see exactly how the reply came to exist: the <b>gate ladder</b>
-      (which checks passed and which one stopped it), what the <b>sanitizer</b> did to the inbound text,
-      whether a <b>capability</b> fired and the exact <b>fact</b> that was injected, plus the model and how
-      long generation took. It's the machinery, not a narration — see the next question.</div></details>
+      Open <b>trace</b> on any exchange for exactly how the reply came to exist: the <b>gate ladder</b>
+      (which checks passed, which one stopped it), what the <b>sanitizer</b> did to the incoming text,
+      whether a <b>capability</b> fired and the exact <b>fact</b> that was injected, which weather
+      station it came from and how old the reading was, plus the model and how long it took. It is the
+      machinery, not a narration — see below.</div></details>
+    <details><summary>Why doesn't the trace show Cal's "thinking"?</summary><div class="a">
+      Because there isn't any to show, and inventing some would be worse than showing nothing. Reply
+      generation returns plain text — there's no hidden reasoning being discarded. We could ask the
+      model to narrate why it chose a reply, but that narration <b>wouldn't be a faithful account of
+      the computation</b>, and publishing it as though it were would present a plausible story as
+      mechanism. It would also put unbounded, model-authored text — influenced by whatever a stranger
+      transmitted — onto a public page, which is what the rest of the design works to prevent.</div></details>
     <details><summary>What's the diagram at the top of a trace?</summary><div class="a">
       The <b>link</b> the message travelled: who transmitted, who received it, how many <b>hops</b> it
-      took, and the signal strength on the final leg. <b>Direct</b> means Cal heard the sender's radio
-      itself; anything above zero means other nodes relayed it. Where the firmware reports a relay, it
-      gives only <b>one byte</b> of that node's id — enough to narrow the candidates, not to name one,
-      so it is shown as a truncated id and never resolved to a name.</div></details>
+      took, and the signal strength on the final leg. <b>Direct</b> means Cal heard the sender's own
+      radio; anything above zero means other nodes relayed it. Where the firmware reports a relay it
+      gives only <b>one byte</b> of that node's id — enough to narrow the candidates, not to name one —
+      so it's shown truncated and never resolved to a name. The sender's box is coloured by what Cal
+      did with the message, so the diagram and the verdict can't disagree.</div></details>
     <details><summary>Why isn't it a real map?</summary><div class="a">
-      Because this page is public and the base station sits at a fixed private address — a pin on a map
-      would publish it, and a series of them would publish movements. So the diagram shows the
-      <b>topology</b> (who → who, how many hops) and never a location. No coordinates are stored by this
-      project at all: the radio bridge deliberately reads names, hops and signal from the node database
-      and skips the position field. Cal's own node does not advertise a position either.</div></details>
-    <details><summary>Why doesn't the trace show Cal's "thinking"?</summary><div class="a">
-      Because there isn't any to show, and inventing some would be worse than showing nothing.
-      Reply generation returns plain text — there's no hidden reasoning being discarded. We could ask
-      the model to narrate why it chose a reply, but that narration <b>wouldn't be a faithful account
-      of the computation</b>, and publishing it as though it were would present a plausible story as
-      mechanism. It would also put unbounded, model-authored text — influenced by whatever a stranger
-      transmitted — straight onto a public page, which is exactly what the rest of the design works to
-      prevent. So the trace shows <b>what the machine actually did</b> and stops there.</div></details>
-    <details><summary>How does Cal know a message is meant for it?</summary><div class="a">
-      A message qualifies if it's a <b>direct message</b> to Cal HT, <i>or</i> the text contains
-      <code>cal</code> as a whole word (case-insensitive). Whole-word matching means "lo<b>cal</b>",
-      "<b>cal</b>endar" and "physi<b>cal</b>" do <i>not</i> trigger it.</div></details>
-    <details><summary>Why do some messages say "OFF-LIST"?</summary><div class="a">
-      Because Cal <b>heard them perfectly well</b> and chose not to answer. Reception and reply are two
-      different things: every message on the channel is received and shown here, but only senders on
-      the allow-list can trigger an autonomous reply (training wheels). The trace shows exactly which
-      gate stopped it. <i>Whether silence is the right behaviour here is under active review — see
-      the unknown-sender-tier proposal in the repo.</i></div></details>
-    <details><summary>Why are the replies so short?</summary><div class="a">
-      LoRa bandwidth is tiny and airtime is <b>shared across the whole local mesh</b>. Long messages hog
-      the channel, so terse replies (5-7 words) are simply good mesh etiquette.</div></details>
-    <details><summary>How does Cal choose what to say?</summary><div class="a">
-      Cal asks a headless Claude to write the reply under a fixed persona: <b>5-7 words, plain text,
-      warm and useful, and never reveal Dean's location, schedule, or personal life</b>. It runs with
-      <b>no tools</b> and with no access to Dean's private context. For capabilities like weather the
-      harness fetches the fact and the model only narrates it — it never looks anything up itself.</div></details>
-    <details><summary>What about privacy?</summary><div class="a">
-      The channel is public by design. This page only ever shows public-channel traffic and Cal HT's own
-      telemetry — never Dean's data. The trace deliberately reports <i>that</i> the sanitizer redacted
-      something and how many times, never <i>what</i> was redacted.</div></details>
+      Because this page is public and the base station sits at a fixed private address — a pin would
+      publish it, and a series of pins would publish movements. So the diagram shows <b>topology</b>
+      (who → who, how many hops) and never a location. No coordinates are stored by this project at
+      all: the bridge deliberately reads names, hops and signal from the node database and skips the
+      position field, even though about half the neighbours broadcast one. Cal's own node doesn't
+      advertise a position either.</div></details>
+    <details><summary>What about privacy and safety?</summary><div class="a">
+      The channel is public by design, and this page only ever shows public-channel traffic and Cal's
+      own telemetry — never the operator's data. Incoming text is treated as hostile: anyone in radio
+      range can transmit anything, so messages are sanitized before they go anywhere near the model,
+      the model runs with <b>no tools and no private context loaded</b>, and the trace reports
+      <i>that</i> something was redacted and how many times, never <i>what</i>. An adversarial review
+      of this exact path caught a real location leak before it shipped.
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/channel-trust-and-agency.md" target="_blank" rel="noopener noreferrer">The trust model ↗</a></div></details>
+
+    <h3>The project</h3>
     <details><summary>Is the code public? Can I run my own?</summary><div class="a">
-      Yes — cal-mesh is open source; the full code (bridge, responder, dashboard) is on GitHub
-      (link in the header). It ships a <code>config.example</code> — point it at your own Meshtastic
-      node and you can run your own Cal-on-the-mesh.</div></details>
+      Yes — cal-mesh is open source, and the whole thing (bridge, responder, dashboard) is on GitHub.
+      It ships a <code>config.example</code>: point it at your own Meshtastic node and you can run your
+      own Cal on your own mesh. It has already had its first outside contribution via fork and pull
+      request.
+      <br><a href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">github.com/deanssamclaw/cal-mesh ↗</a></div></details>
+    <details><summary>Where's the design reasoning written down?</summary><div class="a">
+      In the repo, as proposals — including the arguments that <i>lost</i>, which are usually the more
+      useful half. Each one is written to be reviewed and attacked before anything gets built.
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/level3-weather.md" target="_blank" rel="noopener noreferrer">Giving Cal live knowledge — the framework ↗</a>
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/level3-roadmap.md" target="_blank" rel="noopener noreferrer">Capability roadmap — what Cal could learn next ↗</a>
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/level3-weather-intent-layer.md" target="_blank" rel="noopener noreferrer">Two of my own proposals, refuted with measurements ↗</a>
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/unknown-sender-tier.md" target="_blank" rel="noopener noreferrer">Answering strangers — "we hear you" ↗</a>
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/channel-trust-and-agency.md" target="_blank" rel="noopener noreferrer">Channel trust &amp; agency — how much Cal is allowed to be ↗</a></div></details>
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-09</span><b>FAQ rewritten and grouped.</b> It assumed you already knew what a mesh network, Meshtastic and LoRa were, and never said why an AI on a radio is worth building. It now starts from those, explains how the project got here in stages, and links out to the source and to the design proposals — including the arguments that lost.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>Link diagram in every trace.</b> Shows the path a message took — sender, any relay, Cal HT — with the hop count and the signal on the last leg. The bridge now records per-message routing (hops taken, and the one-byte relay id when the firmware supplies it); messages received before that show "hops unknown" rather than implying they were direct. It is a topology diagram, not a geographic one, on purpose — see the FAQ.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>v2 is now the main page.</b> The previous two-column layout is retired but still readable at <code>old-1</code>. Retired versions keep a permanent <code>old-N</code> address — numbered by when they were retired, never renumbered — so a link to one always shows the same page.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>v2.</b> Inbound and Outbound merged into a single <b>Exchanges</b> stream — the ask is the head, Cal's reply is indented beneath it. Removes the duplication that made v1 busy (every reply used to render twice) and reads properly on a phone.</div>
