@@ -183,10 +183,12 @@ injection pattern (local data, not remote), so we learn something new. It's also
 operator actually wants to ask while walking around with a radio. (Time/date is trivial;
 tide/sun is niche — mesh status is the right #2.)
 
-**Practical math** is spec'd as a sibling capability in `level3-math.md` — it *inverts* this
-pattern (harness *computes*, model never touches the number) and shows the "doer" generalizes
-beyond fetch: weather = fetch, mesh status = local read, math = compute. Capabilities are not
-monotonic on the agency axis — math (no model) is more harness-owned than weather.
+**Practical calculations + a knowledge tier** are spec'd in `level3-calc-and-knowledge.md`. It
+generalizes the framework with a **doer taxonomy** — fetch (weather) / local-read (mesh status) /
+**compute** (math, units, physics: model never touches the number) / **knowledge** (LoRa/mesh Q&A:
+a curated-KB *weather sibling*, not a calculation). Compute tiers are more harness-owned than
+weather (capabilities aren't monotonic on the agency axis); the knowledge tier's safety hinges on
+curated facts + fail-safe, never model free-recall.
 
 ## 9. Eval — offline, adversarial, before anything goes on air
 
