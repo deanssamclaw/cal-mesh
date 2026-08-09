@@ -37,7 +37,36 @@ Status key: **LIVE** (armed) · **SPEC'D** (written up) · **OUTLINED** · **CAN
 
 - **LoRa / mesh** (LoRa, Meshtastic, Reticulum, MeshCore) — *SPEC'D* (`level3-calc-and-knowledge.md`, Tier 3). Edges: curated facts only (esp. MeshCore is too new to recall); public protocol knowledge, never Dean's ops; last-verified discipline.
 - **Radio ops** — *CANDIDATE (small, stable, safe, radio-native).* NATO phonetic, Q-codes, Morse, prosigns, common abbreviations. Edge: fail-safe on anything outside the curated set.
+- **Geology** — *CANDIDATE.* Curated regional/practical geology (rock types, the region's/Kansas geology, aquifers, faults). Two companions: a **fetch** side for live **USGS earthquakes** (recent quakes near a point) and a **compute** side for magnitude/depth/wave-travel math. Edges: curated general facts with cited sources; live quake data fails safe when the base is offline; **never state a fault's behavior as a prediction** (that's the seismology "cliff," same as the physics-simulation cliffs).
 - **Emergency / first-aid / survival** — *CANDIDATE — HIGHEST CAUTION, gate hardest.* Off-grid with someone hurt and no cell service, this could be the most important thing Cal ever says — which is exactly why life-safety makes confident-wrongness unacceptable. Invariants: strictest curation; **explicit "not medical advice — seek professional help when you can"**; conservative scope (stable basics like signaling/exposure/water, **never diagnosis or treatment beyond well-established basics**); hard fail-safe (refuse over guess). Do last, with extra review. Never rushed.
+
+## LOCAL INTEREST — Kansas City Chiefs (Dean-requested; spans doers — the static/live split IS the design)
+
+Value here is **local culture/interest, not field-survival** — a different but legitimate category.
+The governing distinction: **static facts are clean curated-KB; live data is fetch-and-freshness-gated,
+and faking live data from stale curation is the confident-wrongness trap** (a cut player named active,
+a flexed kickoff time). Placed by that split:
+
+- **Arrowhead Stadium history & facts** — *CANDIDATE · KNOWLEDGE (static).* Opened 1972, capacity,
+  the Guinness loudest-stadium record, notable moments. Stable, curated, safe.
+- **Team general & history facts** — *CANDIDATE · KNOWLEDGE (mostly static).* Franchise history,
+  championships, retired numbers, colors. Curated; mark the few semi-volatile bits (coaching, etc.).
+- **Player roster** — *CANDIDATE · FETCH (LIVE — highest staleness risk).* Rosters churn weekly
+  (trades/injuries/cuts/practice-squad). MUST come from a live source with an **as-of date**; a roster
+  is never "final." Curate it statically and Cal will confidently name someone who was cut. Edge:
+  fetch fail → "can't pull the current roster," never a remembered one.
+- **Schedule / next game / score** — *CANDIDATE · FETCH.* The season schedule is mostly static once
+  released but **flexes** (flex scheduling, postponements); "next game" and live scores are live.
+  Edge: give kickoff times as subject-to-change; fetch fail → say so.
+- **Tailgating at Arrowhead** — *CANDIDATE · FETCH + KNOWLEDGE (event-based, hardest to source).*
+  General policies (lot open times, rules) are semi-static and curatable; specific per-game events are
+  live and poorly structured to source. Edge: give general policy from curated facts; for specific
+  events, **point to the official source rather than air a stale/wrong event**.
+
+**Sourcing (open question that gates the live pieces):** roster/schedule/scores are fetchable via
+sports APIs (ESPN's unofficial JSON, or a paid feed — reliability/ToS TBD); tailgate events have no
+clean structured feed → likely curated-general + defer-to-official. No live sports data is trusted
+until a source is chosen and its freshness proven.
 
 ---
 
@@ -54,8 +83,17 @@ Status key: **LIVE** (armed) · **SPEC'D** (written up) · **OUTLINED** · **CAN
 4. **Navigation & coordinates** (compute); **NOAA alerts, answer-when-asked** (fetch).
 5. **LoRa/mesh knowledge** (KB — gated by curation effort).
 6. **Emergency/first-aid** (KB) and **proactive alert push** — last, hardest gates.
+- *Alongside (local-interest, Dean-requested):* **geology** and the **KC Chiefs** cluster. Their
+  *static* parts (regional geology, stadium/team history) are easy curated-KB wins; their *live* parts
+  (USGS quakes, roster/schedule/scores/tailgate) are gated on choosing a data source and proving its
+  freshness. Sequence the static facts early, the live feeds when a source is settled.
 
 ## Fresh-eyes note
-Self-correction on the record: I called sun/moon "niche" in the weather proposal — wrong; it's a
-top field need. And the honest cost across knowledge tiers is **curation + maintenance**, not code;
-across fetch tiers it's **base-internet dependency**; across all of it it's **holding the refusal edge.**
+Self-corrections on the record: I called sun/moon "niche" in the weather proposal — wrong; it's a
+top field need. The KC Chiefs request surfaced the sharpest lesson yet — the **static-vs-live split**:
+*history* (stadium, franchise) is clean curated-KB, but *roster/schedule/tailgate* are live data that
+go confidently-wrong if curated statically, so they need a fetch source + an **as-of/freshness**
+discipline (same family as MeshCore-too-new and NWS-alert-staleness). And **local-interest is a
+legitimate value category distinct from field-survival** — worth building, just not mission-critical.
+The honest costs stay constant: knowledge tiers → **curation + maintenance**; fetch tiers →
+**base-internet dependency + freshness**; all of it → **holding the refusal edge.**
