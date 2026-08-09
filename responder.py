@@ -116,10 +116,19 @@ def sanitize_trace(raw, clean, flagged):
     public page."""
     norm = _normalize(raw or "").strip()
     m = _SENT_END.search(norm)
-    kept = norm[:m.start()].strip() if (m and m.start() > 0) else norm
+    cut = bool(m and m.start() > 0)
+    kept = norm[:m.start()].strip() if cut else norm
+    # Distinguish "we dropped a trailing '?'" from "we dropped a sentence of content". Both
+    # hit the same code path, but reporting them identically reads as though a single-sentence
+    # question lost something it didn't — a small lie on a page whose whole job is accuracy.
+    dropped = norm[m.start():] if cut else ""
+    residue = _SENT_END.sub("", dropped).strip()
     return {"flagged": bool(flagged),
             "redactions": (clean or "").count("[redacted]"),
-            "sentence_trimmed": bool(m and m.start() > 0),
+            "sentence_trimmed": cut,                       # kept: older records use this
+            "sentence_trim": ("none" if not cut else
+                              ("punctuation" if not residue else "content")),
+            "dropped_chars": len(residue),
             "length_capped": len(kept) > 120,
             "in_chars": len(norm),
             "out_chars": len(clean or "")}

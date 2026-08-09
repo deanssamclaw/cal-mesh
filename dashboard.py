@@ -744,13 +744,15 @@ border-radius:0 8px 8px 0}
 .norep{margin:8px 0 0 16px;padding:7px 12px;border-left:2px solid var(--line);background:#11161d;
 border-radius:0 8px 8px 0;color:var(--dim);font-size:12.5px}
 /* --- trace disclosure --- */
-details.tr{margin:9px 0 0 16px}
-details.tr summary{cursor:pointer;list-style:none;color:var(--dim);font-size:11.5px;
-display:inline-flex;gap:6px;align-items:center;padding:2px 0}
+details.tr{margin:10px 0 0 16px}
+details.tr summary{cursor:pointer;list-style:none;color:var(--accent);font-size:13.5px;
+font-weight:600;letter-spacing:.2px;display:inline-flex;gap:7px;align-items:center;
+padding:4px 10px 4px 8px;border:1px solid var(--line);border-radius:7px;background:var(--card2)}
 details.tr summary::-webkit-details-marker{display:none}
-details.tr summary::before{content:"▸";color:var(--accent);font-size:10px}
-details.tr[open] summary::before{content:"▾"}
-details.tr summary:hover{color:var(--fg)}
+details.tr summary::before{content:">";font-size:13px;font-weight:700;display:inline-block;
+transform-origin:50% 50%;transition:transform .15s ease}
+details.tr[open] summary::before{transform:rotate(90deg)}
+details.tr summary:hover{border-color:var(--accent);background:#1f2836}
 .tp{margin-top:7px;background:#10151c;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 .trow{display:flex;gap:10px;padding:3px 0;font-size:12px;align-items:baseline}
 .tk{color:var(--dim);min-width:78px;flex-shrink:0;text-transform:uppercase;font-size:10px;letter-spacing:.5px}
@@ -879,7 +881,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 <script>
 const $=s=>document.querySelector(s);
 const DIR=(location.pathname.replace(/\/v2\/?$/,'/'))||'/';
-let SNR={}, lastNodes=[], nodeSort={key:null,dir:1};
+let SNR={}, lastNodes=[], nodeSort={key:null,dir:1}, lastXsig=null;
 const NODE_LABELS={short:'Short',long:'Name',hw:'HW',hops:'Hops',snr:'SNR'};
 function esc(s){return (s??"").toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function hhmmss(ts){try{return new Date(ts).toLocaleTimeString();}catch(e){return ts;}}
@@ -918,7 +920,10 @@ function traceHtml(x){
     h+=row('gates', t.gates.map(g=>`<span class="gate ${g.pass?'gp':'gf'}">${g.pass?'✓':'✗'} ${esc(g.gate)}</span>`).join('')
         +(x.verdict==='skipped'?' <span style="color:var(--dim)">— ladder stops at the first failure</span>':''));
   if(t.sanitize){const s=t.sanitize,b=[`${s.in_chars}→${s.out_chars} chars`];
-    if(s.sentence_trimmed) b.push('first sentence kept');
+    // trailing '?' and a dropped sentence hit the same code path — say which actually happened
+    const tk=s.sentence_trim!=null?s.sentence_trim:(s.sentence_trimmed?'content':'none');
+    if(tk==='content') b.push(`first sentence kept (${s.dropped_chars!=null?s.dropped_chars+' chars':'rest'} dropped)`);
+    else if(tk==='punctuation') b.push('trailing punctuation trimmed, no content dropped');
     if(s.length_capped) b.push('length capped');
     if(s.redactions) b.push(`${s.redactions} redaction${s.redactions>1?'s':''}`);
     if(s.flagged) b.push('injection-shaped tokens flagged');
@@ -937,6 +942,11 @@ function traceHtml(x){
    +'than an account of what actually happened — so it is not shown.</div>';
   return `<div class="tp">${h}</div>`;
 }
+// The page re-renders every 3s, which would wipe any <details> the reader had opened. Track
+// open traces by a stable key and restore the attribute on every render, so an expanded trace
+// stays expanded until it is clicked shut. (Toggle doesn't bubble — the listener captures.)
+const OPEN=new Set();
+function xkey(x){return (x.ts||'')+'|'+(x.from||x.dest||'');}
 function exchangeHtml(x){
   if(x.kind==='unprompted') return `
     <div class="xc unprompted"><div class="meta"><span class="tag tx">TX</span>
@@ -954,7 +964,7 @@ function exchangeHtml(x){
     ${x.verdict==='replied'&&x.reply
       ? `<div class="rep"><span class="who">↳ Cal replied${x.gen_ms!=null?` · ${secs(x.gen_ms)}`:''}${x.capability?` · ${esc(x.capability)}`:''}</span><span class="txt">${esc(x.reply)}</span></div>`
       : (x.verdict==='skipped'?`<div class="norep">↳ received, no reply — ${skipWhy(x.reason)}</div>`:'')}
-    <details class="tr"><summary>trace</summary>${traceHtml(x)}</details></div>`;
+    <details class="tr" data-k="${esc(xkey(x))}"${OPEN.has(xkey(x))?' open':''}><summary>trace</summary>${traceHtml(x)}</details></div>`;
 }
 function setSort(k){ nodeSort=(nodeSort.key===k)?{key:k,dir:-nodeSort.dir}:{key:k,dir:1}; renderNodes(); }
 function renderNodes(){
@@ -1024,12 +1034,27 @@ async function tick(){
  ].join('');
  const xs=d.exchanges||[];
  $('#xc-n').textContent=xs.length;
- $('#exchanges').innerHTML=xs.length?xs.map(exchangeHtml).join('')
-   :'<div class="empty">nothing on air yet — mesh is quiet or awaiting first inbound</div>';
+ // Only touch the DOM when the content actually changed. Cheap, and it stops the 3s refresh
+ // from fighting the reader (lost text selection, scroll jump) when nothing has happened.
+ const sig=JSON.stringify(xs);
+ if(sig!==lastXsig){
+   lastXsig=sig;
+   $('#exchanges').innerHTML=xs.length?xs.map(exchangeHtml).join('')
+     :'<div class="empty">nothing on air yet — mesh is quiet or awaiting first inbound</div>';
+ }
  lastNodes=(d.nodes&&d.nodes.nodes)||[];
  $('#nn').textContent=lastNodes.length;
  renderNodes();
 }
+// 'toggle' does not bubble, so listen in the capture phase on the container. Survives every
+// re-render because the listener is on #exchanges, not on the details elements themselves.
+$('#exchanges').addEventListener('toggle', e=>{
+  const el=e.target;
+  if(!el.matches||!el.matches('details.tr')) return;
+  const k=el.dataset.k;
+  if(!k) return;
+  el.open ? OPEN.add(k) : OPEN.delete(k);
+}, true);
 loadSnr(); tick(); setInterval(tick,3000); setInterval(loadSnr,30000);
 </script></body></html>"""
 
