@@ -157,6 +157,75 @@ def build_snr(window=3600, cap=120):
     return out
 
 
+def _epoch(s):
+    """ISO8601 -> epoch seconds, or None. Tolerates the 'Z' suffix."""
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(str(s).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+
+def _pair_nearest(records, cands, rec_key, cand_key, window=300):
+    """Greedy one-to-one pairing: for each record, take the unconsumed candidate with the
+    same key whose timestamp is nearest, within `window` seconds. Keyed on exact text so a
+    repeated identical message can never cross-pair with the wrong reply — the nearest-ts
+    tiebreak plus consumption keeps repeats in order. Returns [(record, candidate|None)]."""
+    buckets = {}
+    for c in cands:
+        buckets.setdefault(cand_key(c), []).append([_epoch(c.get("ts")), c, False])
+    out = []
+    for r in records:
+        k, rt = rec_key(r), _epoch(r.get("ts"))
+        best, best_dt = None, None
+        for ent in buckets.get(k, []):
+            if ent[2] or ent[0] is None or rt is None:
+                continue
+            dt = abs(ent[0] - rt)
+            if dt <= window and (best_dt is None or dt < best_dt):
+                best, best_dt = ent, dt
+        if best is not None:
+            best[2] = True
+            out.append((r, best[1]))
+        else:
+            out.append((r, None))
+    return out
+
+
+def correlate(inbox, sent, decisions):
+    """Attach each side of a conversation to the other, so the UI never has to guess.
+
+      * every inbound message gets the responder's verdict for it (replied / skipped +
+        reason) and, when replied, the reply text — including the messages that were
+        received perfectly well but came from a node that is NOT on the allow-list
+      * every responder-sent message gets the inbound message it was answering
+
+    Both directions are computed here rather than in the browser so the pairing logic has
+    one implementation and the API is useful on its own."""
+    for rec, dec in _pair_nearest(inbox, decisions,
+                                  lambda r: (r.get("from"), r.get("text")),
+                                  lambda c: (c.get("from"), c.get("text"))):
+        if dec is None:
+            rec["verdict"] = None          # not yet evaluated (or predates the responder)
+            continue
+        rec["verdict"] = "replied" if dec.get("matched") else "skipped"
+        rec["reason"] = dec.get("reason")
+        rec["reply"] = dec.get("reply")
+        rec["gen_ms"] = dec.get("gen_ms")
+        rec["capability"] = dec.get("capability")
+
+    replied = [d for d in decisions if d.get("matched") and d.get("reply")]
+    auto = [s for s in sent if s.get("source") == "responder"]
+    for snt, dec in _pair_nearest(auto, replied,
+                                  lambda s: s.get("text"),
+                                  lambda c: c.get("reply")):
+        if dec is not None:
+            snt["in_reply_to"] = {"from": dec.get("from"), "text": dec.get("text"),
+                                  "ts": dec.get("ts")}
+            snt["gen_ms"] = dec.get("gen_ms")
+    return inbox, sent
+
+
 # Only these config keys are ever exposed on the (public) API. Everything else —
 # including ALLOW_FROM node IDs and any future secret — is withheld by default.
 # PORT is deliberately excluded — the serial path embeds the device MAC.
@@ -213,20 +282,24 @@ def build_state():
     safe_cfg = {k: cfg[k] for k in PUBLIC_CONFIG_KEYS if k in cfg}
     status = read_json(STATUS, {})
     status.pop("port", None)   # MAC-bearing serial path — never publish
+    # Pull decisions once and use it for both the decisions feed and the in/out correlation.
+    # Read deeper than the feeds so a reply near the window edge still finds its partner.
+    decisions = tail_jsonl(DECISIONS, 120)
+    inbox, sent = correlate(tail_jsonl(INBOX, 40), tail_jsonl(SENT_LOG, 40), decisions)
     return {
         "status": status,
         "config": safe_cfg,
         "bridge": launchd_running(),
         "nodes": read_json(NODES, {"nodes": [], "count": 0}),
-        "sent": tail_jsonl(SENT_LOG, 40),
-        "inbox": tail_jsonl(INBOX, 40),
+        "sent": sent,
+        "inbox": inbox,
         "totals": {"sent": count_lines(SENT_LOG), "recv": count_lines(INBOX)},
         "responder": {
             "enabled": cfg.get("RESPONDER_ENABLED", "false"),
             "model": cfg.get("RESPONDER_MODEL", ""),
             # count only — never publish which node IDs are Dean's trusted fleet
             "allow_count": len([a for a in cfg.get("ALLOW_FROM", "").split(",") if a.strip()]),
-            "decisions": tail_jsonl(DECISIONS, 30),
+            "decisions": decisions[:30],
         },
     }
 
@@ -276,6 +349,17 @@ color:var(--dim);text-transform:uppercase;letter-spacing:.6px;display:flex;gap:8
 .tag.tx{background:#241a3a;color:var(--tx)}
 .tag.rx{background:#12351f;color:var(--rx)}
 .tag.ch{background:#1a2740;color:var(--accent)}
+.tag.auto{background:#3a2a12;color:var(--warn)}
+.tag.offlist{background:#3a2f12;color:var(--warn);border:1px solid #6b5416}
+.tag.quiet{background:#2a2f38;color:var(--dim)}
+/* the reply/ask counterpart, shown inline under a message so the pairing is unambiguous */
+.link{margin-top:6px;padding:6px 10px;border-left:2px solid var(--line);background:#11161d;
+border-radius:0 6px 6px 0;font-size:13px}
+.link .who{color:var(--dim);font-size:11px;display:block;margin-bottom:2px}
+.link.out{border-left-color:var(--tx)} .link.out .txt{color:var(--tx)}
+.link.in{border-left-color:var(--rx)}
+.link .gen{color:var(--dim);font-size:11px}
+.nolink{margin-top:5px;font-size:12px;color:var(--dim)}
 table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:8px 16px;font-size:13px;border-bottom:1px solid var(--line)}
 th{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
@@ -356,6 +440,17 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
     <details><summary>Why are the replies so short?</summary><div class="a">
       LoRa bandwidth is tiny and airtime is <b>shared across the whole local mesh</b>. Long messages hog the
       channel, so terse replies (5-7 words) are simply good mesh etiquette.</div></details>
+    <details><summary>Why do some inbound messages say "OFF-LIST"?</summary><div class="a">
+      Because Cal <b>heard them perfectly well</b> and chose not to answer. Reception and reply are
+      two different things: every message on the channel is received and shown here, but only senders
+      on the allow-list can trigger an autonomous reply (training wheels). <b>OFF-LIST</b> means
+      exactly that — good signal, message received, sender simply isn't cleared to get a reply yet.
+      Other no-reply reasons (not addressed, rate-limited, kill switch off) are labelled too.</div></details>
+    <details><summary>How do I tell which reply goes with which message?</summary><div class="a">
+      Each side shows its counterpart inline: an inbound message displays <b>↳ Cal replied</b> with the
+      exact reply underneath it, and an outbound reply displays <b>↳ answering</b> with the message it
+      was responding to. Pairing is done by matching sender and text against the decision log, so the
+      two columns never have to be lined up by eye. Replies also show how long generation took.</div></details>
     <details><summary>Who can Cal talk to right now?</summary><div class="a">
       Training wheels: only <b>Dean's own nodes</b> can trigger a reply. Anyone on the mesh can read the
       public channel and see Cal's messages — this dashboard is public and read-only.</div></details>
@@ -385,6 +480,9 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div style="margin-top:16px" class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-09</span><b>Inbound &amp; Outbound are now paired.</b> Every inbound message shows Cal's verdict (replied / no reply + why) with the actual reply inline, and every autonomous reply shows the message it was answering. Messages received from senders <b>not on the allow-list</b> are now called out explicitly as <b>OFF-LIST</b> — heard fine, deliberately not answered — so "received" is never confused with "ignored."</div>
+      <div class="ci"><span class="cd">2026-08-09</span>Reply latency now reads in <b>seconds to two decimals</b> (e.g. 19.67s) instead of raw milliseconds, in both the decisions log and the new paired views.</div>
+      <div class="ci"><span class="cd">2026-08-09</span>Battery: the fuel gauge is reporting real charge again, so the tile shows it — and a reading above 100 (Meshtastic's "gauge not ready / on external power" sentinel) now renders as <b>ext power</b> rather than a fake percentage.</div>
       <div class="ci"><span class="cd">2026-08-08</span>Cal HT moved to <b>WiFi</b>: reflashed to the BaseUI firmware (the touchscreen-UI build excludes the webserver, so it never served the TCP API) and switched the bridge to TCP — the radio now runs untethered on the LAN, USB is just power.</div>
       <div class="ci"><span class="cd">2026-08-08</span>From Bob's PR: message latency tracking (gen_ms in decisions log + UI), /api/stats endpoint with daily aggregates (replies, skips, avg/min/max gen time).</div>
       <div class="ci"><span class="cd">2026-08-08</span>Neighbors table: capped height + interior scroll (sticky header) and click-to-sort columns (Name, SNR, hops, …).</div>
@@ -464,6 +562,31 @@ function sparkline(pts, hops){
 }
 function esc(s){return (s??"").toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function hhmmss(ts){try{return new Date(ts).toLocaleTimeString();}catch(e){return ts;}}
+function secs(ms){return (ms/1000).toFixed(2)+'s';}
+// Meshtastic reports 101 when the fuel gauge isn't ready / the node is on external power.
+// That is a sentinel, not a charge level — never render it as a percentage.
+function batteryLabel(m){
+  if(m.battery==null) return '—';
+  if(m.battery>100) return 'ext power';
+  return m.battery+'%';
+}
+function verdictTag(x){
+  if(x.verdict==='replied') return '<span class="tag tx">REPLIED</span>';
+  if(x.verdict!=='skipped') return '';
+  return x.reason==='sender_not_allowed'
+    ? '<span class="tag offlist">OFF-LIST · heard, not answered</span>'
+    : `<span class="tag quiet">NO REPLY · ${esc(x.reason)}</span>`;
+}
+function skipWhy(r){
+  const m={sender_not_allowed:'sender is not on the allow-list — the message was received fine, Cal just may not answer it',
+           not_addressed:'Cal was not addressed (no "cal" mention, not a DM)',
+           disabled:'the responder kill switch is off',
+           too_old:'the message was older than the freshness window',
+           rate:'rate limit reached for this sender',
+           cooldown:'per-sender cooldown still active',
+           self:'this was Cal\'s own message'};
+  return m[r]||esc(r||'unknown');
+}
 function tile(k,v,sub){return `<div class="tile"><div class="k">${k}</div><div class="v">${v}${sub?` <small>${sub}</small>`:''}</div></div>`;}
 async function tick(){
  let d; try{d=await (await fetch(DIR+'api/state',{cache:'no-store'})).json();}catch(e){$('#conn').className='pill bad';$('#conn').textContent='dashboard offline';return;}
@@ -476,7 +599,7 @@ async function tick(){
  $('#tiles').innerHTML=[
    tile('Bridge', (d.bridge.state==='running'?'running':'stopped'), d.bridge.pid?('pid '+d.bridge.pid):''),
    tile('Uptime', st.uptime_s!=null?fmtDur(st.uptime_s):'—'),
-   tile('Battery', m.battery!=null?m.battery+'%':'—', m.voltage!=null?m.voltage.toFixed(2)+'V':''),
+   tile('Battery', batteryLabel(m), m.voltage!=null?m.voltage.toFixed(2)+'V':''),
    tile('Ch util', m.chUtil!=null?m.chUtil.toFixed(1)+'%':'—', m.airUtilTx!=null?('air '+m.airUtilTx.toFixed(2)+'%'):''),
    tile('Sent / Received', `${(d.totals&&d.totals.sent)??0} / ${(d.totals&&d.totals.recv)??0}`),
    tile('Responder', rp.enabled==='true'?'● live':'○ off',
@@ -495,15 +618,24 @@ async function tick(){
    <div class="msg"><div class="meta"><span class="tag tx">TX</span>
      <span>${hhmmss(x.ts)}</span><span>→ ${esc(x.dest)}</span>
      <span class="tag ch">ch${esc(x.channel)}</span><span>${esc(x.bytes)}B</span><span>${esc(x.transport)}</span>
-     ${x.source==='responder'?'<span class="tag" style="background:#3a2a12;color:#d29922">AUTO</span>':''}</div>
-   <div class="body">${esc(x.text)}</div></div>`).join(''):'<div class="empty">nothing sent yet</div>';
+     ${x.source==='responder'?'<span class="tag auto">AUTO</span>':'<span class="tag quiet">MANUAL</span>'}</div>
+   <div class="body">${esc(x.text)}</div>
+   ${x.in_reply_to
+     ? `<div class="link in"><span class="who">↳ answering ${esc(x.in_reply_to.from)} · ${hhmmss(x.in_reply_to.ts)}${x.gen_ms!=null?` · took ${secs(x.gen_ms)}`:''}</span>${esc(x.in_reply_to.text)}</div>`
+     : (x.source==='responder'?'<div class="nolink">↳ the message this answered is older than the window shown</div>':'')}
+   </div>`).join(''):'<div class="empty">nothing sent yet</div>';
  // inbox
  $('#rx-n').textContent=(d.inbox||[]).length;
  $('#inbox').innerHTML=(d.inbox&&d.inbox.length)?d.inbox.map(x=>`
    <div class="msg"><div class="meta"><span class="tag rx">RX</span>
      <span>${hhmmss(x.ts)}</span><span>${esc(x.from)} → ${esc(x.to)}</span>
-     <span class="tag ch">ch${esc(x.channel)}</span>${x.snr!=null?`<span>snr ${esc(x.snr)}</span>`:''}</div>
-   <div class="body">${esc(x.text)}</div></div>`).join(''):'<div class="empty">nothing received yet — mesh is quiet or awaiting first inbound</div>';
+     <span class="tag ch">ch${esc(x.channel)}</span>${x.snr!=null?`<span>snr ${esc(x.snr)}</span>`:''}
+     ${verdictTag(x)}</div>
+   <div class="body">${esc(x.text)}</div>
+   ${x.verdict==='replied'&&x.reply
+     ? `<div class="link out"><span class="who">↳ Cal replied${x.gen_ms!=null?` · ${secs(x.gen_ms)}`:''}${x.capability?` · ${esc(x.capability)}`:''}</span><span class="txt">${esc(x.reply)}</span></div>`
+     : (x.verdict==='skipped'?`<div class="nolink">↳ received, no reply — ${skipWhy(x.reason)}</div>`:'')}
+   </div>`).join(''):'<div class="empty">nothing received yet — mesh is quiet or awaiting first inbound</div>';
  // responder decisions
  const dec=(rp.decisions)||[];
  $('#rstate').textContent=(rp.enabled==='true'?'live':'disabled')+' · '+(rp.allow_count||0)+' allowed';
@@ -512,7 +644,7 @@ async function tick(){
      <span class="tag ${x.matched?'tx':'rx'}" style="${x.matched?'':'background:#2a2f38;color:#8b98a9'}">${x.matched?'REPLIED':'SKIP'}</span>
      <span>${hhmmss(x.ts)}</span><span>${esc(x.from)}</span>
      ${x.matched?'':`<span class="tag ch">${esc(x.reason)}</span>`}</div>
-   <div class="body">${esc(x.text)}${x.reply?` <span style="color:var(--tx)">→ ${esc(x.reply)}</span>`:''}${x.gen_ms!=null?` <span style="color:var(--dim);font-size:11px">· ${esc(x.gen_ms)}ms</span>`:''}</div></div>`).join(''):'<div class="empty">no inbound evaluated yet</div>';
+   <div class="body">${esc(x.text)}${x.reply?` <span style="color:var(--tx)">→ ${esc(x.reply)}</span>`:''}${x.gen_ms!=null?` <span style="color:var(--dim);font-size:11px">· ${secs(x.gen_ms)}</span>`:''}</div></div>`).join(''):'<div class="empty">no inbound evaluated yet</div>';
  // nodes
  lastNodes=(d.nodes&&d.nodes.nodes)||[];
  $('#nn').textContent=lastNodes.length;
