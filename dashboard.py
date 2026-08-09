@@ -741,7 +741,8 @@ main{padding:20px;max-width:1200px;margin:0 auto}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:16px}
 .card h2{font-size:13px;margin:0;padding:12px 16px;border-bottom:1px solid var(--line);
 color:var(--dim);text-transform:uppercase;letter-spacing:.6px;display:flex;gap:8px;align-items:center}
-.card h2 .badge{margin-left:auto;background:var(--card2);color:var(--fg);padding:2px 8px;border-radius:6px;font-size:11px}
+.card h2 .badge{background:var(--card2);color:var(--fg);padding:2px 8px;border-radius:6px;font-size:11px;font-variant-numeric:tabular-nums}
+.card h2 .badge.right{margin-left:auto}
 .tag{padding:1px 7px;border-radius:5px;font-size:11px;font-weight:600}
 .tag.tx{background:#241a3a;color:var(--tx)} .tag.rx{background:#12351f;color:var(--rx)}
 .tag.ch{background:#1a2740;color:var(--accent)} .tag.auto{background:#3a2a12;color:var(--warn)}
@@ -817,10 +818,10 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 </header>
 <main>
   <div class="tiles" id="tiles"></div>
-  <div class="card"><h2>Transports <span class="badge" id="active-t"></span></h2>
+  <div class="card"><h2>Transports <span class="badge right" id="active-t"></span></h2>
     <div class="trans" id="trans"></div></div>
-  <div class="card"><h2>💬 Exchanges <span class="badge" id="xc-n">0</span></h2><div id="exchanges"></div></div>
-  <div class="card"><h2>Neighbors heard <span class="badge" id="nn">0</span></h2>
+  <div class="card"><h2><span class="badge" id="xc-n">0</span> 💬 Exchanges</h2><div id="exchanges"></div></div>
+  <div class="card"><h2><span class="badge" id="nn">0</span> Neighbors heard</h2>
     <div id="nodes-wrap"><table id="nodes"><thead><tr>
       <th class="sortable" data-key="short" onclick="setSort('short')">Short</th>
       <th class="sortable" data-key="long" onclick="setSort('long')">Name</th>
