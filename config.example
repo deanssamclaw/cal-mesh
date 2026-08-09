@@ -27,3 +27,20 @@ RATE_WINDOW_S=600
 COOLDOWN_S=8
 MAX_AGE_S=300
 GEN_TIMEOUT_S=90
+
+# --- WEATHER capability (Level 3, Stage 1) — default OFF ---
+# The harness fetches current conditions from NWS (api.weather.gov) and injects them as
+# context; the model stays tool-locked and only narrates. See docs/proposals/level3-weather.md.
+WEATHER_ENABLED=false
+# 'lat,lon' of your PUBLIC reference point (the metro the mesh covers — NOT a private address).
+WEATHER_POINT=39.0000,-95.0000
+# Optional whitelist of named places callers may ask for: 'name:lat,lon;name2:lat,lon'.
+# A named place NOT on this list is ignored (falls back to WEATHER_POINT) — closes the
+# location-as-exfil path. Leave blank to only ever answer for the default point.
+WEATHER_PLACES=
+# NWS requires a User-Agent; a contact URL/email is polite.
+WEATHER_UA=cal-mesh/1.0 (github.com/deanssamclaw/cal-mesh)
+WEATHER_TIMEOUT_S=6
+# Minimum distinct weather keywords to treat a message as a weather query (raise to 2 if
+# false triggers appear).
+WEATHER_MIN_KW=1

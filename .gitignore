@@ -20,3 +20,4 @@ sent/
 # --- python ---
 __pycache__/
 *.pyc
+weather-cache.json
