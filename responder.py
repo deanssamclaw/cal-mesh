@@ -107,6 +107,34 @@ def sanitize_inbound(text):
     return clean, flagged
 
 
+def sanitize_trace(raw, clean, flagged):
+    """Describe what sanitize_inbound did to a message, for the public decision trace.
+
+    Derived by replaying the SAME steps on the same input, so it cannot drift from the real
+    sanitizer without the sanitizer itself changing. It reports only *that* redaction happened
+    and how many times — NEVER the redacted content, which would defeat the redaction on a
+    public page."""
+    norm = _normalize(raw or "").strip()
+    m = _SENT_END.search(norm)
+    kept = norm[:m.start()].strip() if (m and m.start() > 0) else norm
+    return {"flagged": bool(flagged),
+            "redactions": (clean or "").count("[redacted]"),
+            "sentence_trimmed": bool(m and m.start() > 0),
+            "length_capped": len(kept) > 120,
+            "in_chars": len(norm),
+            "out_chars": len(clean or "")}
+
+
+def public_fact(fact):
+    """The injected capability fact, safe to publish. format_fact() prefixes a whitelisted
+    place label as 'name: ...' — today resolve_location's label is discarded so a fact is
+    location-free by construction, but strip it defensively so populating WEATHER_PLACES can
+    never quietly put a place name on the public page."""
+    if not fact:
+        return None
+    return fact.split(": ", 1)[1] if ": " in fact.split(", ", 1)[0] else fact
+
+
 def now(): return datetime.now(timezone.utc).isoformat()
 def log(m): print(f"{now()} {m}", flush=True)
 
@@ -266,33 +294,42 @@ def rate_ok(cfg, st, sender, ts):
     return True, None
 
 
-def evaluate(cfg, st, rec, ours):
+def evaluate(cfg, st, rec, ours, trace=None):
+    """Run the gate ladder. `trace`, if given a list, receives one {gate, pass} entry per gate
+    ACTUALLY evaluated — the ladder short-circuits, so a gate after the failing one is absent
+    rather than false. Optional and defaulted so every existing caller and test is unaffected."""
     sender = rec.get("from")
     to = rec.get("to")
     text = rec.get("text", "") or ""
     ch = rec.get("channel", 0)
 
-    if sender == ours:
+    def mark(name, ok):
+        if trace is not None:
+            trace.append({"gate": name, "pass": bool(ok)})
+        return ok
+
+    if not mark("not_self", sender != ours):
         return False, "self", None, ch
     # freshness — fail CLOSED: an unparseable ts is treated as too old, not fresh.
     try:
         age = time.time() - datetime.fromisoformat(rec["ts"]).timestamp()
     except Exception:
+        mark("fresh", False)
         return False, "too_old", None, ch
-    if age > int(cfg["MAX_AGE_S"]):
+    if not mark("fresh", age <= int(cfg["MAX_AGE_S"])):
         return False, "too_old", None, ch
-    if cfg["RESPONDER_ENABLED"].lower() != "true":
+    if not mark("responder_enabled", cfg["RESPONDER_ENABLED"].lower() == "true"):
         return False, "disabled", None, ch
     allow = [a.strip() for a in cfg["ALLOW_FROM"].split(",") if a.strip()]
-    if sender not in allow:
+    if not mark("sender_allowed", sender in allow):
         return False, "sender_not_allowed", None, ch
     trigger = (cfg["TRIGGER_WORD"] or "").strip()
     is_dm = (to == ours)
     kw = bool(trigger) and re.search(r"\b" + re.escape(trigger) + r"\b", text, re.I) is not None
-    if not (is_dm or kw):
+    if not mark("addressed", is_dm or kw):
         return False, "not_addressed", None, ch
     ok, why = rate_ok(cfg, st, sender, time.time())
-    if not ok:
+    if not mark("within_rate", ok):
         return False, why, None, ch
     dest = sender if is_dm else "^all"
     return True, "addressed", dest, ch
@@ -359,23 +396,34 @@ def main():
             for rec, new_off in read_new(st):
                 try:
                     if rec is not None:
-                        should, reason, dest, ch = evaluate(cfg, st, rec, ours)
+                        gates = []
+                        should, reason, dest, ch = evaluate(cfg, st, rec, ours, trace=gates)
                         d = {"ts": now(), "from": rec.get("from"), "to": rec.get("to"),
                              "text": rec.get("text", ""), "matched": should,
-                             "reason": reason, "reply": None}
+                             "reason": reason, "reply": None, "gates": gates}
                         if should:
                             plan = plan_response(cfg, rec.get("from"), rec.get("text", ""))
+                            # the public decision trace: how this reply came to exist. Machinery
+                            # only — inputs, gates, the injected fact. No model introspection:
+                            # generation is `--output-format text`, there is no reasoning to show,
+                            # and inventing one would publish narrative as if it were mechanism.
+                            d["sanitize"] = sanitize_trace(rec.get("text", ""),
+                                                           plan["clean"], plan["flagged"])
+                            d["prompt_kind"] = "weather" if plan["weather_fact"] else "general"
+                            d["model"] = cfg["RESPONDER_MODEL"]
                             if plan["flagged"]:
                                 d["injection_flagged"] = True
                             if plan["capability"]:
                                 d["capability"] = plan["capability"]
                                 d["weather_ok"] = plan["weather_ok"]
+                                d["injected_fact"] = public_fact(plan["weather_fact"])
                             gen_start = time.time()
                             if plan["mode"] == "fixed":
                                 reply, why = plan["fixed_reply"], "ok_weather_unavailable"
                             else:
                                 reply, why = run_claude(cfg, plan["prompt"])
                             gen_ms = round((time.time() - gen_start) * 1000)
+                            d["gen_status"] = why
                             if reply:
                                 enqueue(reply, dest, ch)
                                 ts = time.time()

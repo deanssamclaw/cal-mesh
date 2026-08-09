@@ -2,7 +2,9 @@
 """cal-mesh dashboard — a read-only view of every lever behind Cal on the mesh.
 
 Serves:
-    /            single-page dashboard (auto-refresh)
+    /            v1 dashboard (FROZEN — two-column inbound/outbound; stays here as the
+                 rollback while v2 is on trial, so the published URL cannot break)
+    /v2          v2 dashboard — one "Exchanges" stream + a per-exchange decision trace
     /api/state   JSON aggregate of bridge status, transports, sent/recv logs, neighbors
     /api/snr     per-node SNR time series (last hour)
     /api/stats   daily decision aggregates (replies, skips, gen latency)
@@ -213,6 +215,12 @@ def correlate(inbox, sent, decisions):
         rec["reply"] = dec.get("reply")
         rec["gen_ms"] = dec.get("gen_ms")
         rec["capability"] = dec.get("capability")
+        # the decision trace (machinery, not introspection). Absent on records written
+        # before the responder logged it — the UI degrades to "no trace recorded".
+        rec["trace"] = {k: dec.get(k) for k in
+                        ("gates", "sanitize", "prompt_kind", "model", "injected_fact",
+                         "weather_ok", "gen_status", "injection_flagged", "dest")
+                        if dec.get(k) is not None}
 
     replied = [d for d in decisions if d.get("matched") and d.get("reply")]
     auto = [s for s in sent if s.get("source") == "responder"]
@@ -224,6 +232,25 @@ def correlate(inbox, sent, decisions):
                                   "ts": dec.get("ts")}
             snt["gen_ms"] = dec.get("gen_ms")
     return inbox, sent
+
+
+def build_exchanges(inbox, sent):
+    """One ordered stream of everything that happened on air, as exchanges.
+
+    Almost every exchange starts with Cal being prompted, so the inbound message is the head
+    and Cal's reply (or the reason there wasn't one) hangs off it. Two things genuinely don't
+    fit that shape and must not silently vanish from a page that claims to show everything:
+
+      * unprompted outbound — an operator send, and later a proactive transmission: Cal
+        talking with no ask above it
+      * overheard inbound — channel traffic never addressed to Cal at all
+
+    The first becomes its own entry kind; the second is just an exchange whose reply is a
+    non-reply, which the trace explains."""
+    items = [dict(r, kind="exchange") for r in inbox]
+    items += [dict(s, kind="unprompted") for s in sent if not s.get("in_reply_to")]
+    items.sort(key=lambda r: r.get("ts") or "", reverse=True)
+    return items
 
 
 # Only these config keys are ever exposed on the (public) API. Everything else —
@@ -291,8 +318,11 @@ def build_state():
         "config": safe_cfg,
         "bridge": launchd_running(),
         "nodes": read_json(NODES, {"nodes": [], "count": 0}),
+        # sent/inbox stay in the payload verbatim — the v1 page still reads them, so this
+        # endpoint serves both versions and the rollback needs no API change.
         "sent": sent,
         "inbox": inbox,
+        "exchanges": build_exchanges(inbox, sent),
         "totals": {"sent": count_lines(SENT_LOG), "recv": count_lines(INBOX)},
         "responder": {
             "enabled": cfg.get("RESPONDER_ENABLED", "false"),
@@ -304,7 +334,9 @@ def build_state():
     }
 
 
-PAGE = r"""<!doctype html>
+# --- v1 page: FROZEN. Served at "/" so the public URL cannot break while v2 is on trial.
+# Do not edit; changes belong in PAGE_V2. Reads only fields the API still returns.
+PAGE_V1 = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cal-mesh — levers</title>
@@ -656,6 +688,352 @@ loadSnr(); tick(); setInterval(tick,3000); setInterval(loadSnr,30000);
 </script></body></html>"""
 
 
+# --- v2 page: on trial at "/v2". Two changes from v1:
+#   1. Inbound/Outbound collapse into ONE "Exchanges" stream. Nearly every exchange starts
+#      with Cal being prompted, so the ask is the head and the reply hangs off it. This also
+#      removes v1's duplication (each reply was rendered twice) — the main source of clutter.
+#   2. Each exchange opens into a DECISION TRACE: the gate ladder, what the sanitizer did,
+#      the fact that was injected, model + latency. Machinery, not introspection — see the
+#      note rendered at the foot of every trace panel.
+PAGE_V2 = r"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cal-mesh — levers (v2)</title>
+<style>
+:root{--bg:#0c0f14;--card:#151a22;--card2:#1b222c;--line:#232c39;--fg:#e6edf3;
+--dim:#8b98a9;--accent:#4ea1ff;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--tx:#a371f7;--rx:#3fb950;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--line);
+position:sticky;top:0;background:linear-gradient(180deg,#0c0f14,#0c0f14ee);backdrop-filter:blur(6px);z-index:5}
+header h1{font-size:17px;margin:0;letter-spacing:.3px}
+header .sub{color:var(--dim);font-size:12px}
+.pill{margin-left:12px;padding:5px 12px;border-radius:999px;font-weight:600;font-size:12px}
+.pill.ok{background:#12351f;color:var(--ok);border:1px solid #1c5c30}
+.pill.bad{background:#3a1618;color:var(--bad);border:1px solid #6e2327}
+.faqlink{color:var(--accent);text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap}
+.faqlink:hover{text-decoration:underline}
+.navlinks{margin-left:auto;display:inline-flex;gap:14px;align-items:center}
+html{scroll-behavior:smooth}
+main{padding:20px;max-width:900px;margin:0 auto}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.tile .k{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+.tile .v{font-size:22px;font-weight:650;margin-top:4px}
+.tile .v small{font-size:12px;color:var(--dim);font-weight:400}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:16px}
+.card h2{font-size:13px;margin:0;padding:12px 16px;border-bottom:1px solid var(--line);
+color:var(--dim);text-transform:uppercase;letter-spacing:.6px;display:flex;gap:8px;align-items:center}
+.card h2 .badge{margin-left:auto;background:var(--card2);color:var(--fg);padding:2px 8px;border-radius:6px;font-size:11px}
+.tag{padding:1px 7px;border-radius:5px;font-size:11px;font-weight:600}
+.tag.tx{background:#241a3a;color:var(--tx)} .tag.rx{background:#12351f;color:var(--rx)}
+.tag.ch{background:#1a2740;color:var(--accent)} .tag.auto{background:#3a2a12;color:var(--warn)}
+.tag.offlist{background:#3a2f12;color:var(--warn);border:1px solid #6b5416}
+.tag.quiet{background:#2a2f38;color:var(--dim)}
+/* --- exchanges --- */
+.xc{padding:14px 16px;border-bottom:1px solid var(--line)}
+.xc:last-child{border-bottom:0}
+.xc .meta{color:var(--dim);font-size:11px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:5px}
+.xc .ask{font-size:15px;word-break:break-word}
+.xc.unprompted{background:#12161d}
+.rep{margin:9px 0 0 16px;padding:8px 12px;border-left:2px solid var(--tx);background:#171320;
+border-radius:0 8px 8px 0}
+.rep .who{color:var(--dim);font-size:11px;display:block;margin-bottom:2px}
+.rep .txt{color:var(--tx);font-size:14px}
+.norep{margin:8px 0 0 16px;padding:7px 12px;border-left:2px solid var(--line);background:#11161d;
+border-radius:0 8px 8px 0;color:var(--dim);font-size:12.5px}
+/* --- trace disclosure --- */
+details.tr{margin:9px 0 0 16px}
+details.tr summary{cursor:pointer;list-style:none;color:var(--dim);font-size:11.5px;
+display:inline-flex;gap:6px;align-items:center;padding:2px 0}
+details.tr summary::-webkit-details-marker{display:none}
+details.tr summary::before{content:"▸";color:var(--accent);font-size:10px}
+details.tr[open] summary::before{content:"▾"}
+details.tr summary:hover{color:var(--fg)}
+.tp{margin-top:7px;background:#10151c;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.trow{display:flex;gap:10px;padding:3px 0;font-size:12px;align-items:baseline}
+.tk{color:var(--dim);min-width:78px;flex-shrink:0;text-transform:uppercase;font-size:10px;letter-spacing:.5px}
+.tv{color:var(--fg);word-break:break-word}
+.tv code{background:var(--card2);padding:1px 5px;border-radius:4px;font-size:11.5px}
+.gate{display:inline-block;margin:1px 4px 1px 0;padding:1px 6px;border-radius:4px;font-size:11px}
+.gp{background:#12351f;color:var(--ok)} .gf{background:#3a1618;color:var(--bad)}
+.tnote{margin-top:8px;padding-top:7px;border-top:1px solid var(--line);color:var(--dim);font-size:11px;line-height:1.5}
+.tnone{color:var(--dim);font-size:12px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px 16px;font-size:13px;border-bottom:1px solid var(--line)}
+th{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+td.snr-good{color:var(--ok)} td.snr-bad{color:var(--warn)}
+#nodes-wrap{max-height:420px;overflow:auto}
+#nodes thead th{position:sticky;top:0;background:var(--card);z-index:1}
+#nodes th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+.trans{display:flex;gap:10px;padding:14px 16px}
+.trans .t{flex:1;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.trans .t.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.trans .t .lbl{font-size:11px;color:var(--dim)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+.dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
+footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
+.empty{padding:16px;color:var(--dim);font-size:13px}
+.faq details{border-bottom:1px solid var(--line)}
+.faq details:last-child{border-bottom:0}
+.faq summary{padding:12px 16px;cursor:pointer;font-weight:600;list-style:none;display:flex;align-items:center;gap:10px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::before{content:"+";color:var(--accent);font-weight:700;width:10px;display:inline-block}
+.faq details[open] summary::before{content:"\2013"}
+.faq .a{padding:0 16px 14px 40px;color:var(--dim);font-size:13px;line-height:1.65}
+.faq .a code{background:var(--card2);padding:1px 5px;border-radius:4px;color:var(--fg);font-size:12px}
+.faq .a b{color:var(--fg)}
+.clog{max-height:420px;overflow-y:auto}
+.clog .ci{padding:10px 16px;border-bottom:1px solid var(--line);font-size:13px;line-height:1.55}
+.clog .cd{color:var(--dim);font-size:11px;margin-right:8px;font-variant-numeric:tabular-nums}
+.spark{display:inline-flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap}
+</style></head>
+<body>
+<header>
+  <div><h1>📻 cal-mesh <span class="sub">— live levers (v2)</span></h1>
+  <div class="sub" id="sub">connecting…</div></div>
+  <span class="navlinks"><a class="faqlink" href="../">← v1</a><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
+  <span class="pill" id="conn">…</span>
+</header>
+<main>
+  <div class="tiles" id="tiles"></div>
+  <div class="card"><h2>Transports <span class="badge" id="active-t"></span></h2>
+    <div class="trans" id="trans"></div></div>
+  <div class="card"><h2>💬 Exchanges <span class="badge" id="xc-n">0</span></h2><div id="exchanges"></div></div>
+  <div class="card"><h2>Neighbors heard <span class="badge" id="nn">0</span></h2>
+    <div id="nodes-wrap"><table id="nodes"><thead><tr>
+      <th class="sortable" data-key="short" onclick="setSort('short')">Short</th>
+      <th class="sortable" data-key="long" onclick="setSort('long')">Name</th>
+      <th class="sortable" data-key="hw" onclick="setSort('hw')">HW</th>
+      <th class="sortable" data-key="hops" onclick="setSort('hops')">Hops</th>
+      <th class="sortable" data-key="snr" onclick="setSort('snr')">SNR</th>
+      <th>1h SNR trend</th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <div class="card faq" id="faq"><h2>FAQ — how Cal works on the mesh</h2>
+    <details><summary>What is this?</summary><div class="a">
+      This is <b>Cal</b>, Dean's AI, living on a LoRa mesh radio via the node <b>Cal HT</b>.
+      It's always on: it listens to the local mesh and answers when it's addressed. This page shows
+      every lever live — the radio's state, every exchange, and the full reasoning trace behind each
+      autonomous reply.</div></details>
+    <details><summary>What is an "exchange"?</summary><div class="a">
+      Almost everything Cal transmits is a response to being prompted, so the page is organised that
+      way: the incoming message is the head, and Cal's reply is indented beneath it. Two things don't
+      fit that shape and are marked separately — <b>unprompted</b> sends (an operator message, with no
+      ask above it) and messages that were overheard but never addressed to Cal.</div></details>
+    <details><summary>What's in the decision trace?</summary><div class="a">
+      Open <b>trace</b> on any exchange to see exactly how the reply came to exist: the <b>gate ladder</b>
+      (which checks passed and which one stopped it), what the <b>sanitizer</b> did to the inbound text,
+      whether a <b>capability</b> fired and the exact <b>fact</b> that was injected, plus the model and how
+      long generation took. It's the machinery, not a narration — see the next question.</div></details>
+    <details><summary>Why doesn't the trace show Cal's "thinking"?</summary><div class="a">
+      Because there isn't any to show, and inventing some would be worse than showing nothing.
+      Reply generation returns plain text — there's no hidden reasoning being discarded. We could ask
+      the model to narrate why it chose a reply, but that narration <b>wouldn't be a faithful account
+      of the computation</b>, and publishing it as though it were would present a plausible story as
+      mechanism. It would also put unbounded, model-authored text — influenced by whatever a stranger
+      transmitted — straight onto a public page, which is exactly what the rest of the design works to
+      prevent. So the trace shows <b>what the machine actually did</b> and stops there.</div></details>
+    <details><summary>How does Cal know a message is meant for it?</summary><div class="a">
+      A message qualifies if it's a <b>direct message</b> to Cal HT, <i>or</i> the text contains
+      <code>cal</code> as a whole word (case-insensitive). Whole-word matching means "lo<b>cal</b>",
+      "<b>cal</b>endar" and "physi<b>cal</b>" do <i>not</i> trigger it.</div></details>
+    <details><summary>Why do some messages say "OFF-LIST"?</summary><div class="a">
+      Because Cal <b>heard them perfectly well</b> and chose not to answer. Reception and reply are two
+      different things: every message on the channel is received and shown here, but only senders on
+      the allow-list can trigger an autonomous reply (training wheels). The trace shows exactly which
+      gate stopped it. <i>Whether silence is the right behaviour here is under active review — see
+      the unknown-sender-tier proposal in the repo.</i></div></details>
+    <details><summary>Why are the replies so short?</summary><div class="a">
+      LoRa bandwidth is tiny and airtime is <b>shared across the whole local mesh</b>. Long messages hog
+      the channel, so terse replies (5-7 words) are simply good mesh etiquette.</div></details>
+    <details><summary>How does Cal choose what to say?</summary><div class="a">
+      Cal asks a headless Claude to write the reply under a fixed persona: <b>5-7 words, plain text,
+      warm and useful, and never reveal Dean's location, schedule, or personal life</b>. It runs with
+      <b>no tools</b> and with no access to Dean's private context. For capabilities like weather the
+      harness fetches the fact and the model only narrates it — it never looks anything up itself.</div></details>
+    <details><summary>What about privacy?</summary><div class="a">
+      The channel is public by design. This page only ever shows public-channel traffic and Cal HT's own
+      telemetry — never Dean's data. The trace deliberately reports <i>that</i> the sanitizer redacted
+      something and how many times, never <i>what</i> was redacted.</div></details>
+    <details><summary>Is the code public? Can I run my own?</summary><div class="a">
+      Yes — cal-mesh is open source; the full code (bridge, responder, dashboard) is on GitHub
+      (link in the header). It ships a <code>config.example</code> — point it at your own Meshtastic
+      node and you can run your own Cal-on-the-mesh.</div></details>
+  </div>
+  <div class="card" id="changelog"><h2>Changelog</h2>
+    <div class="clog">
+      <div class="ci"><span class="cd">2026-08-09</span><b>v2 (this page).</b> Inbound and Outbound merged into a single <b>Exchanges</b> stream — the ask is the head, Cal's reply is indented beneath it. Removes the duplication that made v1 busy (every reply used to render twice) and reads properly on a phone. v1 is still served at <code>/</code>.</div>
+      <div class="ci"><span class="cd">2026-08-09</span><b>Decision trace.</b> Every exchange opens into the machinery behind it: the gate ladder, what the sanitizer changed, the capability and the exact injected fact, the model and generation time. Deliberately no model "reasoning" — see the FAQ.</div>
+      <div class="ci"><span class="cd">2026-08-09</span>Inbound/Outbound paired, reply latency in seconds, and the battery tile made sentinel-aware (a reading over 100 means external power, not a charge).</div>
+      <div class="ci"><span class="cd">2026-08-08</span>Cal HT moved to <b>WiFi</b>: reflashed to the BaseUI firmware and switched the bridge to TCP — the radio runs untethered, USB is just power.</div>
+      <div class="ci"><span class="cd">2026-08-08</span>From Bob's PR: message latency tracking and an /api/stats endpoint with daily aggregates.</div>
+      <div class="ci"><span class="cd">2026-08-08</span>Second security &amp; privacy audit: device MAC removed from the public API, DoS bounds, log rotation.</div>
+      <div class="ci"><span class="cd">2026-08-08</span>Published as a public GitHub repo; per-neighbor 1-hour SNR sparklines (idea from Bob).</div>
+      <div class="ci"><span class="cd">2026-08-08</span>Level 2 — autonomous responder: Cal replies on its own when addressed (fleet-only, kill switch, rate limits).</div>
+      <div class="ci"><span class="cd">2026-08-08</span>Level 1 — always-on bridge; node flashed to Meshtastic 2.7.26 and brought online as "Cal HT".</div>
+    </div>
+  </div>
+</main>
+<footer>cal-mesh dashboard v2 · auto-refresh 3s · read-only · <a class="faqlink" href="../">v1</a></footer>
+<script>
+const $=s=>document.querySelector(s);
+const DIR=(location.pathname.replace(/\/v2\/?$/,'/'))||'/';
+let SNR={}, lastNodes=[], nodeSort={key:null,dir:1};
+const NODE_LABELS={short:'Short',long:'Name',hw:'HW',hops:'Hops',snr:'SNR'};
+function esc(s){return (s??"").toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function hhmmss(ts){try{return new Date(ts).toLocaleTimeString();}catch(e){return ts;}}
+function daystamp(ts){try{return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric'});}catch(e){return '';}}
+function secs(ms){return (ms/1000).toFixed(2)+'s';}
+function tile(k,v,sub){return `<div class="tile"><div class="k">${k}</div><div class="v">${v}${sub?` <small>${sub}</small>`:''}</div></div>`;}
+function fmtDur(s){s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
+ return h?`${h}h ${m}m`:(m?`${m}m ${ss}s`:`${ss}s`);}
+function batteryLabel(m){ if(m.battery==null) return '—';
+  if(m.battery>100) return 'ext power';   // Meshtastic sentinel, not a charge level
+  return m.battery+'%'; }
+function skipWhy(r){
+  const m={sender_not_allowed:'sender is not on the allow-list — the message was received fine, Cal just may not answer it',
+           not_addressed:'Cal was not addressed (no "cal" mention, not a DM)',
+           disabled:'the responder kill switch is off',
+           too_old:'the message was older than the freshness window',
+           rate_limited:'rate limit reached for this sender',
+           cooldown:'per-sender cooldown still active',
+           self:'this was Cal\'s own message'};
+  return m[r]||esc(r||'unknown');
+}
+function verdictTag(x){
+  if(x.verdict==='replied') return '<span class="tag tx">REPLIED</span>';
+  if(x.verdict!=='skipped') return '<span class="tag quiet">NOT EVALUATED</span>';
+  return x.reason==='sender_not_allowed'
+    ? '<span class="tag offlist">OFF-LIST · heard, not answered</span>'
+    : `<span class="tag quiet">NO REPLY · ${esc(x.reason)}</span>`;
+}
+function row(k,v){return `<div class="trow"><span class="tk">${k}</span><span class="tv">${v}</span></div>`;}
+function traceHtml(x){
+  const t=x.trace||{};
+  if(!t.gates&&!t.sanitize&&!t.model)
+    return '<div class="tp"><div class="tnone">No trace recorded — this message predates the decision trace.</div></div>';
+  let h='';
+  if(t.gates&&t.gates.length)
+    h+=row('gates', t.gates.map(g=>`<span class="gate ${g.pass?'gp':'gf'}">${g.pass?'✓':'✗'} ${esc(g.gate)}</span>`).join('')
+        +(x.verdict==='skipped'?' <span style="color:var(--dim)">— ladder stops at the first failure</span>':''));
+  if(t.sanitize){const s=t.sanitize,b=[`${s.in_chars}→${s.out_chars} chars`];
+    if(s.sentence_trimmed) b.push('first sentence kept');
+    if(s.length_capped) b.push('length capped');
+    if(s.redactions) b.push(`${s.redactions} redaction${s.redactions>1?'s':''}`);
+    if(s.flagged) b.push('injection-shaped tokens flagged');
+    if(b.length===1) b.push('unchanged');
+    h+=row('sanitizer', esc(b.join(' · ')));}
+  if(t.prompt_kind) h+=row('prompt', t.prompt_kind==='weather'
+      ? 'capability template — <b>the message itself is not included</b>'
+      : 'general template — the sanitized message is quoted to the model');
+  if(x.capability) h+=row('capability', `${esc(x.capability)} · fetch ${t.weather_ok?'ok':'FAILED'}`);
+  if(t.injected_fact) h+=row('fact in', `<code>${esc(t.injected_fact)}</code>`);
+  if(t.model) h+=row('model', `<code>${esc(t.model)}</code>`+(x.gen_ms!=null?` · ${secs(x.gen_ms)}`:''));
+  if(t.gen_status&&t.gen_status!=='ok') h+=row('generation', `<code>${esc(t.gen_status)}</code>`);
+  if(t.dest) h+=row('sent to', `<code>${esc(t.dest)}</code>`);
+  h+='<div class="tnote">This is the machinery, not the model\'s reasoning. Generation returns plain '
+   +'text with no chain of thought, and asking for a narration would produce a plausible story rather '
+   +'than an account of what actually happened — so it is not shown.</div>';
+  return `<div class="tp">${h}</div>`;
+}
+function exchangeHtml(x){
+  if(x.kind==='unprompted') return `
+    <div class="xc unprompted"><div class="meta"><span class="tag tx">TX</span>
+      <span>${daystamp(x.ts)} ${hhmmss(x.ts)}</span><span>→ ${esc(x.dest)}</span>
+      <span class="tag ch">ch${esc(x.channel)}</span><span>${esc(x.transport)}</span>
+      <span class="tag quiet">${x.source==='responder'?'UNPAIRED':'MANUAL'}</span></div>
+    <div class="ask">${esc(x.text)}</div>
+    <div class="norep">↳ not a reply — Cal transmitted this with no inbound ask${x.source==='responder'?', or the ask is older than the window shown':''}</div></div>`;
+  return `
+    <div class="xc"><div class="meta"><span class="tag rx">RX</span>
+      <span>${daystamp(x.ts)} ${hhmmss(x.ts)}</span><span>${esc(x.from)} → ${esc(x.to)}</span>
+      <span class="tag ch">ch${esc(x.channel)}</span>${x.snr!=null?`<span>snr ${esc(x.snr)}</span>`:''}
+      ${verdictTag(x)}</div>
+    <div class="ask">${esc(x.text)}</div>
+    ${x.verdict==='replied'&&x.reply
+      ? `<div class="rep"><span class="who">↳ Cal replied${x.gen_ms!=null?` · ${secs(x.gen_ms)}`:''}${x.capability?` · ${esc(x.capability)}`:''}</span><span class="txt">${esc(x.reply)}</span></div>`
+      : (x.verdict==='skipped'?`<div class="norep">↳ received, no reply — ${skipWhy(x.reason)}</div>`:'')}
+    <details class="tr"><summary>trace</summary>${traceHtml(x)}</details></div>`;
+}
+function setSort(k){ nodeSort=(nodeSort.key===k)?{key:k,dir:-nodeSort.dir}:{key:k,dir:1}; renderNodes(); }
+function renderNodes(){
+  let ns=lastNodes.slice();
+  if(nodeSort.key){ const k=nodeSort.key, dir=nodeSort.dir;
+    ns.sort((a,b)=>{ let x=a[k],y=b[k];
+      if(k==='hops'||k==='snr'){ if(x==null&&y==null)return 0; if(x==null)return 1; if(y==null)return -1; return (x-y)*dir; }
+      x=(x||'').toString().toLowerCase(); y=(y||'').toString().toLowerCase();
+      return x<y?-dir:(x>y?dir:0); }); }
+  const tb=$('#nodes').querySelector('tbody');
+  tb.innerHTML=ns.map(n=>{ const sg=(n.snr!=null&&n.snr>0)?'snr-good':'snr-bad';
+    return `<tr><td>${esc(n.short)}</td><td>${esc(n.long)}</td><td>${esc(n.hw)}</td>`+
+      `<td>${n.hops==null?'—':esc(n.hops)}</td><td class="${sg}">${n.snr==null?'—':esc(n.snr)}</td>`+
+      `<td>${sparkline((SNR[n.id]||{}).points, n.hops)}</td></tr>`; }).join('');
+  document.querySelectorAll('#nodes th.sortable').forEach(th=>{
+    const k=th.dataset.key, on=nodeSort.key===k;
+    th.textContent=NODE_LABELS[k]+(on?(nodeSort.dir>0?' ▲':' ▼'):''); });
+}
+async function loadSnr(){try{SNR=await (await fetch(DIR+'api/snr',{cache:'no-store'})).json();}catch(e){}}
+function sparkline(pts, hops){
+  if(!pts||pts.length===0){
+    return (hops!=null&&hops>0)?'<span style="color:var(--dim)">multi-hop</span>'
+      :'<span style="color:var(--dim)">— <small>no direct signal</small></span>';}
+  if(pts.length===1){const v=pts[0][1];
+    return `<span class="spark"><svg width="90" height="22"><circle cx="45" cy="11" r="2.5" fill="var(--accent)"/></svg>`+
+      `<span style="color:var(--accent)">${esc(v)} <small>dB · 1 pt</small></span></span>`;}
+  const W=90,H=22,pad=3;
+  const ts=pts.map(p=>p[0]), vs=pts.map(p=>p[1]);
+  const t0=Math.min(...ts),t1=Math.max(...ts),vmin=Math.min(...vs),vmax=Math.max(...vs);
+  const sx=t=>pad+(t1===t0?(W-2*pad):((t-t0)/(t1-t0))*(W-2*pad));
+  const sy=v=>pad+(1-(vmax===vmin?0.5:(v-vmin)/(vmax-vmin)))*(H-2*pad);
+  const d=pts.map((p,i)=>(i?'L':'M')+sx(p[0]).toFixed(1)+' '+sy(p[1]).toFixed(1)).join(' ');
+  const last=pts[pts.length-1];
+  const k=Math.max(1,Math.floor(pts.length/3));
+  const avg=a=>a.reduce((s,x)=>s+x,0)/a.length;
+  const dv=avg(vs.slice(-k))-avg(vs.slice(0,k));
+  const arrow=dv>1.5?'↗':(dv<-1.5?'↘':'→');
+  const col=dv<-1.5?'var(--warn)':(dv>1.5?'var(--ok)':'var(--accent)');
+  return `<span class="spark" title="${pts.length} samples · now ${esc(last[1])} dB">`+
+    `<svg width="${W}" height="${H}"><path d="${d}" fill="none" stroke="${col}" stroke-width="2" `+
+    `stroke-linejoin="round" stroke-linecap="round"/><circle cx="${sx(last[0]).toFixed(1)}" `+
+    `cy="${sy(last[1]).toFixed(1)}" r="2.5" fill="${col}"/></svg>`+
+    `<span style="color:${col}">${arrow} ${esc(last[1])}</span></span>`;
+}
+async function tick(){
+ let d; try{d=await (await fetch(DIR+'api/state',{cache:'no-store'})).json();}
+ catch(e){$('#conn').className='pill bad';$('#conn').textContent='dashboard offline';return;}
+ const st=d.status||{}, m=st.metrics||{}, node=st.node||{}, rp=d.responder||{};
+ const on=st.connected;
+ $('#conn').className='pill '+(on?'ok':'bad');
+ $('#conn').textContent=on?'● radio connected':'● radio down';
+ $('#sub').textContent=`${node.longName||'?'} (${node.shortName||'?'}) · ${node.id||''} · fw ${st.firmware||'?'}`;
+ $('#tiles').innerHTML=[
+   tile('Bridge', (d.bridge.state==='running'?'running':'stopped'), d.bridge.pid?('pid '+d.bridge.pid):''),
+   tile('Uptime', st.uptime_s!=null?fmtDur(st.uptime_s):'—'),
+   tile('Battery', batteryLabel(m), m.voltage!=null?m.voltage.toFixed(2)+'V':''),
+   tile('Ch util', m.chUtil!=null?m.chUtil.toFixed(1)+'%':'—', m.airUtilTx!=null?('air '+m.airUtilTx.toFixed(2)+'%'):''),
+   tile('Sent / Received', `${(d.totals&&d.totals.sent)??0} / ${(d.totals&&d.totals.recv)??0}`),
+   tile('Responder', rp.enabled==='true'?'● live':'○ off',
+        (rp.model?rp.model.replace('claude-','').replace(/-\d+$/,''):'')+' · '+(rp.allow_count||0)+' allowed'),
+ ].join('');
+ const cfg=d.config||{}, active=(st.transport||cfg.TRANSPORT||'serial');
+ $('#active-t').textContent='active: '+active;
+ $('#trans').innerHTML=[
+   `<div class="t ${active==='serial'?'active':''}"><div class="lbl"><span class="dot ${active==='serial'?'on':'off'}"></span>USB</div></div>`,
+   `<div class="t ${active==='tcp'?'active':''}"><div class="lbl"><span class="dot ${active==='tcp'?'on':'off'}"></span>WiFi</div></div>`,
+ ].join('');
+ const xs=d.exchanges||[];
+ $('#xc-n').textContent=xs.length;
+ $('#exchanges').innerHTML=xs.length?xs.map(exchangeHtml).join('')
+   :'<div class="empty">nothing on air yet — mesh is quiet or awaiting first inbound</div>';
+ lastNodes=(d.nodes&&d.nodes.nodes)||[];
+ $('#nn').textContent=lastNodes.length;
+ renderNodes();
+}
+loadSnr(); tick(); setInterval(tick,3000); setInterval(loadSnr,30000);
+</script></body></html>"""
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -676,8 +1054,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        # v1 keeps "/" while v2 is on trial, so the published URL can never break. Promoting
+        # v2 is a one-line swap here; rolling back is the same line.
         if path in ("/", "/index.html"):
-            self._send(200, PAGE.encode(), "text/html; charset=utf-8")
+            self._send(200, PAGE_V1.encode(), "text/html; charset=utf-8")
+            return
+        if path in ("/v2", "/v2/"):
+            self._send(200, PAGE_V2.encode(), "text/html; charset=utf-8")
             return
         # API endpoints do file I/O — cap concurrency so a flood can't spawn unbounded work
         if not _SEM.acquire(blocking=False):
