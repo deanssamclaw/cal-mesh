@@ -12,6 +12,11 @@ we never trade for coverage. Each capability below lists its **edge** (where it 
 **fetch** capabilities let a field user query over RF and have the connected base answer — Cal extends
 internet-knowledge to the off-grid edge. That's a feature, not a contradiction.
 
+**The agency layer:** this catalog is the *breadth* axis (what Cal can do). How much of any capability
+Cal actually exposes — hardened on the public channel vs. an unbounded "full Cal" on an authenticated
+private one — lives in `channel-trust-and-agency.md`. A capability's real behavior is the intersection
+of its own spec and that channel policy.
+
 Status key: **LIVE** (armed) · **SPEC'D** (written up) · **OUTLINED** · **CANDIDATE** (this doc).
 
 ---
