@@ -772,6 +772,8 @@ transform-origin:50% 50%;transition:transform .15s ease}
 details.tr[open] summary::before{transform:rotate(90deg)}
 details.tr summary:hover{border-color:var(--accent);background:#1f2836}
 .tp{margin-top:7px;background:#10151c;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.link-d{margin:2px 0 10px;max-width:620px}
+.link-d svg{width:100%;height:auto;display:block}
 .trow{display:flex;gap:10px;padding:3px 0;font-size:12px;align-items:baseline}
 .tk{color:var(--dim);min-width:78px;flex-shrink:0;text-transform:uppercase;font-size:10px;letter-spacing:.5px}
 .tv{color:var(--fg);word-break:break-word}
@@ -846,6 +848,18 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
       (which checks passed and which one stopped it), what the <b>sanitizer</b> did to the inbound text,
       whether a <b>capability</b> fired and the exact <b>fact</b> that was injected, plus the model and how
       long generation took. It's the machinery, not a narration — see the next question.</div></details>
+    <details><summary>What's the diagram at the top of a trace?</summary><div class="a">
+      The <b>link</b> the message travelled: who transmitted, who received it, how many <b>hops</b> it
+      took, and the signal strength on the final leg. <b>Direct</b> means Cal heard the sender's radio
+      itself; anything above zero means other nodes relayed it. Where the firmware reports a relay, it
+      gives only <b>one byte</b> of that node's id — enough to narrow the candidates, not to name one,
+      so it is shown as a truncated id and never resolved to a name.</div></details>
+    <details><summary>Why isn't it a real map?</summary><div class="a">
+      Because this page is public and the base station sits at a fixed private address — a pin on a map
+      would publish it, and a series of them would publish movements. So the diagram shows the
+      <b>topology</b> (who → who, how many hops) and never a location. No coordinates are stored by this
+      project at all: the radio bridge deliberately reads names, hops and signal from the node database
+      and skips the position field. Cal's own node does not advertise a position either.</div></details>
     <details><summary>Why doesn't the trace show Cal's "thinking"?</summary><div class="a">
       Because there isn't any to show, and inventing some would be worse than showing nothing.
       Reply generation returns plain text — there's no hidden reasoning being discarded. We could ask
@@ -883,6 +897,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-09</span><b>Link diagram in every trace.</b> Shows the path a message took — sender, any relay, Cal HT — with the hop count and the signal on the last leg. The bridge now records per-message routing (hops taken, and the one-byte relay id when the firmware supplies it); messages received before that show "hops unknown" rather than implying they were direct. It is a topology diagram, not a geographic one, on purpose — see the FAQ.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>v2 is now the main page.</b> The previous two-column layout is retired but still readable at <code>old-1</code>. Retired versions keep a permanent <code>old-N</code> address — numbered by when they were retired, never renumbered — so a link to one always shows the same page.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>v2.</b> Inbound and Outbound merged into a single <b>Exchanges</b> stream — the ask is the head, Cal's reply is indented beneath it. Removes the duplication that made v1 busy (every reply used to render twice) and reads properly on a phone.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>Decision trace.</b> Every exchange opens into the machinery behind it: the gate ladder, what the sanitizer changed, the capability and the exact injected fact, the model and generation time. Deliberately no model "reasoning" — see the FAQ.</div>
@@ -902,6 +917,7 @@ const $=s=>document.querySelector(s);
 const DIR=(function(){let p=location.pathname.replace(/\/(v2|old-\d+)\/?$/,'/');
  return p.endsWith('/')?p:p+'/';})();
 let SNR={}, lastNodes=[], nodeSort={key:null,dir:1}, lastXsig=null;
+let SELF={id:null,name:null};
 const NODE_LABELS={short:'Short',long:'Name',hw:'HW',hops:'Hops',snr:'SNR'};
 function esc(s){return (s??"").toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function hhmmss(ts){try{return new Date(ts).toLocaleTimeString();}catch(e){return ts;}}
@@ -931,11 +947,55 @@ function verdictTag(x){
     : `<span class="tag quiet">NO REPLY · ${esc(x.reason)}</span>`;
 }
 function row(k,v){return `<div class="trow"><span class="tk">${k}</span><span class="tv">${v}</span></div>`;}
+function nodeName(id){
+  const n=lastNodes.find(n=>n.id===id);
+  return n?(n.short||n.long||id):id;
+}
+// A LINK diagram, deliberately not a geographic one: who transmitted, who received, how many
+// hops, and the signal on the final leg. It uses only what is already public on the air —
+// there are no coordinates here and none are stored, because this page is public and the base
+// station sits at a fixed private location.
+function linkSvg(x){
+  const hops=x.hops;
+  const stops=[{lab:esc(nodeName(x.from)), sub:esc(x.from)}];
+  if(hops>0){
+    stops.push({lab: x.relay_byte!=null?('relay ·'+x.relay_byte.toString(16).padStart(2,'0')):'relay',
+                sub: hops>1?(hops+' hops total'):'1 hop', dim:true});
+  }
+  stops.push({lab:esc(SELF.name||'Cal HT'), sub:esc(SELF.id||''), self:true});
+  const W=560,H=104,bw=150,bh=46,by=30;
+  const gap=(W-12-stops.length*bw)/(stops.length-1);
+  let svg='', prevX=null;
+  stops.forEach((s,i)=>{
+    const bx=6+i*(bw+gap);
+    if(prevX!==null){
+      const x1=prevX+bw+6, x2=bx-6, mid=(x1+x2)/2;
+      svg+=`<line x1="${x1}" y1="${by+bh/2}" x2="${x2-6}" y2="${by+bh/2}" stroke="#3d4a5c" stroke-width="2"/>`
+         +`<path d="M${x2-7} ${by+bh/2-4.5} L${x2} ${by+bh/2} L${x2-7} ${by+bh/2+4.5}z" fill="#3d4a5c"/>`
+         +`<text x="${mid}" y="${by+bh/2-9}" fill="#8b98a9" font-size="11" text-anchor="middle">`
+         +`${i===stops.length-1&&x.snr!=null?('snr '+esc(x.snr)+(x.rssi!=null?' · rssi '+esc(x.rssi):'')):''}</text>`;
+    }
+    svg+=`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="8" fill="${s.self?'#171320':'#11161d'}" `
+       +`stroke="${s.self?'#a371f7':(s.dim?'#3d4a5c':'#3fb950')}" stroke-width="1.5"/>`
+       +`<text x="${bx+bw/2}" y="${by+19}" fill="#e6edf3" font-size="13" font-weight="600" text-anchor="middle">${s.lab}</text>`
+       +`<text x="${bx+bw/2}" y="${by+34}" fill="#8b98a9" font-size="10.5" text-anchor="middle">${s.sub}</text>`;
+    prevX=bx;
+  });
+  const cap = hops==null ? 'hops unknown — this message predates routing capture'
+            : (hops===0 ? 'direct — heard straight from the sender, no relay'
+                        : hops+' hop'+(hops>1?'s':'')+' — relayed'+(x.relay_byte!=null
+                            ? ', last relay id ends ·'+x.relay_byte.toString(16).padStart(2,'0')+' (one byte — narrows, does not identify)'
+                            : ''));
+  svg+=`<text x="${W/2}" y="${H-6}" fill="#8b98a9" font-size="11" text-anchor="middle">${esc(cap)}</text>`;
+  return `<div class="link-d"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" `
+       + `role="img" aria-label="link diagram">${svg}</svg></div>`;
+}
 function traceHtml(x){
   const t=x.trace||{};
   if(!t.gates&&!t.sanitize&&!t.model)
-    return '<div class="tp"><div class="tnone">No trace recorded — this message predates the decision trace.</div></div>';
-  let h='';
+    return `<div class="tp">${x.kind==='exchange'?linkSvg(x):''}`+
+      '<div class="tnone">No decision trace recorded — this message predates it.</div></div>';
+  let h=(x.kind==='exchange'?linkSvg(x):'');
   if(t.gates&&t.gates.length)
     h+=row('gates', t.gates.map(g=>`<span class="gate ${g.pass?'gp':'gf'}">${g.pass?'✓':'✗'} ${esc(g.gate)}</span>`).join('')
         +(x.verdict==='skipped'?' <span style="color:var(--dim)">— ladder stops at the first failure</span>':''));
@@ -1052,17 +1112,18 @@ async function tick(){
    `<div class="t ${active==='serial'?'active':''}"><div class="lbl"><span class="dot ${active==='serial'?'on':'off'}"></span>USB</div></div>`,
    `<div class="t ${active==='tcp'?'active':''}"><div class="lbl"><span class="dot ${active==='tcp'?'on':'off'}"></span>WiFi</div></div>`,
  ].join('');
+ SELF={id:node.id||null, name:node.shortName||node.longName||null};
+ lastNodes=(d.nodes&&d.nodes.nodes)||[];
  const xs=d.exchanges||[];
  $('#xc-n').textContent=xs.length;
  // Only touch the DOM when the content actually changed. Cheap, and it stops the 3s refresh
  // from fighting the reader (lost text selection, scroll jump) when nothing has happened.
- const sig=JSON.stringify(xs);
+ const sig=JSON.stringify([xs,SELF,lastNodes.map(n=>[n.id,n.short])]);
  if(sig!==lastXsig){
    lastXsig=sig;
    $('#exchanges').innerHTML=xs.length?xs.map(exchangeHtml).join('')
      :'<div class="empty">nothing on air yet — mesh is quiet or awaiting first inbound</div>';
  }
- lastNodes=(d.nodes&&d.nodes.nodes)||[];
  $('#nn').textContent=lastNodes.length;
  renderNodes();
 }

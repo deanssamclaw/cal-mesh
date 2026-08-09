@@ -59,6 +59,7 @@ def load_config():
 
 lost = threading.Event()
 COUNTS = {"rx": 0, "tx": 0}
+POS_SEEN = {"n": None}   # last logged count of position-reporting neighbours (see write_nodes)
 CURRENT = {"iface": None}   # the live interface; guards against stale lost-events
 SNR_APPENDS = {"n": 0}
 
@@ -108,10 +109,20 @@ def on_receive(packet=None, interface=None):
         d = packet.get("decoded") or {}
         if d.get("portnum") != "TEXT_MESSAGE_APP":
             return
+        # Routing: hops TAKEN = hopStart - hopLimit (hopLimit is decremented by each relay).
+        # Guarded — a packet missing either field, or with nonsense values, records None
+        # rather than a made-up 0, which would read as "direct" and be a lie.
+        hs, hl = packet.get("hopStart"), packet.get("hopLimit")
+        hops = (hs - hl) if isinstance(hs, int) and isinstance(hl, int) and hs >= hl else None
+        # relayNode is a ONE-BYTE truncation of the last relayer's node number, so it narrows
+        # the candidates but does not identify a node. Stored raw; never resolved to a name.
+        relay = packet.get("relayNode")
         rec = {"ts": now(), "from": packet.get("fromId"), "to": packet.get("toId"),
                "channel": packet.get("channel", 0), "text": d.get("text", ""),
                "snr": packet.get("rxSnr"), "rssi": packet.get("rxRssi"),
-               "id": packet.get("id")}
+               "id": packet.get("id"),
+               "hops": hops, "hop_start": hs, "hop_limit": hl,
+               "relay_byte": relay if isinstance(relay, int) else None}
         with open(INBOX, "a") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         COUNTS["rx"] += 1
@@ -188,6 +199,28 @@ def write_nodes(iface):
                          "snr": n.get("snr"), "lastHeard": n.get("lastHeard")})
         rows.sort(key=lambda r: (r["hops"] if r["hops"] is not None else 99,
                                  -(r["snr"] or -999)))
+        # Positions are deliberately NOT stored or published: nodes.json feeds a PUBLIC page,
+        # and Cal HT sits at a fixed private location. Log only the COUNT of neighbours that
+        # report a position — enough to know whether a private map is even feasible, and it
+        # goes to the local log, never to the API. Logged on change only.
+        try:
+            with_pos = sum(1 for n in (iface.nodes or {}).values()
+                           if (n.get("position") or {}).get("latitude") is not None)
+            # Whether OUR OWN node advertises a position is the decisive one: if it does, the
+            # base station's fixed location is already going out over the air to everyone in
+            # range, which is a different problem from what this dashboard publishes.
+            me = getattr(iface, "myInfo", None)
+            my_num = getattr(me, "my_node_num", None)
+            self_pos = any((n.get("position") or {}).get("latitude") is not None
+                           for nid, n in (iface.nodes or {}).items()
+                           if n.get("num") == my_num)
+            if (with_pos, self_pos) != POS_SEEN.get("n"):
+                POS_SEEN["n"] = (with_pos, self_pos)
+                log(f"nodedb: {with_pos}/{len(rows)} neighbours report a position; "
+                    f"OUR node advertises a position: {self_pos} "
+                    f"(counts only — coordinates are never stored or published)")
+        except Exception:
+            pass
         write_json(NODES, {"ts": now(), "count": len(rows), "nodes": rows})
     except Exception as e:
         log("write_nodes err: " + repr(e))
