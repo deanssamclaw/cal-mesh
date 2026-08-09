@@ -190,6 +190,10 @@ a curated-KB *weather sibling*, not a calculation). Compute tiers are more harne
 weather (capabilities aren't monotonic on the agency axis); the knowledge tier's safety hinges on
 curated facts + fail-safe, never model free-recall.
 
+The full capability catalog — everything live, spec'd, and candidate (propagation, sun/moon,
+navigation, NOAA alerts, radio-ops & emergency knowledge, self-diagnostics), each with its doer
+type and its refusal edge — is indexed in `level3-roadmap.md`.
+
 ## 9. Eval — offline, adversarial, before anything goes on air
 
 Bob's five cases (adopted) plus the basics:
