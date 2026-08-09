@@ -209,6 +209,15 @@ def plan_response(cfg, sender_short, raw_text, get=None):
     return out
 
 
+def _claude_argv(cfg, prompt):
+    """The exact locked-down claude argv. Isolated so the eval can statically assert the
+    security flags are present — a regression guard for the #1 / lockdown fixes."""
+    return [CLAUDE, "-p", prompt, "--model", cfg["RESPONDER_MODEL"],
+            "--system-prompt", PERSONA, "--permission-mode", "plan",
+            "--strict-mcp-config", "--setting-sources", "",
+            "--exclude-dynamic-system-prompt-sections", "--output-format", "text"]
+
+
 def run_claude(cfg, prompt):
     """SIDE EFFECT: run the tool-locked model on a prompt.
       * --permission-mode plan + --strict-mcp-config => tools cannot execute, no MCP loads.
@@ -220,10 +229,7 @@ def run_claude(cfg, prompt):
     Do NOT drop --setting-sources: it is the structural control against on-air exfil."""
     try:
         out = subprocess.run(
-            [CLAUDE, "-p", prompt, "--model", cfg["RESPONDER_MODEL"],
-             "--system-prompt", PERSONA, "--permission-mode", "plan",
-             "--strict-mcp-config", "--setting-sources", "",
-             "--exclude-dynamic-system-prompt-sections", "--output-format", "text"],
+            _claude_argv(cfg, prompt),
             capture_output=True, text=True, timeout=int(cfg["GEN_TIMEOUT_S"]))
         if out.returncode != 0:
             return None, f"gen_rc{out.returncode}:{out.stderr.strip()[:80]}"

@@ -101,6 +101,14 @@ check("network error -> None", weather.fetch_current(cfg(), "39.0,-95.0", get=St
 check("bad latlon -> None", weather.fetch_current(cfg(), "", get=Stub()) is None)
 check("stubbed success -> fact", (weather.fetch_current(cfg(), "39.0,-95.0", get=Stub()) or "").startswith("72F"))
 
+print("\n== static: lockdown flags present in claude argv (regression guard for #1) ==")
+argv = responder._claude_argv(cfg(), "hi")
+def _pair(a, k, v): return any(a[i] == k and i + 1 < len(a) and a[i + 1] == v for i in range(len(a)))
+check("--setting-sources '' present (no CLAUDE.md -> no location in context)", _pair(argv, "--setting-sources", ""))
+check("--permission-mode plan present", _pair(argv, "--permission-mode", "plan"))
+check("--strict-mcp-config present", "--strict-mcp-config" in argv)
+check("--exclude-dynamic-system-prompt-sections present", "--exclude-dynamic-system-prompt-sections" in argv)
+
 print("\n== unit: default-OFF is inert ==")
 p = responder.plan_response(cfg(WEATHER_ENABLED="false"), "!s", "cal hows the weather", get=Stub())
 check("disabled -> no capability", p["capability"] is None and p["mode"] == "generate")
