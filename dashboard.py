@@ -794,6 +794,7 @@ td.snr-good{color:var(--ok)} td.snr-bad{color:var(--warn)}
 .trans .t.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
 .trans .t .lbl{font-size:11px;color:var(--dim)}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+.tile .v .dot{width:9px;height:9px;margin-right:7px;vertical-align:middle}
 .dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
 footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 .empty{padding:16px;color:var(--dim);font-size:13px}
@@ -815,7 +816,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 <header>
   <div><h1>📻 cal-mesh <span class="sub">— live levers (v2)</span></h1>
   <div class="sub" id="sub">connecting…</div></div>
-  <span class="navlinks"><a class="faqlink" id="oldlink" href="old-1">← old-1</a><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
+  <span class="navlinks"><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
   <span class="pill" id="conn">…</span>
 </header>
 <main>
@@ -911,7 +912,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
     </div>
   </div>
 </main>
-<footer>cal-mesh dashboard v2 · auto-refresh 3s · read-only · <a class="faqlink" id="oldlink2" href="old-1">old-1</a></footer>
+<footer>cal-mesh dashboard v2 · auto-refresh 3s · read-only · previous version: <a class="faqlink" id="oldlink2" href="old-1">old-1</a></footer>
 <script>
 const $=s=>document.querySelector(s);
 const DIR=(function(){let p=location.pathname.replace(/\/(v2|old-\d+)\/?$/,'/');
@@ -1097,14 +1098,15 @@ async function tick(){
  $('#conn').className='pill '+(on?'ok':'bad');
  $('#conn').textContent=on?'● radio connected':'● radio down';
  $('#sub').textContent=`${node.longName||'?'} (${node.shortName||'?'}) · ${node.id||''} · fw ${st.firmware||'?'}`;
+ const live=rp.enabled==='true';
  $('#tiles').innerHTML=[
+   tile('Battery', batteryLabel(m), m.voltage!=null?m.voltage.toFixed(2)+'V':''),
    tile('Bridge', (d.bridge.state==='running'?'running':'stopped'), d.bridge.pid?('pid '+d.bridge.pid):''),
    tile('Uptime', st.uptime_s!=null?fmtDur(st.uptime_s):'—'),
-   tile('Battery', batteryLabel(m), m.voltage!=null?m.voltage.toFixed(2)+'V':''),
-   tile('Ch util', m.chUtil!=null?m.chUtil.toFixed(1)+'%':'—', m.airUtilTx!=null?('air '+m.airUtilTx.toFixed(2)+'%'):''),
-   tile('Sent / Received', `${(d.totals&&d.totals.sent)??0} / ${(d.totals&&d.totals.recv)??0}`),
-   tile('Responder', rp.enabled==='true'?'● live':'○ off',
+   tile('Responder', `<span class="dot ${live?'on':'off'}"></span>${live?'live':'off'}`,
         (rp.model?rp.model.replace('claude-','').replace(/-\d+$/,''):'')+' · '+(rp.allow_count||0)+' allowed'),
+   tile('Sent / Received', `${(d.totals&&d.totals.sent)??0} / ${(d.totals&&d.totals.recv)??0}`),
+   tile('Ch util', m.chUtil!=null?m.chUtil.toFixed(1)+'%':'—', m.airUtilTx!=null?('air '+m.airUtilTx.toFixed(2)+'%'):''),
  ].join('');
  const cfg=d.config||{}, active=(st.transport||cfg.TRANSPORT||'serial');
  $('#active-t').textContent='active: '+active;
