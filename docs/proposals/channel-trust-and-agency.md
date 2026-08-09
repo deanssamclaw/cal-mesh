@@ -45,6 +45,13 @@ The responder already reads `channel` and `is_dm` per message — so policy bran
 - **Public channel (ch0, senders spoofable):** the **hardened narrator we shipped** — unchanged.
   `--setting-sources ""` (no private data in context), tool-locked (plan + strict-mcp), 5–7 words,
   privacy-gag persona, advisory allow-list. Training wheels stay on **forever** here.
+  - **Sub-tier — unknown senders on this same channel:** today they get *silence*. See
+    **`unknown-sender-tier.md`** for the proposed replacement (an enclosed acknowledgment where the
+    model may only *select* from an operator-authored catalog and never authors what goes on air).
+    **Note the metric changes:** §4's forge-damage ladder does not apply there — P0 already assumes
+    every sender is hostile, so there is no trust to forge into. That tier is graded by
+    **amplification** (airtime per attacker action) instead, and its security control is the
+    global rate budget, not the gate.
 - **Authenticated-private (PKC DM from Dean's node):** **full Cal** — memory/context loaded,
   conversational (within LoRa limits), free to reference Dean's context. This is the "come through
   unbounded" space.
@@ -111,4 +118,5 @@ transit the mesh regardless of channel.** Private ≠ a secrets vault.
 ## 9. Relation to the other docs
 `level3-roadmap.md` = *what Cal can do.* This = *how much, and where.* `level3-weather.md` = the
 framework both sit inside. A capability's behavior is the **intersection** of its own spec (breadth)
-and this policy (agency/channel).
+and this policy (agency/channel). `unknown-sender-tier.md` = *whether a stranger gets any of it*,
+and is the one tier this doc's forge-damage metric does **not** govern (see §3).
