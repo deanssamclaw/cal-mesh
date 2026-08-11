@@ -779,6 +779,7 @@ details.tr summary:hover{border-color:var(--accent);background:#1f2836}
 .tk{color:var(--dim);min-width:78px;flex-shrink:0;text-transform:uppercase;font-size:10px;letter-spacing:.5px}
 .tv{color:var(--fg);word-break:break-word}
 .tv code{background:var(--card2);padding:1px 5px;border-radius:4px;font-size:11.5px}
+.hint{color:var(--dim);font-size:11px}
 .gate{display:inline-block;margin:1px 4px 1px 0;padding:1px 6px;border-radius:4px;font-size:11px}
 .gp{background:#12351f;color:var(--ok)} .gf{background:#3a1618;color:var(--bad)}
 .tnote{margin-top:8px;padding-top:7px;border-top:1px solid var(--line);color:var(--dim);font-size:11px;line-height:1.5}
@@ -993,6 +994,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
       <div class="ci"><span class="cd">2026-08-11</span><b>Two capture bugs, and a caption that confidently explained one of them wrongly.</b> Every message received since 2026-08-09 was showing "hops unknown — this message predates routing capture". The messages did not predate anything: the hop count is <i>hop_start</i> minus <i>hop_limit</i>, and the radio library builds its packet view with a converter that omits any number equal to zero — so a message that used its <b>entire</b> hop budget arrived with <i>hop_limit</i> missing and was recorded as "no data", indistinguishable from a message that carried no routing at all. The most-relayed messages were the ones being thrown away. Worse was the caption: one asserted cause printed for a blank that has several. It now states only what the record supports, and older messages that genuinely predate the feature still say so.</div>
+      <div class="ci"><span class="cd">2026-08-11</span><b>Reply time is no longer shown as if it were thinking time.</b> Each exchange prints how long generation took, and a reader reasonably takes that as a measure of the model. It mostly is not. Measured here: a <i>one-token</i> reply through the same locked-down command costs <b>5.4–10.5 s</b>, while a full seven-word weather reply costs <b>7–44 s</b> — the <i>same prompt</i> varying about sixfold run to run. The floor is process startup and a network round trip; the spread is noise; the part attributable to composing seven words is small. The figure now carries that context instead of standing alone. Consequence worth stating plainly: choosing a larger model would be close to invisible in these numbers, because the time is not going where it looks like it is going.</div>
       <div class="ci"><span class="cd">2026-08-11</span><b>Link diagram redrawn.</b> Two things it got wrong. It drew a single "relay" box no matter how far a message had travelled, which quietly implied the whole path was known — a hop is a rebroadcast, so three hops means three relays stood in between and the firmware only ever names the last one. The relays it cannot name are now drawn dashed and counted, so the picture shows the size of what it does not know. And every sentence moved out of the drawing into the rows beneath it: a drawing has a fixed canvas and its text neither wraps nor shrinks, so the caption had been clipped at both ends and the signal reading was painting over the node it pointed at. The drawing now holds boxes and arrows only, at one fixed scale, so a message that went three hops and one that went direct are drawn the same size.</div>
       <div class="ci"><span class="cd">2026-08-11</span><b>Three messages got their hop count back.</b> Once <i>hop_start</i> is known the arithmetic is forced, so records caught by the bug above were recovered rather than left blank — and they are labelled <b>recovered</b>, because reconstructed after the fact is not the same kind of fact as measured at the time. A worked example, all of it from the message the operator remembered sending from far away: he was right that it did not reach Cal directly. It spent its whole budget of <b>3 hops</b>, and the last relay's one-byte id (<code>·c6</code>) matches exactly one node — Cal's own listener across the house. The signal is the giveaway: that listener heard the sender at <b>−126 dBm</b> and barely caught it, while Cal heard the same message at <b>−50 dBm</b>, because Cal was hearing the relay, not the sender. Signal strength describes the last leg only, never the distance to whoever spoke.</div>
       <div class="ci"><span class="cd">2026-08-11</span><b>Cal was dropping the sender's ID on first contact.</b> The library resolves a node's <code>!id</code> through its list of known nodes and returns nothing for a node it has not yet been introduced to — while the packet itself carries that node's number the entire time. So the ID went missing exactly when a stranger spoke to Cal for the first time. Measured here: a "Hi" on 2026-08-11 was logged from nobody; the sender's introduction arrived eleven minutes later and it was <code>!ba0cc0c0</code> all along. The bridge now falls back to the number the packet carries. Node IDs remain unauthenticated and spoofable — that has not changed and cannot.</div>
@@ -1180,7 +1182,16 @@ function traceHtml(x){
     h+=row('measured at', `station <code>${esc(t.obs_station||'?')}</code> · reading ${esc(age)}`
       +` <span style="color:var(--dim)">— a real observation from the nearest station, not an`
       +` estimate for any particular spot</span>`);}
-  if(t.model) h+=row('model', `<code>${esc(t.model)}</code>`+(x.gen_ms!=null?` · ${secs(x.gen_ms)}`:''));
+  // The timing is mostly NOT the model thinking, and printing it bare invites the opposite
+  // reading. Measured 2026-08-11 on this machine: a one-token reply through the same locked-down
+  // command costs 5.4-10.5 s, while a full 7-word weather reply costs 7-44 s — the SAME prompt
+  // varying 6x run to run. So the floor is process startup plus a round trip, the spread is
+  // noise, and the share attributable to generating seven words is small. A single figure with
+  // no range next to it is a number pretending to be a measurement.
+  if(t.model) h+=row('model', `<code>${esc(t.model)}</code>`
+    +(x.gen_ms!=null?` · ${secs(x.gen_ms)} <span class="hint">(one sample — includes ~5-10 s of `
+      +`process startup and a round trip, and varies about 6&times; run to run on identical input, `
+      +`so read it as an order of magnitude, not a measurement of thinking time)</span>`:''));
   if(t.gen_status&&t.gen_status!=='ok') h+=row('generation', `<code>${esc(t.gen_status)}</code>`);
   if(t.dest) h+=row('sent to', `<code>${esc(t.dest)}</code>`);
   h+='<div class="tnote">This is the machinery, not the model\'s reasoning. Generation returns plain '
