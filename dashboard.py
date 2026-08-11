@@ -993,6 +993,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
       <div class="ci"><span class="cd">2026-08-11</span><b>Two capture bugs, and a caption that confidently explained one of them wrongly.</b> Every message received since 2026-08-09 was showing "hops unknown — this message predates routing capture". The messages did not predate anything: the hop count is <i>hop_start</i> minus <i>hop_limit</i>, and the radio library builds its packet view with a converter that omits any number equal to zero — so a message that used its <b>entire</b> hop budget arrived with <i>hop_limit</i> missing and was recorded as "no data", indistinguishable from a message that carried no routing at all. The most-relayed messages were the ones being thrown away. Worse was the caption: one asserted cause printed for a blank that has several. It now states only what the record supports, and older messages that genuinely predate the feature still say so.</div>
+      <div class="ci"><span class="cd">2026-08-11</span><b>Link diagram redrawn.</b> Two things it got wrong. It drew a single "relay" box no matter how far a message had travelled, which quietly implied the whole path was known — a hop is a rebroadcast, so three hops means three relays stood in between and the firmware only ever names the last one. The relays it cannot name are now drawn dashed and counted, so the picture shows the size of what it does not know. And every sentence moved out of the drawing into the rows beneath it: a drawing has a fixed canvas and its text neither wraps nor shrinks, so the caption had been clipped at both ends and the signal reading was painting over the node it pointed at. The drawing now holds boxes and arrows only, at one fixed scale, so a message that went three hops and one that went direct are drawn the same size.</div>
       <div class="ci"><span class="cd">2026-08-11</span><b>Three messages got their hop count back.</b> Once <i>hop_start</i> is known the arithmetic is forced, so records caught by the bug above were recovered rather than left blank — and they are labelled <b>recovered</b>, because reconstructed after the fact is not the same kind of fact as measured at the time. A worked example, all of it from the message the operator remembered sending from far away: he was right that it did not reach Cal directly. It spent its whole budget of <b>3 hops</b>, and the last relay's one-byte id (<code>·c6</code>) matches exactly one node — Cal's own listener across the house. The signal is the giveaway: that listener heard the sender at <b>−126 dBm</b> and barely caught it, while Cal heard the same message at <b>−50 dBm</b>, because Cal was hearing the relay, not the sender. Signal strength describes the last leg only, never the distance to whoever spoke.</div>
       <div class="ci"><span class="cd">2026-08-11</span><b>Cal was dropping the sender's ID on first contact.</b> The library resolves a node's <code>!id</code> through its list of known nodes and returns nothing for a node it has not yet been introduced to — while the packet itself carries that node's number the entire time. So the ID went missing exactly when a stranger spoke to Cal for the first time. Measured here: a "Hi" on 2026-08-11 was logged from nobody; the sender's introduction arrived eleven minutes later and it was <code>!ba0cc0c0</code> all along. The bridge now falls back to the number the packet carries. Node IDs remain unauthenticated and spoofable — that has not changed and cannot.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>Forecast questions are now refused, not answered.</b> Asking about tonight, tomorrow, or whether it's going to rain used to return <i>current</i> conditions — a present-tense reading dressed as a prediction. Cal now recognises a forecast-shaped question deterministically and replies "Only current conditions, no forecast yet," making no lookup at all.</div>
@@ -1051,12 +1052,29 @@ function nodeName(id){
   const n=lastNodes.find(n=>n.id===id);
   return n?(n.short||n.long||id):id;
 }
-// A LINK diagram, deliberately not a geographic one: who transmitted, who received, how many
-// hops, and the signal on the final leg. It uses only what is already public on the air —
-// there are no coordinates here and none are stored, because this page is public and the base
-// station sits at a fixed private location.
+// Clamp a label to what a fixed-width box can actually hold. SVG text does not wrap and does
+// not shrink: an over-long node name silently paints across its own border and its neighbour.
+function fitLabel(s, n){ s=(s==null?'':String(s)); return s.length>n ? s.slice(0,n-1)+'…' : s; }
+
+// A LINK diagram, deliberately not a geographic one: who transmitted, who relayed it, who
+// received it. It uses only what is already public on the air — there are no coordinates here
+// and none are stored, because this page is public and the base station sits at a fixed
+// private location.
+//
+// TWO LAYOUT RULES, both learned by shipping the violation (2026-08-11):
+//
+//   1. NO PROSE INSIDE THE SVG. A viewBox is a fixed canvas and <text> neither wraps nor
+//      reflows, so a caption long enough to be worth reading gets clipped at BOTH ends — which
+//      is exactly what happened when the caption grew to explain the relay byte. Every sentence
+//      now lives in HTML underneath, in the same key/value rows the rest of the trace uses, so
+//      it wraps and can never be truncated. The SVG holds boxes and arrows and nothing else.
+//   2. NOTHING FLOATS BETWEEN THE BOXES. The old signal label sat at the arrow midpoint, and
+//      once a third box appeared the gaps were narrower than the label — it painted over the
+//      node it was pointing at. Signal is a fact about the last hop, so it is stated as such
+//      in the rows below rather than squeezed into the gap.
 function linkSvg(x){
   const hops=x.hops;
+  const relayId = x.relay_byte!=null ? '·'+x.relay_byte.toString(16).padStart(2,'0') : null;
   // Colour the sender box by what Cal DID with it, so the diagram carries the same signal as
   // the verdict badge above. Green on an off-list sender read as "allowed" — backwards.
   const offlist = x.verdict==='skipped' && x.reason==='sender_not_allowed';
@@ -1064,53 +1082,72 @@ function linkSvg(x){
   const senderC = offlist ? {fill:'#3a2f12', stroke:'#6b5416'}      // matches the OFF-LIST tag
                 : quiet   ? {fill:'#11161d', stroke:'#3d4a5c'}
                           : {fill:'#11161d', stroke:'#3fb950'};
-  const stops=[{lab:esc(nodeName(x.from)), sub:esc(x.from), fill:senderC.fill, stroke:senderC.stroke}];
-  if(hops>0){
-    stops.push({lab: x.relay_byte!=null?('relay ·'+x.relay_byte.toString(16).padStart(2,'0')):'relay',
-                sub: hops>1?(hops+' hops total'):'1 hop', dim:true});
-  }
-  stops.push({lab:esc(SELF.name||'Cal HT'), sub:esc(SELF.id||''), self:true});
-  const W=560,H=104,bw=150,bh=46,by=30;
-  const gap=(W-12-stops.length*bw)/(stops.length-1);
-  let svg='', prevX=null;
+  const stops=[x.from
+    ? {lab:esc(fitLabel(nodeName(x.from),15)), sub:esc(fitLabel(x.from,15)), fill:senderC.fill, stroke:senderC.stroke}
+    : {lab:'unknown', sub:'no id recorded', fill:senderC.fill, stroke:senderC.stroke}];
+  // A hop is a REBROADCAST, so N hops means N relays stood between the sender and Cal — and the
+  // firmware only ever tells us the last one. Drawing a single relay box for N>1 quietly implied
+  // we knew the whole path. The ones we cannot name are now counted and drawn dashed, so the
+  // diagram shows the size of what it does not know instead of hiding it.
+  if(hops>1) stops.push({lab:'?', sub:(hops-1)+' unknown relay'+(hops-1>1?'s':''), dim:true, dash:true});
+  if(hops>0) stops.push({lab:'relay'+(relayId?' '+relayId:''), sub:relayId?'last relay':'id not reported', dim:true});
+  stops.push({lab:esc(fitLabel(SELF.name||'Cal HT',15)), sub:esc(fitLabel(SELF.id||'',15)), self:true});
+
+  // The canvas is a CONSTANT width sized for the widest case (4 boxes) and the row is centred
+  // inside it. Sizing the viewBox to the content instead makes the SVG scale up to the CSS
+  // width, so a two-box diagram renders with boxes nearly twice the size of a four-box one —
+  // the same message looks like a different kind of object depending on how far it travelled.
+  const n=stops.length, bw=140, gap=38, by=10, bh=50, MAXN=4;
+  const W=20+MAXN*bw+(MAXN-1)*gap, H=by+bh+10;
+  const x0=(W-(n*bw+(n-1)*gap))/2;
+  let svg='';
   stops.forEach((s,i)=>{
-    const bx=6+i*(bw+gap);
-    if(prevX!==null){
-      const x1=prevX+bw+6, x2=bx-6, mid=(x1+x2)/2;
+    const bx=x0+i*(bw+gap);
+    if(i>0){
+      const x1=bx-gap+2, x2=bx-4;
       svg+=`<line x1="${x1}" y1="${by+bh/2}" x2="${x2-6}" y2="${by+bh/2}" stroke="#3d4a5c" stroke-width="2"/>`
-         +`<path d="M${x2-7} ${by+bh/2-4.5} L${x2} ${by+bh/2} L${x2-7} ${by+bh/2+4.5}z" fill="#3d4a5c"/>`
-         +`<text x="${mid}" y="${by+bh/2-9}" fill="#8b98a9" font-size="11" text-anchor="middle">`
-         +`${i===stops.length-1&&x.snr!=null?('snr '+esc(x.snr)+(x.rssi!=null?' · rssi '+esc(x.rssi):'')):''}</text>`;
+         +`<path d="M${x2-7} ${by+bh/2-4.5} L${x2} ${by+bh/2} L${x2-7} ${by+bh/2+4.5}z" fill="#3d4a5c"/>`;
     }
     const fill=s.fill||(s.self?'#171320':'#11161d');
     const stroke=s.stroke||(s.self?'#a371f7':(s.dim?'#3d4a5c':'#3fb950'));
-    svg+=`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="8" fill="${fill}" `
-       +`stroke="${stroke}" stroke-width="1.5"/>`
-       +`<text x="${bx+bw/2}" y="${by+19}" fill="#e6edf3" font-size="13" font-weight="600" text-anchor="middle">${s.lab}</text>`
-       +`<text x="${bx+bw/2}" y="${by+34}" fill="#8b98a9" font-size="10.5" text-anchor="middle">${s.sub}</text>`;
-    prevX=bx;
+    svg+=`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="8" fill="${fill}" stroke="${stroke}" `
+       +`stroke-width="1.5"${s.dash?' stroke-dasharray="5 4"':''}/>`
+       +`<text x="${bx+bw/2}" y="${by+21}" fill="#e6edf3" font-size="13" font-weight="600" text-anchor="middle">${s.lab}</text>`
+       +`<text x="${bx+bw/2}" y="${by+37}" fill="#8b98a9" font-size="10.5" text-anchor="middle">${s.sub}</text>`;
   });
+  const diagram=`<div class="link-d"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" `
+       + `role="img" aria-label="link diagram">${svg}</svg></div>`;
+
   // A null hop count has more than one cause and they are not interchangeable. Records written
   // before routing capture shipped (2026-08-09) carry no hop_start KEY AT ALL; records written
   // after always carry the key, even when its value is null. Saying "predates routing capture"
-  // for both put a false claim about a message's history on a public page — it read that way
-  // for every message received after 2026-08-09, because a fully-relayed packet was being
-  // recorded as unknown (see bridge.hops_taken). State only what the record supports.
-  const cap = hops==null
-        ? (x.hop_start===undefined
-             ? 'hops unknown — this message predates routing capture'
-             : 'hops unknown — no usable hop count was recorded for this message')
-            : (hops===0 ? 'direct — heard straight from the sender, no relay'
-                        : hops+' hop'+(hops>1?'s':'')+' — relayed'+(x.relay_byte!=null
-                            ? ', last relay id ends ·'+x.relay_byte.toString(16).padStart(2,'0')+' (one byte — narrows, does not identify)'
-                            : ''))
-            // A recovered count was reconstructed after the fact, not measured at capture. It
-            // is sound (the arithmetic is forced once hop_start is known) but it is not the
-            // same kind of fact as a captured one, and the page should not blur the two.
-            + (x.hops_recovered ? ' — recovered from a record predating the capture fix' : '');
-  svg+=`<text x="${W/2}" y="${H-6}" fill="#8b98a9" font-size="11" text-anchor="middle">${esc(cap)}</text>`;
-  return `<div class="link-d"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" `
-       + `role="img" aria-label="link diagram">${svg}</svg></div>`;
+  // for both put a false claim about a message's history on a public page.
+  let rows='';
+  if(hops==null)
+    rows+=row('path', x.hop_start===undefined
+      ? 'unknown — this message predates routing capture'
+      : 'unknown — no usable hop count was recorded for this message');
+  else if(hops===0)
+    rows+=row('path','direct — Cal heard the sending radio itself, with no relay in between');
+  else{
+    rows+=row('path', hops+' hop'+(hops>1?'s':'')+' — relayed'
+      +(hops>1?', and only the last relay is identified':''));
+    if(relayId)
+      rows+=row('last relay','id ends <code>'+esc(relayId)+'</code> — one byte of the node number that '
+        +'relayed it, which narrows the candidates but does not identify a node');
+  }
+  // The signal belongs to the LAST hop and nothing else. Stating that plainly matters: a message
+  // relayed from close by arrives strong no matter how far the sender is, and reading it as
+  // "nearby" is the natural mistake.
+  if(x.snr!=null)
+    rows+=row('final leg','snr '+esc(x.snr)+(x.rssi!=null?' · rssi '+esc(x.rssi)+' dBm':'')
+      +' — measured on the last hop only'+(hops>0?', which came from the relay, not the sender':''));
+  // A recovered count was reconstructed after the fact, not measured at capture. It is sound —
+  // the arithmetic is forced once hop_start is known — but it is not the same kind of fact, and
+  // the page should not blur the two.
+  if(x.hops_recovered)
+    rows+=row('note','hop count recovered from a record predating the capture fix — reconstructed, not measured at the time');
+  return diagram+rows;
 }
 function traceHtml(x){
   const t=x.trace||{};
@@ -1166,7 +1203,7 @@ function exchangeHtml(x){
     <div class="norep">↳ not a reply — Cal transmitted this with no inbound ask${x.source==='responder'?', or the ask is older than the window shown':''}</div></div>`;
   return `
     <div class="xc"><div class="meta"><span class="tag rx">RX</span>
-      <span>${daystamp(x.ts)} ${hhmmss(x.ts)}</span><span>${esc(x.from)} → ${esc(x.to)}</span>
+      <span>${daystamp(x.ts)} ${hhmmss(x.ts)}</span><span>${x.from?esc(x.from):'unknown sender'} → ${esc(x.to)}</span>
       <span class="tag ch">ch${esc(x.channel)}</span>${x.snr!=null?`<span>snr ${esc(x.snr)}</span>`:''}
       ${verdictTag(x)}</div>
     <div class="ask">${esc(x.text)}</div>
