@@ -246,6 +246,43 @@ on explicit operator go.**
 
 ---
 
+## 9a. Addendum, 2026-08-11 — two of this tier's controls rested on broken data
+
+Added after a review of the live exchange stream, before any of this was built. Kept in the
+doc rather than quietly fixed, because the near-miss is the useful part.
+
+**What was wrong.** Two capture bugs in the bridge, both silent:
+
+- The **sender's id** was dropped for any node not yet in the local node database — i.e. at
+  **first contact**. A "Hi" on 2026-08-11 was logged from nobody; the sender's introduction
+  arrived eleven minutes later and it had been `!ba0cc0c0` all along.
+- The **hop count** was recorded as unknown for any packet that used its entire hop budget,
+  because the radio library's dict view omits a `hop_limit` of zero. The most-relayed packets
+  were exactly the ones being discarded.
+
+**Why it matters here specifically.** This tier is *defined* by first contact. §4 replies by DM
+to the sender's id, and §5 budgets per sender id — both key on the one field that was
+systematically missing for precisely this population. §5's "direct-heard preference — reply only
+to nodes heard at 0 hops" rested on a hop count that was null on 14 of 15 records, and null
+*specifically when the message had been relayed*, which is the case it exists to exclude. Built
+as written, on that data, the per-node budget would have collapsed every stranger into a single
+null bucket and the 0-hop control would have failed toward whichever default the comparison
+happened to pick.
+
+Both bugs are fixed and guarded by `eval_routing.py`. The controls are viable as specified.
+
+**The general lesson, which outlives this tier.** Every control in §5 is a claim about a *field*.
+A spec that reasons about behavior without checking that the underlying field is actually
+populated — and populated for the population it targets — is not yet a spec. The bugs were
+invisible to inspection and produced plausible output; they were found only by comparing Cal's
+log against a second, independent receiver's log of the same air. **Before building a control,
+verify its input on real captured data, for the specific senders it will govern.**
+
+**Unchanged by this:** node ids remain unauthenticated and spoofable, so the global budget is
+still the real control and the per-node limit is still only good manners (§5).
+
+---
+
 ## 10. Relation to the other docs
 
 `channel-trust-and-agency.md` grades the **private** tier by forge-damage; this grades the
