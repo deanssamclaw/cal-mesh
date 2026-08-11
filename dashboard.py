@@ -953,7 +953,11 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
       radio; anything above zero means other nodes relayed it. Where the firmware reports a relay it
       gives only <b>one byte</b> of that node's id — enough to narrow the candidates, not to name one —
       so it's shown truncated and never resolved to a name. The sender's box is coloured by what Cal
-      did with the message, so the diagram and the verdict can't disagree.</div></details>
+      did with the message, so the diagram and the verdict can't disagree.
+      <br><br>The hop count is sometimes genuinely unknown, and the caption says which kind of unknown
+      it is: a message received before this feature existed, or one where the sender reported nothing
+      usable. It will not claim a reason it can't support — it did exactly that until 2026-08-11, and
+      the changelog says how.</div></details>
     <details><summary>Why isn't it a real map?</summary><div class="a">
       Because this page is public and the base station sits at a fixed private address — a pin would
       publish it, and a series of pins would publish movements. So the diagram shows <b>topology</b>
@@ -988,6 +992,8 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-11</span><b>Two capture bugs, and a caption that confidently explained one of them wrongly.</b> Every message received since 2026-08-09 was showing "hops unknown — this message predates routing capture". The messages did not predate anything: the hop count is <i>hop_start</i> minus <i>hop_limit</i>, and the radio library builds its packet view with a converter that omits any number equal to zero — so a message that used its <b>entire</b> hop budget arrived with <i>hop_limit</i> missing and was recorded as "no data", indistinguishable from a message that carried no routing at all. The most-relayed messages were the ones being thrown away. Worse was the caption: one asserted cause printed for a blank that has several. It now states only what the record supports, and older messages that genuinely predate the feature still say so.</div>
+      <div class="ci"><span class="cd">2026-08-11</span><b>Cal was dropping the sender's ID on first contact.</b> The library resolves a node's <code>!id</code> through its list of known nodes and returns nothing for a node it has not yet been introduced to — while the packet itself carries that node's number the entire time. So the ID went missing exactly when a stranger spoke to Cal for the first time. Measured here: a "Hi" on 2026-08-11 was logged from nobody; the sender's introduction arrived eleven minutes later and it was <code>!ba0cc0c0</code> all along. The bridge now falls back to the number the packet carries. Node IDs remain unauthenticated and spoofable — that has not changed and cannot.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>Forecast questions are now refused, not answered.</b> Asking about tonight, tomorrow, or whether it's going to rain used to return <i>current</i> conditions — a present-tense reading dressed as a prediction. Cal now recognises a forecast-shaped question deterministically and replies "Only current conditions, no forecast yet," making no lookup at all.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>FAQ rewritten and grouped.</b> It assumed you already knew what a mesh network, Meshtastic and LoRa were, and never said why an AI on a radio is worth building. It now starts from those, explains how the project got here in stages, and links out to the source and to the design proposals — including the arguments that lost.</div>
       <div class="ci"><span class="cd">2026-08-09</span><b>Link diagram in every trace.</b> Shows the path a message took — sender, any relay, Cal HT — with the hop count and the signal on the last leg. The bridge now records per-message routing (hops taken, and the one-byte relay id when the firmware supplies it); messages received before that show "hops unknown" rather than implying they were direct. It is a topology diagram, not a geographic one, on purpose — see the FAQ.</div>
@@ -1083,7 +1089,16 @@ function linkSvg(x){
        +`<text x="${bx+bw/2}" y="${by+34}" fill="#8b98a9" font-size="10.5" text-anchor="middle">${s.sub}</text>`;
     prevX=bx;
   });
-  const cap = hops==null ? 'hops unknown — this message predates routing capture'
+  // A null hop count has more than one cause and they are not interchangeable. Records written
+  // before routing capture shipped (2026-08-09) carry no hop_start KEY AT ALL; records written
+  // after always carry the key, even when its value is null. Saying "predates routing capture"
+  // for both put a false claim about a message's history on a public page — it read that way
+  // for every message received after 2026-08-09, because a fully-relayed packet was being
+  // recorded as unknown (see bridge.hops_taken). State only what the record supports.
+  const cap = hops==null
+        ? (x.hop_start===undefined
+             ? 'hops unknown — this message predates routing capture'
+             : 'hops unknown — no usable hop count was recorded for this message')
             : (hops===0 ? 'direct — heard straight from the sender, no relay'
                         : hops+' hop'+(hops>1?'s':'')+' — relayed'+(x.relay_byte!=null
                             ? ', last relay id ends ·'+x.relay_byte.toString(16).padStart(2,'0')+' (one byte — narrows, does not identify)'

@@ -96,28 +96,72 @@ def trim_file(path, keep):
         log(f"trim err {path}: {e!r}")
 
 
+BROADCAST_NUM = 0xffffffff
+
+
+def node_id(num, given):
+    """A node's '!hex' id, falling back to the node NUMBER the packet always carries.
+
+    The library resolves fromId/toId through its node database (`_nodeNumToId`), which returns
+    None for a node we have not yet received a NodeInfo from — even though the raw `from` field
+    in the same packet holds that node's number the whole time. So the id goes missing exactly
+    at FIRST CONTACT, which is the moment we most want it: a stranger's opening message is by
+    definition from a node not yet in the database. Measured live 2026-08-11: 'Hi' recorded
+    from=None at 13:57:32; the sender's NodeInfo arrived 11 minutes later and it resolved to
+    !ba0cc0c0 (rflab, which already knew the node, logged the id correctly at the time).
+
+    '!%08x' is the same mapping the library uses, so a fallback id is indistinguishable from a
+    resolved one — and, like every id on this mesh, still unauthenticated and spoofable."""
+    if given:
+        return given
+    if not isinstance(num, int) or num <= 0:
+        return None
+    return "^all" if num == BROADCAST_NUM else f"!{num:08x}"
+
+
+def hops_taken(packet):
+    """(hops, hop_start, hop_limit) — how far a packet actually travelled, or None if unknown.
+
+    hop_limit is decremented by each relay, so hops = hop_start - hop_limit. The trap: the
+    library builds its packet dict with `MessageToDict`, which OMITS proto3 scalars equal to
+    their default. A packet that used its ENTIRE hop budget has hop_limit 0, so the key simply
+    is not there — and a naive `isinstance(hl, int)` guard reads the most-relayed packets as
+    "no routing data", identical to a packet that carried none. Verified against the library:
+    hop_start=3/hop_limit=0 yields dict keys ['hopStart'] only.
+
+    hop_start is the discriminator. A sender that populates it is a sender whose hop_limit is
+    meaningful, so a missing hop_limit *there* means 0. With hop_start itself absent or 0 we
+    genuinely know nothing, and must return None rather than a made-up 0, which would render
+    as "direct — heard straight from the sender" and be a lie."""
+    hs = packet.get("hopStart")
+    hl = packet.get("hopLimit")
+    if not isinstance(hs, int) or hs <= 0:
+        return None, hs, hl                      # no routing information at all
+    if hl is None:
+        hl = 0                                   # omitted by MessageToDict == fully relayed
+    if not isinstance(hl, int) or not 0 <= hl <= hs:
+        return None, hs, packet.get("hopLimit")  # nonsense — say unknown, don't guess
+    return hs - hl, hs, hl
+
+
 def on_receive(packet=None, interface=None):
     try:
         if not packet:
             return
         # Record SNR from EVERY received packet (telemetry/position/text) — real
         # signal samples per node over time, feeding the dashboard sparklines.
-        frm = packet.get("fromId")
+        frm = node_id(packet.get("from"), packet.get("fromId"))
         snr = packet.get("rxSnr")
         if frm and snr is not None:
             append_snr(frm, snr)
         d = packet.get("decoded") or {}
         if d.get("portnum") != "TEXT_MESSAGE_APP":
             return
-        # Routing: hops TAKEN = hopStart - hopLimit (hopLimit is decremented by each relay).
-        # Guarded — a packet missing either field, or with nonsense values, records None
-        # rather than a made-up 0, which would read as "direct" and be a lie.
-        hs, hl = packet.get("hopStart"), packet.get("hopLimit")
-        hops = (hs - hl) if isinstance(hs, int) and isinstance(hl, int) and hs >= hl else None
+        hops, hs, hl = hops_taken(packet)
         # relayNode is a ONE-BYTE truncation of the last relayer's node number, so it narrows
         # the candidates but does not identify a node. Stored raw; never resolved to a name.
         relay = packet.get("relayNode")
-        rec = {"ts": now(), "from": packet.get("fromId"), "to": packet.get("toId"),
+        rec = {"ts": now(), "from": frm, "to": node_id(packet.get("to"), packet.get("toId")),
                "channel": packet.get("channel", 0), "text": d.get("text", ""),
                "snr": packet.get("rxSnr"), "rssi": packet.get("rxRssi"),
                "id": packet.get("id"),
