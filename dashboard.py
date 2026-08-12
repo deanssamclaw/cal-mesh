@@ -1656,21 +1656,42 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
    assembly order that runs once when a trace is opened. */
 .tp{background:linear-gradient(180deg,#f7f9fc,#eef2f7);border-radius:12px;
 box-shadow:inset 0 2px 5px rgba(22,27,34,.05),0 1px 0 #fff}
-.swap{position:relative;grid-template-columns:minmax(0,1fr) 108px minmax(0,1fr);gap:12px 0}
-.swap svg.wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
-.sw{position:relative;z-index:1;border-radius:11px;padding:10px 13px;
+/* The chain, left to right. Boxes are numbered because the whole point is the ORDER:
+   a reader who does not know how this works needs to see that the question caused the lookup. */
+.flow{display:grid;align-items:center;margin:2px 0 4px;
+grid-template-columns:minmax(0,1fr) 104px minmax(0,1.02fr) 118px minmax(0,1fr)}
+.flow.gen{grid-template-columns:minmax(0,1fr) 150px minmax(0,1fr)}
+.fb{position:relative;z-index:1;border:1px solid var(--line);border-radius:11px;padding:10px 13px;
 background:linear-gradient(180deg,#fff,#fbfcfe);
 box-shadow:0 1px 2px rgba(22,27,34,.05),0 6px 16px -8px rgba(22,27,34,.22)}
-.sw.cut{background:linear-gradient(180deg,#fcfdfe,#f6f8fa);box-shadow:none}
-.sw.i-fact{border-color:#a7e3b6;background:linear-gradient(180deg,#f4fdf7,#eaf9ef);
+.fk{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--dim)}
+.fv{font-size:13px;margin-top:5px;line-height:1.45;word-break:break-word}
+.fn{font-size:10.5px;margin-top:6px;color:var(--dim);line-height:1.42}
+.fb.b2{border-color:#a7e3b6;background:linear-gradient(180deg,#f4fdf7,#eaf9ef);
 box-shadow:0 1px 2px rgba(26,127,55,.10),0 8px 20px -10px rgba(26,127,55,.35)}
-.sw.i-fact .swv{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
-.sw.i-out{border-color:#d5c6f3;background:linear-gradient(180deg,#fbf8ff,#f5effd);
+.fb.b2 .fv{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.fb.b3{border-color:#d5c6f3;background:linear-gradient(180deg,#fbf8ff,#f5effd);
 box-shadow:0 1px 2px rgba(102,57,186,.10),0 8px 20px -10px rgba(102,57,186,.35)}
-.sw.i-out .swv{font-size:14.5px;font-weight:600}
-.cutlbl{position:absolute;z-index:2;font-size:9px;font-weight:700;letter-spacing:.6px;
-text-transform:uppercase;color:var(--bad);background:var(--card);padding:2px 5px;border-radius:4px;
-border:1px solid #f3c7cb;transform:translate(-50%,-50%);white-space:nowrap}
+.fb.b3 .fv{color:var(--tx);font-weight:600;font-size:14px}
+.onair{color:var(--ok);font-weight:600}
+/* arrows: straight, because every box shares a centre line — no measurement needed */
+.arw{position:relative;height:3px;border-radius:2px;
+background:linear-gradient(90deg,#cbd4de,var(--ok));transform-origin:left center}
+.arw::after{content:"";position:absolute;right:-1px;top:-5.5px;border:6px solid transparent;
+border-left-color:var(--ok);border-right:0}
+.arw>span{position:absolute;left:0;right:0;bottom:9px;font-size:9.5px;color:var(--dim);
+text-align:center;line-height:1.3}
+/* the boundary: the one surprising fact, stated once, on the line it describes */
+.cross{position:relative;align-self:stretch;display:flex;align-items:center}
+.cross::before{content:"";position:absolute;left:50%;top:0;bottom:0;margin-left:-1px;
+border-left:2px dashed #d9a7ad}
+.cross .arw{flex:1;margin:0 6px}
+.cross .bl{position:absolute;left:50%;top:2px;transform:translateX(-50%);background:var(--card);
+border:1px solid #f0cdd1;border-radius:6px;padding:3px 7px;font-size:8.5px;font-weight:700;
+text-transform:uppercase;letter-spacing:.5px;color:var(--bad);text-align:center;white-space:nowrap}
+.flowcap{font-size:11.5px;color:var(--dim);line-height:1.55;margin:10px 0 14px;max-width:88ch;
+padding-left:2px}
+.flowcap b{color:var(--fg);font-weight:650}
 .stg{padding:0 0 13px 30px}
 .stg::before{left:6.5px;top:17px;width:3px;border-radius:2px;
 background:linear-gradient(180deg,#cfd7e1,#dde3ea)}
@@ -1700,16 +1721,16 @@ box-shadow:0 0 0 2px #fff,0 1px 3px rgba(22,27,34,.4);transition:left .7s cubic-
 /* assembly: runs once per open, never on the 3s refresh */
 .tp.anim .stg>.sdot{transform:scale(.4);opacity:0;animation:sdotpop .45s cubic-bezier(.34,1.56,.64,1) forwards}
 @keyframes sdotpop{to{transform:scale(1);opacity:1}}
-.tp.anim .cutlbl{opacity:0;animation:cutsnap .3s ease forwards}
-@keyframes cutsnap{from{opacity:0;transform:translate(-50%,-50%) scale(.6)}
-to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+.tp.anim .arw{transform:scaleX(0);animation:arwgrow .5s cubic-bezier(.22,1,.36,1) forwards}
+@keyframes arwgrow{to{transform:scaleX(1)}}
+.tp.anim .cross .bl{opacity:0;animation:blfade .35s ease forwards;animation-delay:.45s}
+@keyframes blfade{to{opacity:1}}
 @media(prefers-reduced-motion:reduce){
-.tp.anim .stg>.sdot,.tp.anim .cutlbl{animation:none;opacity:1;transform:scale(1)}
-.tp.anim .cutlbl{transform:translate(-50%,-50%)}
+.tp.anim .stg>.sdot,.tp.anim .arw,.tp.anim .cross .bl{animation:none;opacity:1;transform:none}
 .track .mk{transition:none}}
 @media(max-width:700px){
-.swap{grid-template-columns:minmax(0,1fr)}
-.swap svg.wires,.cutlbl{display:none}}
+.flow,.flow.gen{grid-template-columns:minmax(0,1fr)}
+.arw,.cross{display:none}}
 </style></head>
 <body>
 <header>
@@ -1841,14 +1862,14 @@ to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
       fit that shape and are marked separately — <b>unprompted</b> sends (an operator message, with no
       ask above it) and messages overheard but never addressed to Cal.</div></details>
     <details><summary>What's in the decision trace?</summary><div class="a">
-      Open <b>trace</b> on any exchange and you get two pictures. First, <b>where the reply came
-      from</b>: the message that arrived on the left, the reply that went out on the right, and — when
-      Cal answered using a real capability — the <b>fact</b> the software fetched sitting between them.
-      The line from the message to the reply is <b>cut</b>, because on those answers the sender's words
-      are never handed to the model at all. They only decide <i>which</i> fact to go and look up; the
-      fact is what the model receives, and its only job is to put that into words. On an ordinary reply
-      with no capability behind it the picture inverts — nothing is cut, because the message really is
-      quoted to the model.
+      Open <b>trace</b> on any exchange and you get two pictures. First, <b>the chain that produced
+      the reply</b>, read left to right and numbered: the question that arrived, then what Cal's
+      software went and fetched because of it, then what the model wrote. The question is
+      <b>received normally</b> — it does real work, because it is what decided which fact to look up —
+      but it stops at the dashed line. <b>Only the fetched fact crosses</b> into the model, whose
+      entire job is to put that fact into words. That is why Cal cannot invent a temperature. On an
+      ordinary reply with no lookup behind it there is no dashed line, because the model really was
+      given the message itself.
       <br><br>Below it, the <b>stages in the order they happened</b>: received, gated, sanitized,
       grounded, narrated, sent. Each carries its own detail — which checks passed and which one stopped
       it, what the sanitizer changed, which weather station the reading came from and how old it was,
@@ -1908,6 +1929,7 @@ to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-12</span><b>The top of the trace was telling people their message had failed.</b> It drew the sender's own words struck through, with <b>NOT SENT</b> beside them. That was meant to say "not forwarded to the model" — but to anyone who did not already know how this works it reads as <i>your message did not send</i>, which is the opposite of the truth: it arrived perfectly, and it is the very thing that caused the lookup to happen. The picture also never showed where the fetched fact came from, so the reply appeared out of nowhere with no visible connection to the question. It is now a numbered chain read left to right — the question arrives and <b>chooses what to look up</b>, the software fetches a real observation, and only that observation crosses a marked line into the model. Nothing is struck through, because nothing was discarded. The clever part of the old drawing was the curved wires; they were sophistication in the service of a layout that misled, and a straight line that reads correctly beats a bezier that does not.</div>
       <div class="ci"><span class="cd">2026-08-12</span><b>v3 — the trace is drawn with depth.</b> Same record and the same claims as <code>old-2</code>, drawn as a mechanism that runs rather than a list that sits. The two connectors are now <b>measured</b> from real box geometry and curve so they actually land on the reply, with the cut drawn as a genuine break in one of them. Surfaces carry elevation: the panel is a recessed well, the fetched fact and the reply sit on raised planes, and the message that was never forwarded is flat and unlit — so the hierarchy is visible rather than announced. The signal stopped being two bare numbers: <b>rssi</b> and <b>snr</b> are drawn against the range a LoRa link actually lives on, which is how you can see at a glance that this message arrived strong, and why it was heard direct. And the stages now <b>assemble in the order they ran</b> when a trace is opened, once per open — a trace records something that happened in time, and drawing it as furniture was the flattest thing about it. The colour ramp under the instruments is a single hue by rule: an ordered quantity gets one hue light to dark, never a red-amber-green rainbow, which is both a rainbow ramp and a pair that sits about 1.5 units apart under the commonest form of colour blindness.</div>
       <div class="ci"><span class="cd">2026-08-12</span><b>The trace shows what happened instead of listing it.</b> It was thirteen rows of grey label and value, which gave a passed check, a station reading and the words that went out over the air exactly the same weight — and buried the one thing a trace is actually about, which is the order things happened in. Two changes. <b>The reply is now drawn as what it is:</b> two things compete to become the answer, the sender's own words and a fact the software fetched, and on a capability answer the sender's words are visibly <b>cut</b> — they select which fact to look up and are never handed to the model. When there is no capability the same picture inverts honestly: the message is quoted to the model and nothing is cut. <b>Below it the stages run down a spine in the order they happen</b> — received, gated, sanitized, grounded, narrated, sent. A message that fails a check stops the spine where it failed, the rail below it goes dashed, and the stages it never reached are drawn unreached rather than left out. That is read off the record, not assumed: a gated-out decision carries no sanitizer result, no fact, no model and no destination. Two numbers now have a scale under them rather than standing alone — how old the weather reading was against the hour these stations report on, and how long generation took against the <b>7-44 s</b> the same prompt was measured spanning. A closed trace is also no longer built at all, so opening one costs the work rather than every message paying it every three seconds.</div>
       <div class="ci"><span class="cd">2026-08-12</span><b>The page is light now.</b> Same information and the same layout, on a light palette instead of the dark one it launched with. Two colours had to be re-picked rather than reused: the green and amber that read clearly against a dark background land near a third of the required contrast on a white one, so they are now darker shades of the same hues. The link diagram needed a pass of its own — its colours are written into the drawing code rather than read from the page palette, so swapping the palette alone would have left dark boxes and dark labels sitting on a white card, which is exactly the kind of change that looks finished until someone opens a trace. <b>The retired version at <code>old-1</code> is deliberately still dark.</b> It is kept as a record of what the page used to be, and restyling it would make that record wrong.</div>
@@ -2086,58 +2108,39 @@ function linkSvg(x){
 // sender's own words are never handed to the model at all. That is the single least obvious
 // thing about this system and it was previously one clause inside a grey row. Drawn instead:
 // two inputs compete to become the reply, and one of them is visibly cut.
-function swapHtml(x,t,uid){
+function flowHtml(x,t){
   const inTxt=esc(x.text||''), outTxt=esc(x.reply||'');
   if(!outTxt) return '';
   const capability=!!t.injected_fact;
-  const inBox=`<div class="sw i-in${capability?' cut':''}">`
-    +`<div class="swk">message in</div><div class="swv">${inTxt}</div>`
-    +`<div class="swn">${capability
-      ? 'never handed to the model — it only selected which fact to look up'
-      : 'sanitized, then quoted to the model'}</div></div>`;
-  const outBox=`<div class="sw i-out"><div class="swk">reply out</div>`
-    +`<div class="swv">${outTxt}</div>`
-    +`<div class="swn">${esc(t.dest||'')} · 5-7 words, because every node in range shares the airtime</div></div>`;
-  const wires=`<svg class="wires" aria-hidden="true"></svg>`;
+  const arrow=(label)=>`<span class="arw"><span>${label}</span></span>`;
+  // "received on air" is stated outright. The previous drawing put NOT SENT beside the sender's
+  // own message, which reads as "your message failed" to anyone who does not already know that
+  // it meant "not forwarded to the model".
+  const b1=`<div class="fb b1"><div class="fk">1 · the question</div>`
+    +`<div class="fv">${inTxt}</div>`
+    +`<div class="fn"><span class="onair">✓ received on air</span> — and it is what decided `
+    +`${capability?'which fact to look up':'how to reply'}</div></div>`;
+  const b3=`<div class="fb b3"><div class="fk">${capability?3:2} · what the model wrote</div>`
+    +`<div class="fv">${outTxt}</div>`
+    +`<div class="fn"><span class="onair">✓ sent on air to ${esc(t.dest||'')}</span> — 5-7 words, `
+    +`because every node in range shares the airtime</div></div>`;
   if(!capability)
-    return `<div class="swap" data-uid="${uid}">${wires}${inBox}${outBox}</div>`;
-  const factBox=`<div class="sw i-fact"><div class="swk">fact in</div>`
-    +`<div class="swv">${esc(t.injected_fact)}</div>`
-    +`<div class="swn">measured${t.obs_station?' at station '+esc(t.obs_station):''}`
-    +`${t.obs_age_s!=null?', '+Math.round(t.obs_age_s/60)+' min before the reply':''}`
-    +` — injected verbatim, and the model may only put it into words</div></div>`;
-  return `<div class="swap" data-uid="${uid}">${wires}<div class="cutlbl">not sent</div>`
-    +`${inBox}${factBox}${outBox}</div>`;
-}
-// The wires are MEASURED, not approximated: real box geometry in, bezier out, so they actually
-// land on the reply instead of pointing near it. Re-run on resize; the layout decides the path.
-function drawWires(swap){
-  const svg=swap.querySelector('svg.wires'); if(!svg) return;
-  const q=c=>swap.querySelector('.sw.'+c);
-  const box=el=>{const s=swap.getBoundingClientRect(),r=el.getBoundingClientRect();
-    return {t:r.top-s.top,l:r.left-s.left,w:r.width,h:r.height};};
-  const inb=q('i-in'), fac=q('i-fact'), out=q('i-out');
-  if(!inb||!out) return;
-  const o=box(out), ox=o.l, oy=o.t+o.h/2;
-  const path=b=>{const a=box(b),x1=a.l+a.w,y1=a.t+a.h/2,x2=ox-9,mx=(x1+x2)/2;
-    return `M${x1} ${y1} C${mx} ${y1}, ${mx} ${oy}, ${x2} ${oy}`;};
-  const uid=swap.dataset.uid||'u';
-  const head=`<defs><marker id="wa-${uid}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" `
-    +`markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#1a7f37"/></marker></defs>`;
-  let body='';
-  if(fac){
-    body+=`<path class="w-cut" d="${path(inb)}" fill="none" stroke="#b9c2cd" stroke-width="2.5" `
-      +`stroke-dasharray="6 6" stroke-linecap="round"/>`
-      +`<path class="w-live" d="${path(fac)}" fill="none" stroke="#1a7f37" stroke-width="2.5" `
-      +`stroke-linecap="round" marker-end="url(#wa-${uid})"/>`;
-  } else {
-    body+=`<path class="w-live" d="${path(inb)}" fill="none" stroke="#1a7f37" stroke-width="2.5" `
-      +`stroke-linecap="round" marker-end="url(#wa-${uid})"/>`;
-  }
-  svg.innerHTML=head+body;
-  const lbl=swap.querySelector('.cutlbl'), cut=svg.querySelector('.w-cut');
-  if(lbl&&cut){const L=cut.getTotalLength(), m=cut.getPointAtLength(L/2);
-    lbl.style.left=m.x+'px'; lbl.style.top=m.y+'px';}
+    return `<div class="flow gen">${b1}${arrow('sanitized, then given<br>to the model')}${b3}</div>`
+      +`<div class="flowcap">Nothing was looked up for this one, so the model was given `
+      +`<b>the message itself</b> and wrote a reply from it.</div>`;
+  const st=t.obs_station?esc(t.obs_station):null;
+  const age=t.obs_age_s!=null?Math.round(t.obs_age_s/60)+' min old':null;
+  const b2=`<div class="fb b2"><div class="fk">2 · what Cal's software fetched</div>`
+    +`<div class="fv">${esc(t.injected_fact)}</div>`
+    +`<div class="fn">a real observation${st?' from station '+st:''}${age?', '+age:''} — fetched by `
+    +`the software, never by the model</div></div>`;
+  return `<div class="flow">${b1}${arrow('read by Cal&rsquo;s<br>software')}${b2}`
+    +`<span class="cross"><span class="bl">only this crosses</span>`
+    +`${arrow('')}</span>${b3}</div>`
+    +`<div class="flowcap">Read left to right. The question arrived fine and did real work — `
+    +`<b>it chose what to look up</b> — but it never reached the model. Cal&rsquo;s software went and `
+    +`got the observation, and <b>only that observation</b> crossed the dashed line. The model&rsquo;s `
+    +`entire job was to put it into words, which is why it cannot invent a temperature.</div>`;
 }
 function gauge(name,val,pct,ends,band,note){
   return `<div class="gauge"><div class="glab"><span class="gname">${name}</span>`
@@ -2219,15 +2222,13 @@ function spineHtml(x,t){
 // (the swap), then the machinery stage by stage (the spine). The old flat key/value list gave a
 // gate check, a station reading and the transmitted reply the same weight and the same grey
 // label, which left the sequence — the only thing the trace is actually about — invisible.
-let UID=0;
 function traceHtml(x){
   const t=x.trace||{};
-  const uid='u'+(++UID);
   if(!t.gates&&!t.sanitize&&!t.model){
     const l=(x.kind==='exchange')?linkSvg(x):null;
     return `<div class="tp">${l?l.diagram+l.rows:''}`+
       '<div class="tnone">No decision trace recorded — this message predates it.</div></div>';}
-  let h=swapHtml(x,t,uid)+spineHtml(x,t);
+  let h=flowHtml(x,t)+spineHtml(x,t);
   h+='<div class="tnote">This is the machinery, not the model\'s reasoning. Generation returns plain '
    +'text with no chain of thought, and asking for a narration would produce a plausible story rather '
    +'than an account of what actually happened — so it is not shown.</div>';
@@ -2354,30 +2355,22 @@ document.querySelectorAll('#oldlink,#oldlink2').forEach(a=>{a.href=DIR+'old-2';}
 // A closed trace is not built. Every exchange used to render its full trace on every 3s pass
 // whether or not anyone had opened it, which put a hard ceiling on how rich a trace could get.
 // Bodies are now filled on first open and rebuilt by the normal render while they stay open.
-// Wires need real layout, so they are drawn after the body is in the document. The assembly
-// runs once per OPEN and is keyed separately from OPEN itself, because the 3s refresh rebuilds
-// an open trace's markup — without this the animation would restart every three seconds.
+// The assembly runs once per OPEN and is keyed separately from OPEN itself, because the 3s
+// refresh rebuilds an open trace's markup — without this it would restart every three seconds.
+// Nothing is measured from layout any more: the boxes share a centre line, so the arrows are
+// straight and the geometry is the grid's problem, not ours.
 const ANIMATED=new Set();
 function hydrate(el,k,animate){
   const tp=el.querySelector('.tp'); if(!tp) return;
-  el.querySelectorAll('.swap').forEach(drawWires);
   if(!animate||ANIMATED.has(k)) return;
   ANIMATED.add(k);
   tp.classList.add('anim');
-  tp.querySelectorAll('.stg>.sdot').forEach((d,i)=>{d.style.animationDelay=(90+i*120)+'ms';});
-  const lbl=tp.querySelector('.cutlbl'); if(lbl) lbl.style.animationDelay='150ms';
-  tp.querySelectorAll('svg.wires path').forEach(p=>{
-    const L=p.getTotalLength(); if(!L) return;
-    const keep=p.getAttribute('stroke-dasharray');
-    p.animate([{strokeDasharray:L+' '+L,strokeDashoffset:L},{strokeDasharray:L+' '+L,strokeDashoffset:0}],
-      {duration:620,easing:'cubic-bezier(.22,1,.36,1)'})
-     .onfinish=()=>{if(keep)p.setAttribute('stroke-dasharray',keep);else p.removeAttribute('stroke-dasharray');};
-  });
+  tp.querySelectorAll('.arw').forEach((a,i)=>{a.style.animationDelay=(60+i*160)+'ms';});
+  tp.querySelectorAll('.stg>.sdot').forEach((d,i)=>{d.style.animationDelay=(420+i*120)+'ms';});
 }
 function hydrateOpen(){
   document.querySelectorAll('#exchanges details.tr[open]').forEach(el=>hydrate(el,el.dataset.k,false));
 }
-addEventListener('resize',hydrateOpen);
 $('#exchanges').addEventListener('toggle', e=>{
   const el=e.target;
   if(!el.matches||!el.matches('details.tr')) return;
