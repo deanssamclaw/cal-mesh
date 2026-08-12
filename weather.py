@@ -211,6 +211,36 @@ def _to_mph(v, unit):
     return None
 
 
+# Apparent temperature — how hot or cold it FEELS, which is the number a person acts on and
+# can differ from air temperature by a lot. NWS publishes `heatIndex` when it is hot and
+# `windChill` when it is cold, nulling whichever does not apply. Both arrive in degC and must
+# go through _to_F, whose conversion is driven by the declared unitCode, so a unit change
+# cannot silently produce a wrong-but-plausible number (the windGust km_h-1 near-miss of
+# 2026-08-10, where a 25 mph gust nearly went out as 91 mph).
+#
+# Only reported when it differs from air temperature by at least this much. Below that it
+# spends words on nothing a person would do anything differently about, and on a 5-7 word
+# radio message every word displaces another. Measured 2026-08-11 at the station Cal uses:
+# 95F air, 107F heat index — a 12F gap, and NWS "Danger" territory.
+_APPARENT_MIN_DELTA_F = 3
+
+
+def apparent_temp(p, tF):
+    """(label, degreesF) for heat index or wind chill when it MATERIALLY differs from air
+    temperature, else None. `p` is the observation's properties dict, `tF` air temp in F.
+
+    Heat index is checked first: the two are mutually exclusive in practice, and being wrong
+    about heat is the more dangerous direction."""
+    if tF is None:
+        return None
+    for name, key in (("heat index", "heatIndex"), ("wind chill", "windChill")):
+        x = p.get(key) or {}
+        v = _to_F(x.get("value"), x.get("unitCode"))
+        if v is not None and abs(v - tF) >= _APPARENT_MIN_DELTA_F:
+            return name, v
+    return None
+
+
 def obs_age_s(obs, now=None):
     """Seconds since the observation was taken, or None if it has no parsable timestamp."""
     ts = ((obs or {}).get("properties") or {}).get("timestamp")
@@ -251,12 +281,21 @@ def format_fact(obs, label="default", max_age_s=None, now=None):
     desc = (p.get("textDescription") or "").strip()
 
     tF, mph = _to_F(tv, tu), _to_mph(wv, wu)
+    app = apparent_temp(p, tF)
     parts = []
     if tF is not None:
         parts.append(f"{tF}F")
+    # Ranked, because the reply is 5-7 words and the model drops what does not fit (measured
+    # 4/4 at that length). When it feels 3F+ different from the air temperature, that IS the
+    # weather as far as a person outdoors is concerned, so it outranks wind and wind is left
+    # out of the fact entirely. This is the harness CHOOSING WHICH FACT to supply — never
+    # telling the model what to conclude — which is the rule both reviewers arrived at
+    # independently (docs/proposals/level3-weather-intent-layer.md §2).
+    if app:
+        parts.append(f"{app[0]} {app[1]}F")
     if desc:
         parts.append(desc)
-    if mph is not None:
+    if mph is not None and not app:
         parts.append(f"wind {_compass(dv)} {mph} mph" if dv is not None else f"wind {mph} mph")
     if not parts:
         return None

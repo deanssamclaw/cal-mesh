@@ -216,9 +216,16 @@ def build_prompt(sender_short, msg_text, weather_fact=None):
     sanitized. On the weather path the attacker's message is NOT echoed at all — the model
     sees only the harness-fetched fact, so there is no injected text (or fake number) beside it."""
     if weather_fact:
+        # "Numbers as digits" is a FORMATTING instruction, not steering: measured 2026-08-11,
+        # the same prompt returned "95F" once and "ninety five" the next time, and a spelled-out
+        # number costs three words of a seven-word budget — enough to push a second value out of
+        # the reply entirely. "Keep every number" asks for fidelity to the supplied fact; it
+        # never tells the model what to conclude, which is the line the intent-layer review drew.
         return (f'A user on the mesh asked about the weather. '
                 f'Current local weather, from a trusted source: {weather_fact}. '
                 f'Reply with the weather in 5-7 words using ONLY this data. '
+                f'Write numbers as digits (95F, not ninety five). '
+                f'Keep every number that appears in the data. '
                 f'If a needed value is missing, say you cannot reach weather.')
     return (f'A message just arrived on the mesh from {sender_short}: "{msg_text}". '
             f'Write your reply.')
