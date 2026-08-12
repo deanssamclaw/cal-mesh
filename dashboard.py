@@ -715,20 +715,21 @@ loadSnr(); tick(); setInterval(tick,3000); setInterval(loadSnr,30000);
 PAGE_V2 = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
 <title>cal-mesh — levers (v2)</title>
 <style>
-:root{--bg:#0c0f14;--card:#151a22;--card2:#1b222c;--line:#232c39;--fg:#e6edf3;
---dim:#8b98a9;--accent:#4ea1ff;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--tx:#a371f7;--rx:#3fb950;}
+:root{--bg:#f6f8fa;--card:#ffffff;--card2:#eef1f5;--line:#d6dce4;--fg:#1a1f26;
+--dim:#5c6672;--accent:#0a63c9;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--tx:#6639ba;--rx:#1a7f37;}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
 font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 header{display:flex;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--line);
-position:sticky;top:0;background:linear-gradient(180deg,#0c0f14,#0c0f14ee);backdrop-filter:blur(6px);z-index:5}
+position:sticky;top:0;background:linear-gradient(180deg,#f6f8fa,#f6f8faee);backdrop-filter:blur(6px);z-index:5}
 header h1{font-size:17px;margin:0;letter-spacing:.3px}
 header .sub{color:var(--dim);font-size:12px}
 .pill{margin-left:12px;padding:5px 12px;border-radius:999px;font-weight:600;font-size:12px}
-.pill.ok{background:#12351f;color:var(--ok);border:1px solid #1c5c30}
-.pill.bad{background:#3a1618;color:var(--bad);border:1px solid #6e2327}
+.pill.ok{background:#dafbe1;color:var(--ok);border:1px solid #aceebb}
+.pill.bad{background:#ffebe9;color:var(--bad);border:1px solid #ffcecb}
 .faqlink{color:var(--accent);text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap}
 .faqlink:hover{text-decoration:underline}
 .navlinks{margin-left:auto;display:inline-flex;gap:14px;align-items:center}
@@ -745,22 +746,22 @@ color:var(--dim);text-transform:uppercase;letter-spacing:.6px;display:flex;gap:8
 .card h2 .badge{background:var(--card2);color:var(--fg);padding:2px 8px;border-radius:6px;font-size:11px;font-variant-numeric:tabular-nums}
 .card h2 .badge.right{margin-left:auto}
 .tag{padding:1px 7px;border-radius:5px;font-size:11px;font-weight:600}
-.tag.tx{background:#241a3a;color:var(--tx)} .tag.rx{background:#12351f;color:var(--rx)}
-.tag.ch{background:#1a2740;color:var(--accent)} .tag.auto{background:#3a2a12;color:var(--warn)}
-.tag.offlist{background:#3a2f12;color:var(--warn);border:1px solid #6b5416}
-.tag.quiet{background:#2a2f38;color:var(--dim)}
+.tag.tx{background:#f3eefc;color:var(--tx)} .tag.rx{background:#dafbe1;color:var(--rx)}
+.tag.ch{background:#ddf4ff;color:var(--accent)} .tag.auto{background:#fff8c5;color:var(--warn)}
+.tag.offlist{background:#fff8c5;color:var(--warn);border:1px solid #d4a72c}
+.tag.quiet{background:#eef1f5;color:var(--dim)}
 /* --- exchanges --- */
 .xc{padding:14px 16px;border-bottom:1px solid var(--line)}
 .xc:last-child{border-bottom:0}
 .xc .meta{color:var(--dim);font-size:11px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:5px}
 .xc .ask{font-size:15px;word-break:break-word;max-width:78ch}
 .rep .txt,.norep{max-width:78ch}
-.xc.unprompted{background:#12161d}
-.rep{margin:9px 0 0 16px;padding:8px 12px;border-left:2px solid var(--tx);background:#171320;
+.xc.unprompted{background:#f0f3f7}
+.rep{margin:9px 0 0 16px;padding:8px 12px;border-left:2px solid var(--tx);background:#f7f4fd;
 border-radius:0 8px 8px 0}
 .rep .who{color:var(--dim);font-size:11px;display:block;margin-bottom:2px}
 .rep .txt{color:var(--tx);font-size:14px}
-.norep{margin:8px 0 0 16px;padding:7px 12px;border-left:2px solid var(--line);background:#11161d;
+.norep{margin:8px 0 0 16px;padding:7px 12px;border-left:2px solid var(--line);background:#f2f4f7;
 border-radius:0 8px 8px 0;color:var(--dim);font-size:12.5px}
 /* --- trace disclosure --- */
 details.tr{margin:10px 0 0 16px}
@@ -771,8 +772,8 @@ details.tr summary::-webkit-details-marker{display:none}
 details.tr summary::before{content:">";font-size:13px;font-weight:700;display:inline-block;
 transform-origin:50% 50%;transition:transform .15s ease}
 details.tr[open] summary::before{transform:rotate(90deg)}
-details.tr summary:hover{border-color:var(--accent);background:#1f2836}
-.tp{margin-top:7px;background:#10151c;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+details.tr summary:hover{border-color:var(--accent);background:#e4e9f0}
+.tp{margin-top:7px;background:#f4f6f9;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 .link-d{margin:2px 0 10px;max-width:620px}
 .link-d svg{width:100%;height:auto;display:block}
 .trow{display:flex;gap:10px;padding:3px 0;font-size:12px;align-items:baseline}
@@ -781,7 +782,7 @@ details.tr summary:hover{border-color:var(--accent);background:#1f2836}
 .tv code{background:var(--card2);padding:1px 5px;border-radius:4px;font-size:11.5px}
 .hint{color:var(--dim);font-size:11px}
 .gate{display:inline-block;margin:1px 4px 1px 0;padding:1px 6px;border-radius:4px;font-size:11px}
-.gp{background:#12351f;color:var(--ok)} .gf{background:#3a1618;color:var(--bad)}
+.gp{background:#dafbe1;color:var(--ok)} .gf{background:#ffebe9;color:var(--bad)}
 .tnote{margin-top:8px;padding-top:7px;border-top:1px solid var(--line);color:var(--dim);font-size:11px;line-height:1.5}
 .tnone{color:var(--dim);font-size:12px}
 table{width:100%;border-collapse:collapse}
@@ -800,7 +801,7 @@ td.snr-good{color:var(--ok)} td.snr-bad{color:var(--warn)}
 .dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
 footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 .empty{padding:16px;color:var(--dim);font-size:13px}
-.faq h3{margin:0;padding:14px 16px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent);border-bottom:1px solid var(--line);background:#12161d}
+.faq h3{margin:0;padding:14px 16px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent);border-bottom:1px solid var(--line);background:#f0f3f7}
 .faq .a a{color:var(--accent);text-decoration:none;font-weight:600}
 .faq .a a:hover{text-decoration:underline}
 .faq details{border-bottom:1px solid var(--line)}
@@ -1004,6 +1005,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-12</span><b>The page is light now.</b> Same information and the same layout, on a light palette instead of the dark one it launched with. Two colours had to be re-picked rather than reused: the green and amber that read clearly against a dark background land near a third of the required contrast on a white one, so they are now darker shades of the same hues. The link diagram needed a pass of its own — its colours are written into the drawing code rather than read from the page palette, so swapping the palette alone would have left dark boxes and dark labels sitting on a white card, which is exactly the kind of change that looks finished until someone opens a trace. <b>The retired version at <code>old-1</code> is deliberately still dark.</b> It is kept as a record of what the page used to be, and restyling it would make that record wrong.</div>
       <div class="ci"><span class="cd">2026-08-11</span><b>Two capture bugs, and a caption that confidently explained one of them wrongly.</b> Every message received since 2026-08-09 was showing "hops unknown — this message predates routing capture". The messages did not predate anything: the hop count is <i>hop_start</i> minus <i>hop_limit</i>, and the radio library builds its packet view with a converter that omits any number equal to zero — so a message that used its <b>entire</b> hop budget arrived with <i>hop_limit</i> missing and was recorded as "no data", indistinguishable from a message that carried no routing at all. The most-relayed messages were the ones being thrown away. Worse was the caption: one asserted cause printed for a blank that has several. It now states only what the record supports, and older messages that genuinely predate the feature still say so.</div>
       <div class="ci"><span class="cd">2026-08-11</span><b>Cal can tell you the heat index.</b> Asked for "current temperature and heat index", Cal answered the temperature, said nothing about the other half, and gave no sign anything had been left out — while the weather service was publishing a <b>107&deg;F</b> heat index against <b>95&deg;F</b> air in the very same reading. The software had never looked at the field. Heat index and wind chill are now included whenever they differ from the air temperature by at least 3&deg;F, and when they do they take the place of wind in the reply: at a twelve-degree gap, how hot it feels <i>is</i> the weather, and a five-to-seven word message cannot carry both. If the value ever arrives in a unit the software does not recognise it is dropped rather than converted on a guess — read as Fahrenheit instead of Celsius, that 107 becomes "42F" on a 95-degree afternoon. Checked by running it: eight replies, both numbers survived all eight times.</div>
       <div class="ci"><span class="cd">2026-08-11</span><b>Reply time is no longer shown as if it were thinking time.</b> Each exchange prints how long generation took, and a reader reasonably takes that as a measure of the model. It mostly is not. Measured here: a <i>one-token</i> reply through the same locked-down command costs <b>5.4–10.5 s</b>, while a full seven-word weather reply costs <b>7–44 s</b> — the <i>same prompt</i> varying about sixfold run to run. The floor is process startup and a network round trip; the spread is noise; the part attributable to composing seven words is small. The figure now carries that context instead of standing alone. Consequence worth stating plainly: choosing a larger model would be close to invisible in these numbers, because the time is not going where it looks like it is going.</div>
@@ -1093,9 +1095,9 @@ function linkSvg(x){
   // the verdict badge above. Green on an off-list sender read as "allowed" — backwards.
   const offlist = x.verdict==='skipped' && x.reason==='sender_not_allowed';
   const quiet   = x.verdict==='skipped' && !offlist;
-  const senderC = offlist ? {fill:'#3a2f12', stroke:'#6b5416'}      // matches the OFF-LIST tag
-                : quiet   ? {fill:'#11161d', stroke:'#3d4a5c'}
-                          : {fill:'#11161d', stroke:'#3fb950'};
+  const senderC = offlist ? {fill:'#fff8c5', stroke:'#d4a72c'}      // matches the OFF-LIST tag
+                : quiet   ? {fill:'#f2f4f7', stroke:'#8c96a3'}
+                          : {fill:'#f2f4f7', stroke:'#1a7f37'};
   const stops=[x.from
     ? {lab:esc(fitLabel(nodeName(x.from),15)), sub:esc(fitLabel(x.from,15)), fill:senderC.fill, stroke:senderC.stroke}
     : {lab:'unknown', sub:'no id recorded', fill:senderC.fill, stroke:senderC.stroke}];
@@ -1119,15 +1121,15 @@ function linkSvg(x){
     const bx=x0+i*(bw+gap);
     if(i>0){
       const x1=bx-gap+2, x2=bx-4;
-      svg+=`<line x1="${x1}" y1="${by+bh/2}" x2="${x2-6}" y2="${by+bh/2}" stroke="#3d4a5c" stroke-width="2"/>`
-         +`<path d="M${x2-7} ${by+bh/2-4.5} L${x2} ${by+bh/2} L${x2-7} ${by+bh/2+4.5}z" fill="#3d4a5c"/>`;
+      svg+=`<line x1="${x1}" y1="${by+bh/2}" x2="${x2-6}" y2="${by+bh/2}" stroke="#8c96a3" stroke-width="2"/>`
+         +`<path d="M${x2-7} ${by+bh/2-4.5} L${x2} ${by+bh/2} L${x2-7} ${by+bh/2+4.5}z" fill="#8c96a3"/>`;
     }
-    const fill=s.fill||(s.self?'#171320':'#11161d');
-    const stroke=s.stroke||(s.self?'#a371f7':(s.dim?'#3d4a5c':'#3fb950'));
+    const fill=s.fill||(s.self?'#f7f4fd':'#f2f4f7');
+    const stroke=s.stroke||(s.self?'#6639ba':(s.dim?'#8c96a3':'#1a7f37'));
     svg+=`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="8" fill="${fill}" stroke="${stroke}" `
        +`stroke-width="1.5"${s.dash?' stroke-dasharray="5 4"':''}/>`
-       +`<text x="${bx+bw/2}" y="${by+21}" fill="#e6edf3" font-size="13" font-weight="600" text-anchor="middle">${s.lab}</text>`
-       +`<text x="${bx+bw/2}" y="${by+37}" fill="#8b98a9" font-size="10.5" text-anchor="middle">${s.sub}</text>`;
+       +`<text x="${bx+bw/2}" y="${by+21}" fill="#1a1f26" font-size="13" font-weight="600" text-anchor="middle">${s.lab}</text>`
+       +`<text x="${bx+bw/2}" y="${by+37}" fill="#5c6672" font-size="10.5" text-anchor="middle">${s.sub}</text>`;
   });
   const diagram=`<div class="link-d"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" `
        + `role="img" aria-label="link diagram">${svg}</svg></div>`;
