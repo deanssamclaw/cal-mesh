@@ -238,13 +238,14 @@ def plan_response(cfg, sender_short, raw_text, get=None):
     clean, flagged = sanitize_inbound(raw_text)
     out = {"clean": clean, "flagged": flagged, "capability": None, "weather_ok": None,
            "weather_fact": None, "mode": "generate", "fixed_reply": None, "prompt": None,
-           "weather_meta": {}, "forecast_asked": False}
+           "weather_meta": {}, "forecast_asked": False, "match": None}
     fact = None
     # intent/location on the RAW text: a trailing '?' (needed for weak-keyword intent) and a
     # whitelisted place name must survive; sanitize would strip them. Nothing from raw_text
     # reaches a URL (resolve_location whitelists) or the weather prompt (build_prompt drops it).
-    if cfg.get("WEATHER_ENABLED", "false").lower() == "true" and \
-       weather.wants_weather(raw_text):
+    match = weather.explain_weather_match(raw_text)
+    out["match"] = match
+    if cfg.get("WEATHER_ENABLED", "false").lower() == "true" and match["via"]:
         out["capability"] = "weather"
         # Forecast-shaped ask: we have current observations only. Answer honestly with a fixed
         # string and skip the fetch entirely — never dress a present-tense reading as a forecast.
@@ -441,11 +442,16 @@ def main():
                             d["sanitize"] = sanitize_trace(rec.get("text", ""),
                                                            plan["clean"], plan["flagged"])
                             d["prompt_kind"] = "weather" if plan["weather_fact"] else "general"
-                            d["model"] = cfg["RESPONDER_MODEL"]
+                            if plan["mode"] != "fixed":
+                                d["model"] = cfg["RESPONDER_MODEL"]
                             if plan["flagged"]:
                                 d["injection_flagged"] = True
                             if plan.get("forecast_asked"):
                                 d["forecast_asked"] = True
+                            m = plan.get("match") or {}
+                            if m.get("via"):
+                                d["trigger_match"] = {"via": m["via"], "strong": m["strong"],
+                                                      "weak": m["weak"], "question": m["question"]}
                             if plan["capability"]:
                                 d["capability"] = plan["capability"]
                                 d["weather_ok"] = plan["weather_ok"]
@@ -457,7 +463,12 @@ def main():
                                     d["obs_age_s"] = wm["obs_age_s"]
                             gen_start = time.time()
                             if plan["mode"] == "fixed":
-                                reply, why = plan["fixed_reply"], "ok_weather_unavailable"
+                                # No model runs here. A refusal and a failed fetch are different
+                                # events and must not share one status: the first is the design
+                                # working, the second is the fail-safe catching something.
+                                reply = plan["fixed_reply"]
+                                why = ("fixed_forecast_refused" if plan.get("forecast_asked")
+                                       else "fixed_weather_unavailable")
                             else:
                                 reply, why = run_claude(cfg, plan["prompt"])
                             gen_ms = round((time.time() - gen_start) * 1000)

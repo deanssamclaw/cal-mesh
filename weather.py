@@ -53,14 +53,37 @@ def wants_forecast(text):
     return bool(_FORECAST.search(text or ""))
 
 
+def explain_weather_match(text):
+    """WHY the text did or did not read as a weather query, in a form safe to publish.
+
+    This is the step between "a message arrived" and "a fact was fetched": the wording alone
+    decides which capability fires, with no model involved. The trace could not show it because
+    nothing recorded it — and it is exactly where the 2026-08-11 defect lived, when
+    "whats the heat index?" matched nothing and the capability never ran.
+
+    wants_weather() is implemented on top of this so the displayed reason and the actual decision
+    are the same computation. Two functions that answer the same question separately eventually
+    disagree — that bug already happened once here, with the SAME parser (session 116).
+    """
+    t = text or ""
+    strong = sorted({m.group(0).lower() for m in _STRONG.finditer(t)})
+    weak = sorted({m.group(0).lower() for m in _WEAK.finditer(t)})
+    q = "?" in t
+    if strong:
+        via = "strong"
+    elif len(weak) >= 2:
+        via = "two_weak"
+    elif len(weak) >= 1 and q:
+        via = "weak_plus_question"
+    else:
+        via = None
+    return {"strong": strong, "weak": weak, "question": q, "via": via}
+
+
 def wants_weather(text):
     """True if the (addressed-to-Cal) text is a weather query. Run on the RAW text so a
     trailing '?' survives (sanitize strips it)."""
-    t = text or ""
-    if _STRONG.search(t):
-        return True
-    weak = {m.group(0).lower() for m in _WEAK.finditer(t)}
-    return len(weak) >= 2 or (len(weak) >= 1 and "?" in t)
+    return explain_weather_match(text)["via"] is not None
 
 
 # --- location whitelist ---------------------------------------------------

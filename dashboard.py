@@ -221,7 +221,7 @@ def correlate(inbox, sent, decisions):
         rec["trace"] = {k: dec.get(k) for k in
                         ("gates", "sanitize", "prompt_kind", "model", "injected_fact",
                          "weather_ok", "gen_status", "injection_flagged", "dest",
-                         "obs_station", "obs_age_s", "forecast_asked")
+                         "obs_station", "obs_age_s", "forecast_asked", "trigger_match")
                         if dec.get(k) is not None}
 
     replied = [d for d in decisions if d.get("matched") and d.get("reply")]
@@ -1659,7 +1659,7 @@ box-shadow:inset 0 2px 5px rgba(22,27,34,.05),0 1px 0 #fff}
 /* The chain, left to right. Boxes are numbered because the whole point is the ORDER:
    a reader who does not know how this works needs to see that the question caused the lookup. */
 .flow{display:grid;align-items:center;margin:2px 0 4px;
-grid-template-columns:minmax(0,1fr) 104px minmax(0,1.02fr) 118px minmax(0,1fr)}
+grid-template-columns:minmax(0,1fr) 62px minmax(0,.92fr) 74px minmax(0,.86fr) 104px minmax(0,1fr)}
 .flow.gen{grid-template-columns:minmax(0,1fr) 150px minmax(0,1fr)}
 .fb{position:relative;z-index:1;border:1px solid var(--line);border-radius:11px;padding:10px 13px;
 background:linear-gradient(180deg,#fff,#fbfcfe);
@@ -1667,6 +1667,13 @@ box-shadow:0 1px 2px rgba(22,27,34,.05),0 6px 16px -8px rgba(22,27,34,.22)}
 .fk{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--dim)}
 .fv{font-size:13px;margin-top:5px;line-height:1.45;word-break:break-word}
 .fn{font-size:10.5px;margin-top:6px;color:var(--dim);line-height:1.42}
+/* the recognition step: plain word-matching, no model. Drawn as a decision, not as data. */
+.fb.bx{border-color:#c3d9f2;background:linear-gradient(180deg,#f7fbff,#eef5fd);
+box-shadow:0 1px 2px rgba(10,99,201,.08),0 8px 20px -10px rgba(10,99,201,.30)}
+.fb.bx .fv{font-size:12.5px}
+.chip{display:inline-block;margin:3px 4px 0 0;padding:1px 7px;border-radius:5px;
+background:#dceafb;color:#0a4da3;font-size:11px;font-weight:600;
+font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .fb.b2{border-color:#a7e3b6;background:linear-gradient(180deg,#f4fdf7,#eaf9ef);
 box-shadow:0 1px 2px rgba(26,127,55,.10),0 8px 20px -10px rgba(26,127,55,.35)}
 .fb.b2 .fv{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
@@ -1687,8 +1694,9 @@ text-align:center;line-height:1.3}
 border-left:2px dashed #d9a7ad}
 .cross .arw{flex:1;margin:0 6px}
 .cross .bl{position:absolute;left:50%;top:2px;transform:translateX(-50%);background:var(--card);
-border:1px solid #f0cdd1;border-radius:6px;padding:3px 7px;font-size:8.5px;font-weight:700;
-text-transform:uppercase;letter-spacing:.5px;color:var(--bad);text-align:center;white-space:nowrap}
+border:1px solid #f0cdd1;border-radius:6px;padding:3px 6px;font-size:8.5px;font-weight:700;
+text-transform:uppercase;letter-spacing:.4px;color:var(--bad);text-align:center;line-height:1.25;
+width:92px;box-sizing:border-box}
 .flowcap{font-size:11.5px;color:var(--dim);line-height:1.55;margin:10px 0 14px;max-width:88ch;
 padding-left:2px}
 .flowcap b{color:var(--fg);font-weight:650}
@@ -1863,8 +1871,13 @@ box-shadow:0 0 0 2px #fff,0 1px 3px rgba(22,27,34,.4);transition:left .7s cubic-
       ask above it) and messages overheard but never addressed to Cal.</div></details>
     <details><summary>What's in the decision trace?</summary><div class="a">
       Open <b>trace</b> on any exchange and you get two pictures. First, <b>the chain that produced
-      the reply</b>, read left to right and numbered: the question that arrived, then what Cal's
-      software went and fetched because of it, then what the model wrote. The question is
+      the reply</b>, read left to right and numbered: the question that arrived, <b>what the software
+      recognised in it</b>, what it went and fetched as a result, and finally what the model wrote.
+      The recognition step is worth a look, because it is the least magical part of the whole system:
+      Cal decides a message is a weather question by <b>matching plain words</b> — one strong word like
+      <code>temperature</code> is enough on its own, otherwise it takes two weather words, or one plus
+      a question mark. No model takes part in that decision, and the trace shows you which words
+      actually matched. The question is
       <b>received normally</b> — it does real work, because it is what decided which fact to look up —
       but it stops at the dashed line. <b>Only the fetched fact crosses</b> into the model, whose
       entire job is to put that fact into words. That is why Cal cannot invent a temperature. On an
@@ -1929,6 +1942,8 @@ box-shadow:0 0 0 2px #fff,0 1px 3px rgba(22,27,34,.4);transition:left .7s cubic-
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-12</span><b>The step where Cal decides what a message is about is now shown.</b> The chain jumped straight from the question to the observation, which left the most important join unexplained: <i>how</i> did a sentence become a decision to go and read a particular weather station? It is not a model, and it is not clever — Cal matches <b>plain words</b>. One strong word such as <code>temperature</code> or <code>heat index</code> is enough on its own; failing that it takes two weather words together, or one plus a question mark. The trace now shows that as its own step, including <b>which words actually matched</b> and which of those three rules fired. This is the exact place a defect hid on 2026-08-11: "whats the heat index?" matched nothing, so the weather capability never ran at all, and there was nothing on the page that could have shown why. The reason is recorded by the same call that makes the decision, so what is displayed and what happened cannot drift apart. Older exchanges predate the field and say so rather than guessing.</div>
+      <div class="ci"><span class="cd">2026-08-12</span><b>A fixed reply no longer claims a model wrote it.</b> When Cal refuses a forecast question, or cannot reach the weather service, it sends a sentence written into the software and no model runs at all — but the record named one anyway, so the trace would have credited it. The model is now recorded only when it actually ran, the box is labelled <b>what Cal sent</b> rather than what the model wrote, and the two fixed cases stopped sharing one status: a deliberate refusal and a failed fetch are different events, and calling both "weather unavailable" made the design working look like something breaking.</div>
       <div class="ci"><span class="cd">2026-08-12</span><b>The top of the trace was telling people their message had failed.</b> It drew the sender's own words struck through, with <b>NOT SENT</b> beside them. That was meant to say "not forwarded to the model" — but to anyone who did not already know how this works it reads as <i>your message did not send</i>, which is the opposite of the truth: it arrived perfectly, and it is the very thing that caused the lookup to happen. The picture also never showed where the fetched fact came from, so the reply appeared out of nowhere with no visible connection to the question. It is now a numbered chain read left to right — the question arrives and <b>chooses what to look up</b>, the software fetches a real observation, and only that observation crosses a marked line into the model. Nothing is struck through, because nothing was discarded. The clever part of the old drawing was the curved wires; they were sophistication in the service of a layout that misled, and a straight line that reads correctly beats a bezier that does not.</div>
       <div class="ci"><span class="cd">2026-08-12</span><b>v3 — the trace is drawn with depth.</b> Same record and the same claims as <code>old-2</code>, drawn as a mechanism that runs rather than a list that sits. The two connectors are now <b>measured</b> from real box geometry and curve so they actually land on the reply, with the cut drawn as a genuine break in one of them. Surfaces carry elevation: the panel is a recessed well, the fetched fact and the reply sit on raised planes, and the message that was never forwarded is flat and unlit — so the hierarchy is visible rather than announced. The signal stopped being two bare numbers: <b>rssi</b> and <b>snr</b> are drawn against the range a LoRa link actually lives on, which is how you can see at a glance that this message arrived strong, and why it was heard direct. And the stages now <b>assemble in the order they ran</b> when a trace is opened, once per open — a trace records something that happened in time, and drawing it as furniture was the flattest thing about it. The colour ramp under the instruments is a single hue by rule: an ordered quantity gets one hue light to dark, never a red-amber-green rainbow, which is both a rainbow ramp and a pair that sits about 1.5 units apart under the commonest form of colour blindness.</div>
       <div class="ci"><span class="cd">2026-08-12</span><b>The trace shows what happened instead of listing it.</b> It was thirteen rows of grey label and value, which gave a passed check, a station reading and the words that went out over the air exactly the same weight — and buried the one thing a trace is actually about, which is the order things happened in. Two changes. <b>The reply is now drawn as what it is:</b> two things compete to become the answer, the sender's own words and a fact the software fetched, and on a capability answer the sender's words are visibly <b>cut</b> — they select which fact to look up and are never handed to the model. When there is no capability the same picture inverts honestly: the message is quoted to the model and nothing is cut. <b>Below it the stages run down a spine in the order they happen</b> — received, gated, sanitized, grounded, narrated, sent. A message that fails a check stops the spine where it failed, the rail below it goes dashed, and the stages it never reached are drawn unreached rather than left out. That is read off the record, not assumed: a gated-out decision carries no sanitizer result, no fact, no model and no destination. Two numbers now have a scale under them rather than standing alone — how old the weather reading was against the hour these stations report on, and how long generation took against the <b>7-44 s</b> the same prompt was measured spanning. A closed trace is also no longer built at all, so opening one costs the work rather than every message paying it every three seconds.</div>
@@ -2113,34 +2128,58 @@ function flowHtml(x,t){
   if(!outTxt) return '';
   const capability=!!t.injected_fact;
   const arrow=(label)=>`<span class="arw"><span>${label}</span></span>`;
-  // "received on air" is stated outright. The previous drawing put NOT SENT beside the sender's
-  // own message, which reads as "your message failed" to anyone who does not already know that
-  // it meant "not forwarded to the model".
+  const modelRan=!!t.model;
   const b1=`<div class="fb b1"><div class="fk">1 · the question</div>`
     +`<div class="fv">${inTxt}</div>`
     +`<div class="fn"><span class="onair">✓ received on air</span> — and it is what decided `
     +`${capability?'which fact to look up':'how to reply'}</div></div>`;
-  const b3=`<div class="fb b3"><div class="fk">${capability?3:2} · what the model wrote</div>`
+  const lastN=capability?4:2;
+  const b3=`<div class="fb b3"><div class="fk">${lastN} · ${modelRan?'what the model wrote':'what Cal sent'}</div>`
     +`<div class="fv">${outTxt}</div>`
-    +`<div class="fn"><span class="onair">✓ sent on air to ${esc(t.dest||'')}</span> — 5-7 words, `
-    +`because every node in range shares the airtime</div></div>`;
+    +`<div class="fn"><span class="onair">✓ sent on air to ${esc(t.dest||'')}</span> — `
+    +(modelRan?'5-7 words, because every node in range shares the airtime'
+             :'a fixed sentence written into the software — no model ran for this one')+`</div></div>`;
   if(!capability)
     return `<div class="flow gen">${b1}${arrow('sanitized, then given<br>to the model')}${b3}</div>`
       +`<div class="flowcap">Nothing was looked up for this one, so the model was given `
       +`<b>the message itself</b> and wrote a reply from it.</div>`;
+  // The step between the question and the lookup: plain word-matching that decides WHICH
+  // capability runs. No model is involved, and it is where a 2026-08-11 defect hid — a question
+  // that matched nothing never reached the capability at all, with nothing on the page to say so.
+  const tm=t.trigger_match||null;
+  let why='recognised from the wording', chips='';
+  if(tm){
+    const words=(tm.strong&&tm.strong.length?tm.strong:tm.weak)||[];
+    chips=words.map(w=>`<span class="chip">${esc(w)}</span>`).join('');
+    why = tm.via==='strong'
+        ? (words.length>1?'any one of these is enough on its own'
+                         :'this word is enough on its own')
+        : tm.via==='two_weak'
+          ? 'two weather words together'
+          : 'one weather word plus a question mark';
+  }
+  const bx=`<div class="fb bx"><div class="fk">2 · what the software recognised</div>`
+    +`<div class="fv">a weather question${t.forecast_asked?' about the <b>future</b>':''}</div>`
+    +`<div class="fn">${chips}${chips?'<br>':''}${why} — plain word matching, `
+    +`<b>no model involved</b></div></div>`;
   const st=t.obs_station?esc(t.obs_station):null;
   const age=t.obs_age_s!=null?Math.round(t.obs_age_s/60)+' min old':null;
-  const b2=`<div class="fb b2"><div class="fk">2 · what Cal's software fetched</div>`
-    +`<div class="fv">${esc(t.injected_fact)}</div>`
-    +`<div class="fn">a real observation${st?' from station '+st:''}${age?', '+age:''} — fetched by `
-    +`the software, never by the model</div></div>`;
-  return `<div class="flow">${b1}${arrow('read by Cal&rsquo;s<br>software')}${b2}`
-    +`<span class="cross"><span class="bl">only this crosses</span>`
-    +`${arrow('')}</span>${b3}</div>`
+  const b2=t.forecast_asked
+    ? `<div class="fb b2" style="border-color:#e6c98a;background:linear-gradient(180deg,#fffdf5,#fdf6e3)">`
+      +`<div class="fk">3 · what Cal looked up</div><div class="fv">nothing</div>`
+      +`<div class="fn">Cal holds current observations only, so a question about later is refused `
+      +`outright rather than answered with a reading from now</div></div>`
+    : `<div class="fb b2"><div class="fk">3 · what Cal's software fetched</div>`
+      +`<div class="fv">${esc(t.injected_fact)}</div>`
+      +`<div class="fn">a real observation${st?' from station '+st:''}${age?', '+age:''} — fetched by `
+      +`the software, never by the model</div></div>`;
+  return `<div class="flow">${b1}${arrow('reads')}${bx}${arrow('so it<br>fetches')}${b2}`
+    +`<span class="cross"><span class="bl">only this crosses</span>${arrow('')}</span>${b3}</div>`
     +`<div class="flowcap">Read left to right. The question arrived fine and did real work — `
-    +`<b>it chose what to look up</b> — but it never reached the model. Cal&rsquo;s software went and `
-    +`got the observation, and <b>only that observation</b> crossed the dashed line. The model&rsquo;s `
-    +`entire job was to put it into words, which is why it cannot invent a temperature.</div>`;
+    +`<b>its wording is what chose the lookup</b> — but it never reached the model. Cal&rsquo;s software `
+    +`matched the words, went and got the observation, and <b>only that observation</b> crossed the `
+    +`dashed line. The model&rsquo;s entire job was to put it into words, which is why it cannot invent `
+    +`a temperature.</div>`;
 }
 function gauge(name,val,pct,ends,band,note){
   return `<div class="gauge"><div class="glab"><span class="gname">${name}</span>`
