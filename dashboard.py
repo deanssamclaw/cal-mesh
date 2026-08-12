@@ -785,6 +785,64 @@ details.tr summary:hover{border-color:var(--accent);background:#e4e9f0}
 .gp{background:#dafbe1;color:var(--ok)} .gf{background:#ffebe9;color:var(--bad)}
 .tnote{margin-top:8px;padding-top:7px;border-top:1px solid var(--line);color:var(--dim);font-size:11px;line-height:1.5}
 .tnone{color:var(--dim);font-size:12px}
+/* --- trace: the swap. What reached the model and what did not, drawn rather than asserted.
+   Two things compete to become the reply; on a capability answer one of them is cut. --- */
+.swap{display:grid;grid-template-columns:minmax(0,1fr) 74px minmax(0,1fr);gap:9px 0;
+align-items:center;margin:2px 0 12px}
+.sw{border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:var(--card);min-width:0}
+.sw .swk{font-size:9.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);font-weight:700}
+.sw .swv{font-size:12.5px;margin-top:3px;word-break:break-word;line-height:1.45}
+.sw .swn{font-size:10.5px;margin-top:5px;color:var(--dim);line-height:1.4}
+.sw.i-in{grid-column:1;grid-row:1} .sw.i-fact{grid-column:1;grid-row:2}
+.sw.i-out{grid-column:3;grid-row:1/3;align-self:stretch;display:flex;
+flex-direction:column;justify-content:center}
+.sw.cut{border-style:dashed;background:#fbfcfd}
+.sw.cut .swv{color:var(--dim);text-decoration:line-through;text-decoration-color:#b9c2cd}
+.sw.i-fact{border-color:#aceebb;background:#f4fcf6}
+.sw.i-out{border-color:#ddd0f5;background:#faf7fe}
+.sw.i-out .swv{color:var(--tx);font-size:13.5px}
+.conn{position:relative;height:3px;background:var(--ok);border-radius:2px}
+.conn.c1{grid-column:2;grid-row:1} .conn.c2{grid-column:2;grid-row:2}
+.conn::after{content:"";position:absolute;right:0;top:-4.5px;border:6px solid transparent;
+border-left-color:var(--ok);border-right:0}
+/* The cut is the whole point of the picture, so it is drawn as a stop and not as a hairline. */
+.conn.brk{background:repeating-linear-gradient(90deg,#b9c2cd 0 4px,transparent 4px 9px)}
+.conn.brk::after{content:"\2715";position:absolute;right:auto;left:50%;top:50%;border:0;
+transform:translate(-50%,-50%);background:var(--card);color:var(--bad);font-size:12px;
+font-weight:700;width:22px;height:22px;line-height:19px;text-align:center;border-radius:50%;
+box-shadow:0 0 0 2px var(--bad) inset}
+.conn.brk>b{position:absolute;left:50%;top:16px;transform:translateX(-50%);font-size:9.5px;
+font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--bad);white-space:nowrap}
+/* --- trace: the pipeline spine. The stages are a sequence in time, so they are drawn as one. --- */
+.spine{list-style:none;margin:0;padding:0}
+.stg{position:relative;padding:0 0 11px 25px}
+.stg::before{content:"";position:absolute;left:5px;top:16px;bottom:0;width:2px;background:var(--line)}
+.stg:last-child::before{display:none}
+.stg>.sdot{position:absolute;left:0;top:5px;width:12px;height:12px;border-radius:50%;
+background:var(--ok);border:2px solid var(--ok);box-sizing:border-box}
+.stg.stop>.sdot{background:var(--bad);border-color:var(--bad)}
+.stg.skip>.sdot{background:var(--card);border-color:#c3ccd7}
+.stg.skip{opacity:.6}
+.stg.stop::before,.stg.skip::before{background:repeating-linear-gradient(180deg,#c3ccd7 0 3px,transparent 3px 6px)}
+.stg .shead{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}
+.stg .sname{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);
+font-weight:700;flex-shrink:0}
+.stg .ssum{font-size:12.5px;color:var(--fg)}
+.stg .sdet{margin-top:5px}
+.stg .sdet:empty{display:none}
+.rungn{display:inline-block;margin:1px 4px 1px 0;padding:1px 6px;border-radius:4px;font-size:11px;
+background:#f2f4f7;color:var(--dim);font-style:italic}
+/* --- trace: measurements drawn to the scale they were measured on --- */
+.bar{position:relative;height:6px;border-radius:3px;background:#e7ebf1;margin-top:6px;max-width:280px}
+.bar>i{position:absolute;top:0;bottom:0;border-radius:3px;background:#cfe6d6}
+.bar>i.fill{left:0;background:var(--ok)}
+.bar>i.fill.late{background:var(--warn)}
+.bar .mk{position:absolute;top:-3px;width:2px;height:12px;background:var(--fg);border-radius:1px}
+.barl{font-size:10.5px;color:var(--dim);margin-top:4px;line-height:1.45;max-width:60ch}
+@media(max-width:640px){
+.swap{grid-template-columns:minmax(0,1fr);gap:7px}
+.sw.i-in,.sw.i-fact,.sw.i-out{grid-column:1;grid-row:auto}
+.conn{display:none}}
 table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:8px 16px;font-size:13px;border-bottom:1px solid var(--line)}
 th{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
@@ -948,11 +1006,21 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
       fit that shape and are marked separately — <b>unprompted</b> sends (an operator message, with no
       ask above it) and messages overheard but never addressed to Cal.</div></details>
     <details><summary>What's in the decision trace?</summary><div class="a">
-      Open <b>trace</b> on any exchange for exactly how the reply came to exist: the <b>gate ladder</b>
-      (which checks passed, which one stopped it), what the <b>sanitizer</b> did to the incoming text,
-      whether a <b>capability</b> fired and the exact <b>fact</b> that was injected, which weather
-      station it came from and how old the reading was, plus the model and how long it took. It is the
-      machinery, not a narration — see below.</div></details>
+      Open <b>trace</b> on any exchange and you get two pictures. First, <b>where the reply came
+      from</b>: the message that arrived on the left, the reply that went out on the right, and — when
+      Cal answered using a real capability — the <b>fact</b> the software fetched sitting between them.
+      The line from the message to the reply is <b>cut</b>, because on those answers the sender's words
+      are never handed to the model at all. They only decide <i>which</i> fact to go and look up; the
+      fact is what the model receives, and its only job is to put that into words. On an ordinary reply
+      with no capability behind it the picture inverts — nothing is cut, because the message really is
+      quoted to the model.
+      <br><br>Below it, the <b>stages in the order they happened</b>: received, gated, sanitized,
+      grounded, narrated, sent. Each carries its own detail — which checks passed and which one stopped
+      it, what the sanitizer changed, which weather station the reading came from and how old it was,
+      the model and how long generation took. A message that fails a check <b>stops the spine where it
+      failed</b>, and the stages after it are drawn as never reached. That is read off the record rather
+      than assumed: a message that was gated out carries no sanitizer result, no fact, no model and no
+      destination. It is the machinery, not a narration — see below.</div></details>
     <details><summary>Why doesn't the trace show Cal's "thinking"?</summary><div class="a">
       Because there isn't any to show, and inventing some would be worse than showing nothing. Reply
       generation returns plain text — there's no hidden reasoning being discarded. We could ask the
@@ -960,7 +1028,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
       the computation</b>, and publishing it as though it were would present a plausible story as
       mechanism. It would also put unbounded, model-authored text — influenced by whatever a stranger
       transmitted — onto a public page, which is what the rest of the design works to prevent.</div></details>
-    <details><summary>What's the diagram at the top of a trace?</summary><div class="a">
+    <details><summary>What's the diagram in the "received" stage?</summary><div class="a">
       The <b>link</b> the message travelled: who transmitted, who received it, how many <b>hops</b> it
       took, and the signal strength on the final leg. <b>Direct</b> means Cal heard the sender's own
       radio; anything above zero means other nodes relayed it. Where the firmware reports a relay it
@@ -1005,6 +1073,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-12</span><b>The trace shows what happened instead of listing it.</b> It was thirteen rows of grey label and value, which gave a passed check, a station reading and the words that went out over the air exactly the same weight — and buried the one thing a trace is actually about, which is the order things happened in. Two changes. <b>The reply is now drawn as what it is:</b> two things compete to become the answer, the sender's own words and a fact the software fetched, and on a capability answer the sender's words are visibly <b>cut</b> — they select which fact to look up and are never handed to the model. When there is no capability the same picture inverts honestly: the message is quoted to the model and nothing is cut. <b>Below it the stages run down a spine in the order they happen</b> — received, gated, sanitized, grounded, narrated, sent. A message that fails a check stops the spine where it failed, the rail below it goes dashed, and the stages it never reached are drawn unreached rather than left out. That is read off the record, not assumed: a gated-out decision carries no sanitizer result, no fact, no model and no destination. Two numbers now have a scale under them rather than standing alone — how old the weather reading was against the hour these stations report on, and how long generation took against the <b>7-44 s</b> the same prompt was measured spanning. A closed trace is also no longer built at all, so opening one costs the work rather than every message paying it every three seconds.</div>
       <div class="ci"><span class="cd">2026-08-12</span><b>The page is light now.</b> Same information and the same layout, on a light palette instead of the dark one it launched with. Two colours had to be re-picked rather than reused: the green and amber that read clearly against a dark background land near a third of the required contrast on a white one, so they are now darker shades of the same hues. The link diagram needed a pass of its own — its colours are written into the drawing code rather than read from the page palette, so swapping the palette alone would have left dark boxes and dark labels sitting on a white card, which is exactly the kind of change that looks finished until someone opens a trace. <b>The retired version at <code>old-1</code> is deliberately still dark.</b> It is kept as a record of what the page used to be, and restyling it would make that record wrong.</div>
       <div class="ci"><span class="cd">2026-08-11</span><b>Two capture bugs, and a caption that confidently explained one of them wrongly.</b> Every message received since 2026-08-09 was showing "hops unknown — this message predates routing capture". The messages did not predate anything: the hop count is <i>hop_start</i> minus <i>hop_limit</i>, and the radio library builds its packet view with a converter that omits any number equal to zero — so a message that used its <b>entire</b> hop budget arrived with <i>hop_limit</i> missing and was recorded as "no data", indistinguishable from a message that carried no routing at all. The most-relayed messages were the ones being thrown away. Worse was the caption: one asserted cause printed for a blank that has several. It now states only what the record supports, and older messages that genuinely predate the feature still say so.</div>
       <div class="ci"><span class="cd">2026-08-11</span><b>Cal can tell you the heat index.</b> Asked for "current temperature and heat index", Cal answered the temperature, said nothing about the other half, and gave no sign anything had been left out — while the weather service was publishing a <b>107&deg;F</b> heat index against <b>95&deg;F</b> air in the very same reading. The software had never looked at the field. Heat index and wind chill are now included whenever they differ from the air temperature by at least 3&deg;F, and when they do they take the place of wind in the reply: at a twelve-degree gap, how hot it feels <i>is</i> the weather, and a five-to-seven word message cannot carry both. If the value ever arrives in a unit the software does not recognise it is dropped rather than converted on a guess — read as Fahrenheit instead of Celsius, that 107 becomes "42F" on a 95-degree afternoon. Checked by running it: eight replies, both numbers survived all eight times.</div>
@@ -1163,51 +1232,121 @@ function linkSvg(x){
   // the page should not blur the two.
   if(x.hops_recovered)
     rows+=row('note','hop count recovered from a record predating the capture fix — reconstructed, not measured at the time');
-  return diagram+rows;
+  return {diagram:diagram, rows:rows, summary:(
+    hops==null?'routing not recorded'
+    :hops===0?'heard direct, no relay in between'
+    :hops+' hop'+(hops>1?'s':'')+' — arrived by relay')};
 }
+// The reply is composed from a fact the harness fetched, and on a capability answer the
+// sender's own words are never handed to the model at all. That is the single least obvious
+// thing about this system and it was previously one clause inside a grey row. Drawn instead:
+// two inputs compete to become the reply, and one of them is visibly cut.
+function swapHtml(x,t){
+  const inTxt=esc(x.text||''), outTxt=esc(x.reply||'');
+  if(!outTxt) return '';
+  const capability=!!t.injected_fact;
+  const inBox=`<div class="sw i-in${capability?' cut':''}">`
+    +`<div class="swk">message in</div><div class="swv">${inTxt}</div>`
+    +`<div class="swn">${capability
+      ? 'never handed to the model — it only selected which fact to look up'
+      : 'sanitized, then quoted to the model'}</div></div>`;
+  const outBox=`<div class="sw i-out"><div class="swk">reply out</div>`
+    +`<div class="swv">${outTxt}</div>`
+    +`<div class="swn">${esc(t.dest||'')} · 5-7 words, because every node in range shares the airtime</div></div>`;
+  if(!capability)
+    return `<div class="swap">${inBox}<span class="conn c1"></span>${outBox}</div>`;
+  const factBox=`<div class="sw i-fact"><div class="swk">fact in</div>`
+    +`<div class="swv"><code>${esc(t.injected_fact)}</code></div>`
+    +`<div class="swn">measured${t.obs_station?' at station '+esc(t.obs_station):''}`
+    +`${t.obs_age_s!=null?', '+Math.round(t.obs_age_s/60)+' min before the reply':''}`
+    +` — injected verbatim, and the model may only put it into words</div></div>`;
+  return `<div class="swap">${inBox}<span class="conn c1 brk"><b>not sent</b></span>`
+    +`${factBox}<span class="conn c2"></span>${outBox}</div>`;
+}
+function bar(fillPct,markPct,late){
+  const f=Math.max(0,Math.min(100,fillPct));
+  return `<div class="bar"><i class="fill${late?' late':''}" style="width:${f.toFixed(1)}%"></i>`
+    +(markPct!=null?`<span class="mk" style="left:${Math.max(0,Math.min(100,markPct)).toFixed(1)}%"></span>`:'')
+    +`</div>`;
+}
+function stage(cls,name,summary,detail){
+  return `<li class="stg ${cls}"><span class="sdot"></span>`
+    +`<div class="shead"><span class="sname">${name}</span><span class="ssum">${summary}</span></div>`
+    +`<div class="sdet">${detail||''}</div></li>`;
+}
+// The stages are a sequence in time and a gated-out message genuinely never reaches the later
+// ones — verified against the records: a skipped decision carries no sanitize, no fact, no
+// model and no destination. So "never reached" is read off the record, not assumed.
+function spineHtml(x,t){
+  const link=(x.kind==='exchange')?linkSvg(x):null;
+  let s='';
+  if(link) s+=stage('pass','received',link.summary,link.diagram+link.rows);
+  const gated=t.gates&&t.gates.length;
+  const stopped=x.verdict==='skipped';
+  if(gated){
+    const passed=t.gates.filter(g=>g.pass).length;
+    s+=stage(stopped?'stop':'pass','gated',
+      stopped?`stopped at <b>${esc((t.gates.find(g=>!g.pass)||{}).gate||'a check')}</b>`
+             :`all ${passed} checks passed`,
+      t.gates.map(g=>`<span class="gate ${g.pass?'gp':'gf'}">${g.pass?'✓':'✗'} ${esc(g.gate)}</span>`).join('')
+      +(stopped?'<span class="rungn">later checks never evaluated</span>':''));
+  }
+  if(!t.model&&stopped){
+    s+=stage('skip','not answered','the message was received and recorded, and nothing further ran',
+      '<span class="rungn">no text was sent to a model, and nothing went on air</span>');
+    return `<ol class="spine">${s}</ol>`;
+  }
+  if(t.sanitize){const q=t.sanitize,b=[];
+    const tk=q.sentence_trim!=null?q.sentence_trim:(q.sentence_trimmed?'content':'none');
+    if(tk==='content') b.push(`first sentence kept (${q.dropped_chars!=null?q.dropped_chars+' chars':'rest'} dropped)`);
+    else if(tk==='punctuation') b.push('trailing punctuation trimmed, no content dropped');
+    if(q.length_capped) b.push('length capped');
+    if(q.redactions) b.push(`${q.redactions} redaction${q.redactions>1?'s':''}`);
+    if(q.flagged) b.push('injection-shaped tokens flagged');
+    s+=stage('pass','sanitized',`${q.in_chars}&rarr;${q.out_chars} characters`,
+      b.length?`<span class="hint">${esc(b.join(' · '))}</span>`:'<span class="hint">nothing removed</span>');}
+  if(t.forecast_asked)
+    s+=stage('stop','refused','asked about a future condition',
+      '<span class="hint">the capability holds current observations only, so a fixed reply was sent '
+      +'and no lookup was made at all</span>');
+  if(x.capability){
+    const ok=t.weather_ok, age=t.obs_age_s;
+    let d='';
+    if(age!=null){const pct=Math.min(100,(age/3600)*100);
+      d=bar(pct,null,age>2700)+`<div class="barl">reading was ${Math.round(age/60)} minutes old when Cal `
+       +`answered, against the hour these stations report on. A real observation from the nearest `
+       +`station, never an estimate for one spot.</div>`;}
+    s+=stage(ok?'pass':'stop','grounded',
+      `${esc(x.capability)} · fetch ${ok?'ok':'FAILED'}`
+      +(t.obs_station?` · station <code>${esc(t.obs_station)}</code>`:''), d);}
+  if(t.model){
+    const ms=x.gen_ms;
+    let d='<span class="hint">generation returns plain text — no chain of thought exists to show</span>';
+    if(ms!=null){const MAXS=45,sec=ms/1000;
+      const band=t.prompt_kind==='weather';
+      d=`<div class="bar">${band?`<i style="left:${(7/MAXS*100).toFixed(1)}%;width:${((44-7)/MAXS*100).toFixed(1)}%"></i>`:''}`
+        +`<span class="mk" style="left:${Math.max(0,Math.min(100,sec/MAXS*100)).toFixed(1)}%"></span></div>`
+        +`<div class="barl">${secs(ms)} on a 0-45 s scale.`
+        +(band?' The shaded band is the <b>7-44 s</b> this same prompt was measured spanning run to run.':'')
+        +` Most of it is process startup and a network round trip, so read it as an order of `
+        +`magnitude and not as thinking time.</div>`;}
+    s+=stage('pass','narrated',`<code>${esc(t.model)}</code>`,d);}
+  if(t.gen_status&&t.gen_status!=='ok')
+    s+=stage('stop','generation',`<code>${esc(t.gen_status)}</code>`,'');
+  if(t.dest) s+=stage('pass','sent',`on air to <code>${esc(t.dest)}</code>`,'');
+  return `<ol class="spine">${s}</ol>`;
+}
+// The trace reads top to bottom as what happened: first the outcome and how it was arrived at
+// (the swap), then the machinery stage by stage (the spine). The old flat key/value list gave a
+// gate check, a station reading and the transmitted reply the same weight and the same grey
+// label, which left the sequence — the only thing the trace is actually about — invisible.
 function traceHtml(x){
   const t=x.trace||{};
-  if(!t.gates&&!t.sanitize&&!t.model)
-    return `<div class="tp">${x.kind==='exchange'?linkSvg(x):''}`+
-      '<div class="tnone">No decision trace recorded — this message predates it.</div></div>';
-  let h=(x.kind==='exchange'?linkSvg(x):'');
-  if(t.gates&&t.gates.length)
-    h+=row('gates', t.gates.map(g=>`<span class="gate ${g.pass?'gp':'gf'}">${g.pass?'✓':'✗'} ${esc(g.gate)}</span>`).join('')
-        +(x.verdict==='skipped'?' <span style="color:var(--dim)">— ladder stops at the first failure</span>':''));
-  if(t.sanitize){const s=t.sanitize,b=[`${s.in_chars}→${s.out_chars} chars`];
-    // trailing '?' and a dropped sentence hit the same code path — say which actually happened
-    const tk=s.sentence_trim!=null?s.sentence_trim:(s.sentence_trimmed?'content':'none');
-    if(tk==='content') b.push(`first sentence kept (${s.dropped_chars!=null?s.dropped_chars+' chars':'rest'} dropped)`);
-    else if(tk==='punctuation') b.push('trailing punctuation trimmed, no content dropped');
-    if(s.length_capped) b.push('length capped');
-    if(s.redactions) b.push(`${s.redactions} redaction${s.redactions>1?'s':''}`);
-    if(s.flagged) b.push('injection-shaped tokens flagged');
-    if(b.length===1) b.push('unchanged');
-    h+=row('sanitizer', esc(b.join(' · ')));}
-  if(t.forecast_asked) h+=row('refused', 'asked about a FUTURE condition — the capability holds '
-    +'current observations only, so a fixed reply was sent and no lookup was made');
-  if(t.prompt_kind) h+=row('prompt', t.prompt_kind==='weather'
-      ? 'capability template — <b>the message itself is not included</b>'
-      : 'general template — the sanitized message is quoted to the model');
-  if(x.capability) h+=row('capability', `${esc(x.capability)} · fetch ${t.weather_ok?'ok':'FAILED'}`);
-  if(t.injected_fact) h+=row('fact in', `<code>${esc(t.injected_fact)}</code>`);
-  if(t.obs_station||t.obs_age_s!=null){
-    const age=t.obs_age_s!=null?`${Math.round(t.obs_age_s/60)} min old`:'age unknown';
-    h+=row('measured at', `station <code>${esc(t.obs_station||'?')}</code> · reading ${esc(age)}`
-      +` <span style="color:var(--dim)">— a real observation from the nearest station, not an`
-      +` estimate for any particular spot</span>`);}
-  // The timing is mostly NOT the model thinking, and printing it bare invites the opposite
-  // reading. Measured 2026-08-11 on this machine: a one-token reply through the same locked-down
-  // command costs 5.4-10.5 s, while a full 7-word weather reply costs 7-44 s — the SAME prompt
-  // varying 6x run to run. So the floor is process startup plus a round trip, the spread is
-  // noise, and the share attributable to generating seven words is small. A single figure with
-  // no range next to it is a number pretending to be a measurement.
-  if(t.model) h+=row('model', `<code>${esc(t.model)}</code>`
-    +(x.gen_ms!=null?` · ${secs(x.gen_ms)} <span class="hint">(one sample — includes ~5-10 s of `
-      +`process startup and a round trip, and varies about 6&times; run to run on identical input, `
-      +`so read it as an order of magnitude, not a measurement of thinking time)</span>`:''));
-  if(t.gen_status&&t.gen_status!=='ok') h+=row('generation', `<code>${esc(t.gen_status)}</code>`);
-  if(t.dest) h+=row('sent to', `<code>${esc(t.dest)}</code>`);
+  if(!t.gates&&!t.sanitize&&!t.model){
+    const l=(x.kind==='exchange')?linkSvg(x):null;
+    return `<div class="tp">${l?l.diagram+l.rows:''}`+
+      '<div class="tnone">No decision trace recorded — this message predates it.</div></div>';}
+  let h=swapHtml(x,t)+spineHtml(x,t);
   h+='<div class="tnote">This is the machinery, not the model\'s reasoning. Generation returns plain '
    +'text with no chain of thought, and asking for a narration would produce a plausible story rather '
    +'than an account of what actually happened — so it is not shown.</div>';
@@ -1217,6 +1356,10 @@ function traceHtml(x){
 // open traces by a stable key and restore the attribute on every render, so an expanded trace
 // stays expanded until it is clicked shut. (Toggle doesn't bubble — the listener captures.)
 const OPEN=new Set();
+// Lets a trace be built on demand when its disclosure is opened, rather than for every
+// exchange on every pass. Rebuilt from the current data each render, so an open trace never
+// shows a stale copy of a record that has since changed.
+const XBYKEY=new Map();
 function xkey(x){return (x.ts||'')+'|'+(x.from||x.dest||'');}
 function exchangeHtml(x){
   if(x.kind==='unprompted') return `
@@ -1235,7 +1378,8 @@ function exchangeHtml(x){
     ${x.verdict==='replied'&&x.reply
       ? `<div class="rep"><span class="who">↳ Cal replied${x.gen_ms!=null?` · ${secs(x.gen_ms)}`:''}${x.capability?` · ${esc(x.capability)}`:''}</span><span class="txt">${esc(x.reply)}</span></div>`
       : (x.verdict==='skipped'?`<div class="norep">↳ received, no reply — ${skipWhy(x.reason)}</div>`:'')}
-    <details class="tr" data-k="${esc(xkey(x))}"${OPEN.has(xkey(x))?' open':''}><summary>trace</summary>${traceHtml(x)}</details></div>`;
+    <details class="tr" data-k="${esc(xkey(x))}"${OPEN.has(xkey(x))?' open':''}><summary>trace</summary>
+    <div class="tpwrap">${OPEN.has(xkey(x))?traceHtml(x):''}</div></details></div>`;
 }
 function setSort(k){ nodeSort=(nodeSort.key===k)?{key:k,dir:-nodeSort.dir}:{key:k,dir:1}; renderNodes(); }
 function renderNodes(){
@@ -1313,6 +1457,7 @@ async function tick(){
  const sig=JSON.stringify([xs,SELF,lastNodes.map(n=>[n.id,n.short])]);
  if(sig!==lastXsig){
    lastXsig=sig;
+   XBYKEY.clear(); xs.forEach(x=>XBYKEY.set(xkey(x),x));
    $('#exchanges').innerHTML=xs.length?xs.map(exchangeHtml).join('')
      :'<div class="empty">nothing on air yet — mesh is quiet or awaiting first inbound</div>';
  }
@@ -1324,12 +1469,19 @@ async function tick(){
 // resolve the retired-version links against the app root, so they work at "/" and under a
 // funnel path prefix alike
 document.querySelectorAll('#oldlink,#oldlink2').forEach(a=>{a.href=DIR+'old-1';});
+// A closed trace is not built. Every exchange used to render its full trace on every 3s pass
+// whether or not anyone had opened it, which put a hard ceiling on how rich a trace could get.
+// Bodies are now filled on first open and rebuilt by the normal render while they stay open.
 $('#exchanges').addEventListener('toggle', e=>{
   const el=e.target;
   if(!el.matches||!el.matches('details.tr')) return;
   const k=el.dataset.k;
   if(!k) return;
-  el.open ? OPEN.add(k) : OPEN.delete(k);
+  if(!el.open){ OPEN.delete(k); return; }
+  OPEN.add(k);
+  const body=el.querySelector('.tpwrap');
+  const x=XBYKEY.get(k);
+  if(body&&!body.firstChild&&x) body.innerHTML=traceHtml(x);
 }, true);
 loadSnr(); tick(); setInterval(tick,3000); setInterval(loadSnr,30000);
 </script></body></html>"""
