@@ -350,7 +350,7 @@ PAGE_V1 = r"""<!doctype html>
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
 font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-header{display:flex;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--line);
+header{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--line);
 position:sticky;top:0;background:linear-gradient(180deg,#0c0f14,#0c0f14ee);backdrop-filter:blur(6px);z-index:5}
 header h1{font-size:17px;margin:0;letter-spacing:.3px}
 header .sub{color:var(--dim);font-size:12px}
@@ -544,7 +544,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 <footer>cal-mesh dashboard · auto-refresh 3s · read-only</footer>
 <script>
 const $=s=>document.querySelector(s);
-const DIR=location.pathname.endsWith('/')?location.pathname:location.pathname+'/';
+const DIR=(function(){const p=location.pathname.replace(/\/(v2|v3|old-\d+)\/?$/,'/');return p.endsWith('/')?p:p+'/';})();
 let SNR={};
 let lastNodes=[], nodeSort={key:null,dir:1};
 const NODE_LABELS={short:'Short',long:'Name',hw:'HW',hops:'Hops',snr:'SNR'};
@@ -614,7 +614,7 @@ function verdictTag(x){
     : `<span class="tag quiet">NO REPLY · ${esc(x.reason)}</span>`;
 }
 function skipWhy(r){
-  const m={sender_not_allowed:'sender is not on the allow-list — the message was received fine, Cal just may not answer it',
+  const m={sender_not_allowed:'sender is not on the allow-list — Cal heard it perfectly well and chose not to answer',
            not_addressed:'Cal was not addressed (no "cal" mention, not a DM)',
            disabled:'the responder kill switch is off',
            too_old:'the message was older than the freshness window',
@@ -723,7 +723,7 @@ PAGE_V2 = r"""<!doctype html>
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
 font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-header{display:flex;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--line);
+header{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--line);
 position:sticky;top:0;background:linear-gradient(180deg,#f6f8fa,#f6f8faee);backdrop-filter:blur(6px);z-index:5}
 header h1{font-size:17px;margin:0;letter-spacing:.3px}
 header .sub{color:var(--dim);font-size:12px}
@@ -1018,7 +1018,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
       grounded, narrated, sent. Each carries its own detail — which checks passed and which one stopped
       it, what the sanitizer changed, which weather station the reading came from and how old it was,
       the model and how long generation took. A message that fails a check <b>stops the spine where it
-      failed</b>, and the stages after it are drawn as never reached. That is read off the record rather
+      failed</b>, and a single hollow step says outright that nothing further ran. That is read off the record rather
       than assumed: a message that was gated out carries no sanitizer result, no fact, no model and no
       destination. It is the machinery, not a narration — see below.</div></details>
     <details><summary>Why doesn't the trace show Cal's "thinking"?</summary><div class="a">
@@ -1116,7 +1116,7 @@ function batteryLabel(m){ if(m.battery==null) return '—';
   if(m.battery>100) return 'ext power';   // Meshtastic sentinel, not a charge level
   return m.battery+'%'; }
 function skipWhy(r){
-  const m={sender_not_allowed:'sender is not on the allow-list — the message was received fine, Cal just may not answer it',
+  const m={sender_not_allowed:'sender is not on the allow-list — Cal heard it perfectly well and chose not to answer',
            not_addressed:'Cal was not addressed (no "cal" mention, not a DM)',
            disabled:'the responder kill switch is off',
            too_old:'the message was older than the freshness window',
@@ -1174,6 +1174,7 @@ function linkSvg(x){
   // firmware only ever tells us the last one. Drawing a single relay box for N>1 quietly implied
   // we knew the whole path. The ones we cannot name are now counted and drawn dashed, so the
   // diagram shows the size of what it does not know instead of hiding it.
+  if(hops==null) stops.push({lab:'?', sub:'routing not recorded', dim:true, dash:true});
   if(hops>1) stops.push({lab:'?', sub:(hops-1)+' unknown relay'+(hops-1>1?'s':''), dim:true, dash:true});
   if(hops>0) stops.push({lab:'relay'+(relayId?' '+relayId:''), sub:relayId?'last relay':'id not reported', dim:true});
   stops.push({lab:esc(fitLabel(SELF.name||'Cal HT',15)), sub:esc(fitLabel(SELF.id||'',15)), self:true});
@@ -1297,8 +1298,12 @@ function spineHtml(x,t){
     return `<ol class="spine">${s}</ol>`;
   }
   if(t.sanitize){const q=t.sanitize,b=[];
-    const tk=q.sentence_trim!=null?q.sentence_trim:(q.sentence_trimmed?'content':'none');
-    if(tk==='content') b.push(`first sentence kept (${q.dropped_chars!=null?q.dropped_chars+' chars':'rest'} dropped)`);
+    // An older record carries only the boolean and genuinely cannot say WHICH was trimmed. Say
+    // that, rather than guessing — and never guess toward "your words were dropped".
+    const tk=q.sentence_trim!=null?q.sentence_trim:(q.sentence_trimmed?'unknown':'none');
+    if(tk==='content') b.push(`first sentence kept (${q.dropped_chars!=null?q.dropped_chars+' chars':'the rest'} dropped)`);
+    else if(tk==='unknown') b.push('something was trimmed from the end — this record predates the '
+      +'detail that says whether it was punctuation or content');
     else if(tk==='punctuation') b.push('trailing punctuation trimmed, no content dropped');
     if(q.length_capped) b.push('length capped');
     if(q.redactions) b.push(`${q.redactions} redaction${q.redactions>1?'s':''}`);
@@ -1316,8 +1321,9 @@ function spineHtml(x,t){
       d=bar(pct,null,age>2700)+`<div class="barl">reading was ${Math.round(age/60)} minutes old when Cal `
        +`answered, against the hour these stations report on. A real observation from the nearest `
        +`station, never an estimate for one spot.</div>`;}
-    s+=stage(ok?'pass':'stop','grounded',
-      `${esc(x.capability)} · fetch ${ok?'ok':'FAILED'}`
+    const fstate = ok===true?'ok' : (ok===false?'FAILED':'not attempted');
+    s+=stage(ok===true?'pass':(ok===false?'stop':'skip'),'grounded',
+      `${esc(x.capability)} · fetch ${fstate}`
       +(t.obs_station?` · station <code>${esc(t.obs_station)}</code>`:''), d);}
   if(t.model){
     const ms=x.gen_ms;
@@ -1509,7 +1515,7 @@ PAGE_V3 = r"""<!doctype html>
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
 font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-header{display:flex;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--line);
+header{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--line);
 position:sticky;top:0;background:linear-gradient(180deg,#f6f8fa,#f6f8faee);backdrop-filter:blur(6px);z-index:5}
 header h1{font-size:17px;margin:0;letter-spacing:.3px}
 header .sub{color:var(--dim);font-size:12px}
@@ -1666,12 +1672,13 @@ background:linear-gradient(180deg,#fff,#fbfcfe);
 box-shadow:0 1px 2px rgba(22,27,34,.05),0 6px 16px -8px rgba(22,27,34,.22)}
 .fk{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--dim)}
 .fv{font-size:13px;margin-top:5px;line-height:1.45;word-break:break-word}
-.fn{font-size:10.5px;margin-top:6px;color:var(--dim);line-height:1.42}
+.fn{font-size:10.5px;margin-top:6px;color:var(--dim);line-height:1.42;overflow-wrap:anywhere}
 /* the recognition step: plain word-matching, no model. Drawn as a decision, not as data. */
 .fb.bx{border-color:#c3d9f2;background:linear-gradient(180deg,#f7fbff,#eef5fd);
 box-shadow:0 1px 2px rgba(10,99,201,.08),0 8px 20px -10px rgba(10,99,201,.30)}
 .fb.bx .fv{font-size:12.5px}
 .chip{display:inline-block;margin:3px 4px 0 0;padding:1px 7px;border-radius:5px;
+max-width:100%;overflow-wrap:anywhere;word-break:break-word;vertical-align:top;
 background:#dceafb;color:#0a4da3;font-size:11px;font-weight:600;
 font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .fb.b2{border-color:#a7e3b6;background:linear-gradient(180deg,#f4fdf7,#eaf9ef);
@@ -1691,11 +1698,11 @@ text-align:center;line-height:1.3}
 /* the boundary: the one surprising fact, stated once, on the line it describes */
 .cross{position:relative;align-self:stretch;display:flex;align-items:center}
 .cross::before{content:"";position:absolute;left:50%;top:0;bottom:0;margin-left:-1px;
-border-left:2px dashed #d9a7ad}
+border-left:2px dashed #9fb0c4}
 .cross .arw{flex:1;margin:0 6px}
 .cross .bl{position:absolute;left:50%;top:2px;transform:translateX(-50%);background:var(--card);
-border:1px solid #f0cdd1;border-radius:6px;padding:3px 6px;font-size:8.5px;font-weight:700;
-text-transform:uppercase;letter-spacing:.4px;color:var(--bad);text-align:center;line-height:1.25;
+border:1px solid #c3d2e2;border-radius:6px;padding:3px 6px;font-size:8.5px;font-weight:700;
+text-transform:uppercase;letter-spacing:.4px;color:#3d566e;text-align:center;line-height:1.25;
 width:92px;box-sizing:border-box}
 .flowcap{font-size:11.5px;color:var(--dim);line-height:1.55;margin:10px 0 14px;max-width:88ch;
 padding-left:2px}
@@ -1870,7 +1877,8 @@ box-shadow:0 0 0 2px #fff,0 1px 3px rgba(22,27,34,.4);transition:left .7s cubic-
       fit that shape and are marked separately — <b>unprompted</b> sends (an operator message, with no
       ask above it) and messages overheard but never addressed to Cal.</div></details>
     <details><summary>What's in the decision trace?</summary><div class="a">
-      Open <b>trace</b> on any exchange and you get two pictures. First, <b>the chain that produced
+      Open <b>trace</b> on an exchange Cal <i>answered</i> and you get two pictures; on one it did not
+      answer, the chain is skipped and only the second appears. First, <b>the chain that produced
       the reply</b>, read left to right and numbered: the question that arrived, <b>what the software
       recognised in it</b>, what it went and fetched as a result, and finally what the model wrote.
       The recognition step is worth a look, because it is the least magical part of the whole system:
@@ -1887,7 +1895,7 @@ box-shadow:0 0 0 2px #fff,0 1px 3px rgba(22,27,34,.4);transition:left .7s cubic-
       grounded, narrated, sent. Each carries its own detail — which checks passed and which one stopped
       it, what the sanitizer changed, which weather station the reading came from and how old it was,
       the model and how long generation took. A message that fails a check <b>stops the spine where it
-      failed</b>, and the stages after it are drawn as never reached. That is read off the record rather
+      failed</b>, and a single hollow step says outright that nothing further ran. That is read off the record rather
       than assumed: a message that was gated out carries no sanitizer result, no fact, no model and no
       destination. It is the machinery, not a narration — see below.</div></details>
     <details><summary>Why doesn't the trace show Cal's "thinking"?</summary><div class="a">
@@ -1989,7 +1997,7 @@ function batteryLabel(m){ if(m.battery==null) return '—';
   if(m.battery>100) return 'ext power';   // Meshtastic sentinel, not a charge level
   return m.battery+'%'; }
 function skipWhy(r){
-  const m={sender_not_allowed:'sender is not on the allow-list — the message was received fine, Cal just may not answer it',
+  const m={sender_not_allowed:'sender is not on the allow-list — Cal heard it perfectly well and chose not to answer',
            not_addressed:'Cal was not addressed (no "cal" mention, not a DM)',
            disabled:'the responder kill switch is off',
            too_old:'the message was older than the freshness window',
@@ -2047,6 +2055,7 @@ function linkSvg(x){
   // firmware only ever tells us the last one. Drawing a single relay box for N>1 quietly implied
   // we knew the whole path. The ones we cannot name are now counted and drawn dashed, so the
   // diagram shows the size of what it does not know instead of hiding it.
+  if(hops==null) stops.push({lab:'?', sub:'routing not recorded', dim:true, dash:true});
   if(hops>1) stops.push({lab:'?', sub:(hops-1)+' unknown relay'+(hops-1>1?'s':''), dim:true, dash:true});
   if(hops>0) stops.push({lab:'relay'+(relayId?' '+relayId:''), sub:relayId?'last relay':'id not reported', dim:true});
   stops.push({lab:esc(fitLabel(SELF.name||'Cal HT',15)), sub:esc(fitLabel(SELF.id||'',15)), self:true});
@@ -2126,9 +2135,14 @@ function linkSvg(x){
 function flowHtml(x,t){
   const inTxt=esc(x.text||''), outTxt=esc(x.reply||'');
   if(!outTxt) return '';
-  const capability=!!t.injected_fact;
-  const arrow=(label)=>`<span class="arw"><span>${label}</span></span>`;
+  // What the software MATCHED, what it actually GOT, and whether a model ran are three
+  // different things. Collapsing them is what made a refused forecast claim the model was
+  // handed the message.
+  const capability=!!(x.capability||(t.trigger_match&&t.trigger_match.via));
+  const fetched=!!t.injected_fact;
   const modelRan=!!t.model;
+  const crosses=fetched&&modelRan;
+  const arrow=(label)=>`<span class="arw"><span>${label}</span></span>`;
   const b1=`<div class="fb b1"><div class="fk">1 · the question</div>`
     +`<div class="fv">${inTxt}</div>`
     +`<div class="fn"><span class="onair">✓ received on air</span> — and it is what decided `
@@ -2147,7 +2161,7 @@ function flowHtml(x,t){
   // capability runs. No model is involved, and it is where a 2026-08-11 defect hid — a question
   // that matched nothing never reached the capability at all, with nothing on the page to say so.
   const tm=t.trigger_match||null;
-  let why='recognised from the wording', chips='';
+  let why='this record predates Cal keeping the matched words, so they cannot be shown', chips='';
   if(tm){
     const words=(tm.strong&&tm.strong.length?tm.strong:tm.weak)||[];
     chips=words.map(w=>`<span class="chip">${esc(w)}</span>`).join('');
@@ -2164,29 +2178,44 @@ function flowHtml(x,t){
     +`<b>no model involved</b></div></div>`;
   const st=t.obs_station?esc(t.obs_station):null;
   const age=t.obs_age_s!=null?Math.round(t.obs_age_s/60)+' min old':null;
+  const warn='border-color:#e6c98a;background:linear-gradient(180deg,#fffdf5,#fdf6e3)';
   const b2=t.forecast_asked
-    ? `<div class="fb b2" style="border-color:#e6c98a;background:linear-gradient(180deg,#fffdf5,#fdf6e3)">`
+    ? `<div class="fb b2" style="${warn}">`
       +`<div class="fk">3 · what Cal looked up</div><div class="fv">nothing</div>`
       +`<div class="fn">Cal holds current observations only, so a question about later is refused `
-      +`outright rather than answered with a reading from now</div></div>`
-    : `<div class="fb b2"><div class="fk">3 · what Cal's software fetched</div>`
-      +`<div class="fv">${esc(t.injected_fact)}</div>`
-      +`<div class="fn">a real observation${st?' from station '+st:''}${age?', '+age:''} — fetched by `
-      +`the software, never by the model</div></div>`;
-  return `<div class="flow">${b1}${arrow('reads')}${bx}${arrow('so it<br>fetches')}${b2}`
-    +`<span class="cross"><span class="bl">only this crosses</span>${arrow('')}</span>${b3}</div>`
-    +`<div class="flowcap">Read left to right. The question arrived fine and did real work — `
-    +`<b>its wording is what chose the lookup</b> — but it never reached the model. Cal&rsquo;s software `
-    +`matched the words, went and got the observation, and <b>only that observation</b> crossed the `
-    +`dashed line. The model&rsquo;s entire job was to put it into words, which is why it cannot invent `
-    +`a temperature.</div>`;
+      +`outright — no lookup was attempted at all</div></div>`
+    : !fetched
+      ? `<div class="fb b2" style="${warn}">`
+        +`<div class="fk">3 · what Cal looked up</div><div class="fv">the lookup failed</div>`
+        +`<div class="fn">the weather service could not be reached, so Cal sent a fixed sentence `
+        +`rather than guess a number — the fail-safe working, not a model deciding</div></div>`
+      : `<div class="fb b2"><div class="fk">3 · what Cal's software fetched</div>`
+        +`<div class="fv">${esc(t.injected_fact)}</div>`
+        +`<div class="fn">a real observation${st?' from station '+st:''}${age?', '+age:''} — fetched `
+        +`from the US National Weather Service by the software, never by the model</div></div>`;
+  const join=crosses
+    ? `<span class="cross"><span class="bl">only this crosses</span>${arrow('')}</span>`
+    : arrow('');
+  const cap=crosses
+    ? `Read left to right. The question arrived fine and did real work — <b>its wording is what chose `
+      +`the lookup</b> — but it never reached the model. Cal&rsquo;s software matched the words, went and `
+      +`got the observation, and <b>only that observation</b> crossed the dashed line. The model&rsquo;s `
+      +`entire job was to put it into words, which is why it cannot invent a temperature.`
+    : `Read left to right. The question arrived fine and did real work — <b>its wording is what Cal `
+      +`matched on</b> — but nothing was looked up, so <b>no model ran at all</b>. What went out is a `
+      +`fixed sentence written into the software. There is no boundary drawn here because nothing `
+      +`crossed one.`;
+  return `<div class="flow">${b1}${arrow('reads')}${bx}${arrow(crosses?'so it<br>fetches':'so it<br>stops')}`
+    +`${b2}${join}${b3}</div><div class="flowcap">${cap}</div>`;
 }
 function gauge(name,val,pct,ends,band,note){
   return `<div class="gauge"><div class="glab"><span class="gname">${name}</span>`
     +`<span class="gval">${val}</span></div>`
     +`<div class="track${band?'':' ramp'}">`
     +(band?`<span class="band" style="left:${band[0].toFixed(1)}%;width:${band[1].toFixed(1)}%"></span>`:'')
-    +`<span class="mk" style="left:${Math.max(0,Math.min(100,pct)).toFixed(1)}%"></span></div>`
+    +(Number.isFinite(pct)
+       ? `<span class="mk" style="left:${Math.max(0,Math.min(100,pct)).toFixed(1)}%"></span>`
+       : '')+`</div>`
     +`<div class="gends"><span>${ends[0]}</span><span>${ends[1]}</span></div>`
     +(note?`<div class="gnote">${note}</div>`:'')+`</div>`;
 }
@@ -2218,8 +2247,12 @@ function spineHtml(x,t){
     return `<ol class="spine">${s}</ol>`;
   }
   if(t.sanitize){const q=t.sanitize,b=[];
-    const tk=q.sentence_trim!=null?q.sentence_trim:(q.sentence_trimmed?'content':'none');
-    if(tk==='content') b.push(`first sentence kept (${q.dropped_chars!=null?q.dropped_chars+' chars':'rest'} dropped)`);
+    // An older record carries only the boolean and genuinely cannot say WHICH was trimmed. Say
+    // that, rather than guessing — and never guess toward "your words were dropped".
+    const tk=q.sentence_trim!=null?q.sentence_trim:(q.sentence_trimmed?'unknown':'none');
+    if(tk==='content') b.push(`first sentence kept (${q.dropped_chars!=null?q.dropped_chars+' chars':'the rest'} dropped)`);
+    else if(tk==='unknown') b.push('something was trimmed from the end — this record predates the '
+      +'detail that says whether it was punctuation or content');
     else if(tk==='punctuation') b.push('trailing punctuation trimmed, no content dropped');
     if(q.length_capped) b.push('length capped');
     if(q.redactions) b.push(`${q.redactions} redaction${q.redactions>1?'s':''}`);
@@ -2237,8 +2270,9 @@ function spineHtml(x,t){
       d=gauge('reading age',Math.round(age/60)+' min',(age/3600)*100,
         ['just measured','1 h — how often these stations report'],[0,0.001],
         'A real observation from the nearest station, never an estimate for one spot.');}
-    s+=stage(ok?'pass':'stop','grounded',
-      `${esc(x.capability)} · fetch ${ok?'ok':'FAILED'}`
+    const fstate = ok===true?'ok' : (ok===false?'FAILED':'not attempted');
+    s+=stage(ok===true?'pass':(ok===false?'stop':'skip'),'grounded',
+      `${esc(x.capability)} · fetch ${fstate}`
       +(t.obs_station?` · station <code>${esc(t.obs_station)}</code>`:''), d);}
   if(t.model){
     const ms=x.gen_ms;
@@ -2415,7 +2449,10 @@ $('#exchanges').addEventListener('toggle', e=>{
   if(!el.matches||!el.matches('details.tr')) return;
   const k=el.dataset.k;
   if(!k) return;
-  if(!el.open){ OPEN.delete(k); ANIMATED.delete(k); return; }
+  if(!el.open){ OPEN.delete(k); ANIMATED.delete(k);
+    // the class must come off, or re-adding it on reopen is a no-op and nothing replays
+    const tpc=el.querySelector('.tp'); if(tpc) tpc.classList.remove('anim');
+    return; }
   OPEN.add(k);
   const body=el.querySelector('.tpwrap');
   const x=XBYKEY.get(k);

@@ -243,9 +243,10 @@ def plan_response(cfg, sender_short, raw_text, get=None):
     # intent/location on the RAW text: a trailing '?' (needed for weak-keyword intent) and a
     # whitelisted place name must survive; sanitize would strip them. Nothing from raw_text
     # reaches a URL (resolve_location whitelists) or the weather prompt (build_prompt drops it).
-    match = weather.explain_weather_match(raw_text)
+    enabled = cfg.get("WEATHER_ENABLED", "false").lower() == "true"
+    match = weather.explain_weather_match(raw_text) if enabled else None
     out["match"] = match
-    if cfg.get("WEATHER_ENABLED", "false").lower() == "true" and match["via"]:
+    if enabled and match["via"]:
         out["capability"] = "weather"
         # Forecast-shaped ask: we have current observations only. Answer honestly with a fixed
         # string and skip the fetch entirely — never dress a present-tense reading as a forecast.
