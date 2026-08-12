@@ -931,9 +931,15 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
       and it can run well above the temperature: measured here, 95&deg;F air against a 107&deg;F heat
       index. If the source publishes that value in a unit the software does not recognise, it is
       <b>dropped rather than converted on a guess</b>, because a wrong number is worse than no number.
-      Known limitation, stated plainly: a station can be some miles away, and its reading can differ
-      from the estimate for a specific spot. What Cal reports is a real
+      Known limitation, stated plainly: the station is a real place some distance away, and its
+      reading can differ from the estimate for a specific spot. What Cal reports is a real
       measurement of somewhere nearby, not a forecast for where you're standing.
+      <br><br>This page used to put a number on that gap — "five degrees or more". That number is
+      withdrawn rather than quietly softened, and the reason is worth saying: it was measured
+      against a <b>reference point that was itself nearly four miles wrong</b>, from a station
+      believed to be five miles off that is actually about one. The reference has been corrected.
+      The gap is real and the caution stands, but the size of it has not been honestly measured
+      yet, so no figure is quoted here until it has been.
       <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/level3-weather-point-accuracy.md" target="_blank" rel="noopener noreferrer">The write-up, including the fix ↗</a></div></details>
     <details><summary>What is an "exchange"?</summary><div class="a">
       Almost everything Cal transmits is a response to being prompted, so the page is organised that

@@ -190,6 +190,89 @@ check("and the rest of the fact still works", "95F" in (bad or "") and "wind" in
 check("apparent_temp returns None when air temp is unknown",
       weather.apparent_temp({"heatIndex": {"value": 41.9, "unitCode": "wmoUnit:degC"}}, None) is None)
 
+print("\n== unit: apparent temperature — hardening from adversarial review (2026-08-11) ==")
+# Every check below corresponds to something a reviewer actually produced from this code.
+
+# F2: JSON true is numerically 1, so it converted to 34F and shipped — a plausible number
+# pointing the SAFE direction on a dangerous day, the worst failure this field can have.
+check("boolean heat index is rejected, not read as 1",
+      "heat index" not in (weather.format_fact(_app(tC=35, hiC=True), max_age_s=5400) or ""),
+      weather.format_fact(_app(tC=35, hiC=True), max_age_s=5400))
+
+# F1: direction is definitional. A heat index BELOW air temp understates danger.
+lowhi = weather.format_fact(_app(tC=35, hiC=24), max_age_s=5400)          # 95F air, 75F "HI"
+check("heat index below air temp is impossible -> rejected", "heat index" not in (lowhi or ""), lowhi)
+highwc = weather.format_fact(_app(tC=-5, wcC=6), max_age_s=5400)          # 23F air, 43F "chill"
+check("wind chill above air temp is impossible -> rejected", "wind chill" not in (highwc or ""), highwc)
+for bad, why in ((200, "200C = 392F"), (-273.15, "absolute zero = -460F")):
+    f = weather.format_fact(_app(tC=35, hiC=bad), max_age_s=5400)
+    check(f"absurd value rejected ({why})", "heat index" not in (f or ""), f)
+check("a real extreme is NOT rejected (134F Death Valley)",
+      weather.format_fact(_app(tC=40, hiC=56.7), max_age_s=5400) is not None)
+
+# F5: the delta rule alone went silent exactly where it mattered most.
+danger = weather.format_fact(_app(tC=38.9, hiC=40), max_age_s=5400)       # 102F air / 104F HI
+check("DANGER-band heat index reported despite a 2F gap", "heat index 104F" in (danger or ""), danger)
+extreme = weather.format_fact(_app(tC=50.6, hiC=51.7), max_age_s=5400)    # 123F / 125F
+check("EXTREME-DANGER band reported despite a 2F gap", "heat index" in (extreme or ""), extreme)
+benign = weather.format_fact(_app(tC=27.8, hiC=28.9), max_age_s=5400)     # 82F / 84F, 2F gap
+check("benign 2F gap still stays quiet", "heat index" not in (benign or ""), benign)
+# Each index is only defined over part of the range — outside it the value is garbage, not a
+# reading. This is what a direction check alone missed: 107F really is above 23F.
+cold_hi = weather.format_fact(_app(tC=-5, hiC=41.9), max_age_s=5400)      # 23F air, 107F "HI"
+check("heat index on a 23F day is out of its domain -> rejected",
+      "heat index" not in (cold_hi or ""), cold_hi)
+warm_wc = weather.format_fact(_app(tC=30, wcC=26), max_age_s=5400)        # 86F air, 79F "chill"
+check("wind chill on an 86F day is out of its domain -> rejected",
+      "wind chill" not in (warm_wc or ""), warm_wc)
+chill = weather.format_fact(_app(tC=-17.2, wcC=-18.3), max_age_s=5400)    # 1F air / -1F chill
+check("hazardous wind chill reported despite a 2F gap", "wind chill" in (chill or ""), chill)
+
+# F4: the threshold could drift 3 -> 12 with the whole suite still passing. Pin the boundary.
+at2 = weather.format_fact(_app(tC=35, hiC=36.11), max_age_s=5400)         # 95F -> 97F, 2F gap
+check("2F gap below the threshold stays quiet", "heat index" not in (at2 or ""), at2)
+at3 = weather.format_fact(_app(tC=35, hiC=36.67), max_age_s=5400)         # 95F -> 98F, 3F gap
+check("exactly 3F meets the threshold (boundary pinned)", "heat index 98F" in (at3 or ""), at3)
+
+# F3: the eval never built an observation with BOTH fields non-null, so swapping the check
+# order passed everything. Real feeds never do this (0 of 500 observations), but an untested
+# assumption is a bug waiting for a feed change: a heat index announced in freezing weather.
+both = weather.format_fact(_app(tC=-5, hiC=41.9, wcC=-11.7), max_age_s=5400)
+check("both fields present -> the physically possible one wins, not the first listed",
+      "wind chill 11F" in (both or "") and "heat index" not in (both or ""), both)
+
+# F6: the rule is "unrecognised unit is DROPPED", but any string ENDING in degc converted.
+check("unit must be a token, not a suffix ('mydegc' is not degC)",
+      "heat index" not in (weather.format_fact(_app(tC=35, hiC=41.9, hi_unit="wmoUnit:mydegc"), max_age_s=5400) or ""))
+check("the real unit code still works", "heat index 107F" in
+      (weather.format_fact(_app(tC=35, hiC=41.897), max_age_s=5400) or ""))
+
+# F7: a malformed field must cost that field only — never the temperature as well.
+for junk, why in (("hot", "string"), ([1], "list"), (float("nan"), "NaN"), (float("inf"), "Infinity")):
+    f = weather.format_fact(_app(tC=35, hiC=junk), max_age_s=5400)
+    check(f"malformed heat index ({why}) costs only that field", f is not None and "95F" in f, f)
+
+# F8: the source's one free-text field reaches the prompt, so it is capped rather than trusted.
+huge = weather.format_fact(_app(tC=20, desc="A"*5000), max_age_s=5400)
+check("textDescription is length-capped before it reaches the prompt", huge is not None and len(huge) < 200, len(huge or ""))
+
+print("\n== unit: you can ask for the capability BY ITS OWN NAME ==")
+# The heat-index feature shipped without these and "what's the heat index?" produced no weather
+# lookup at all — the answer existed and the door was locked. Every capability needs a check
+# that the words a person would actually use to ask for it are the words that trigger it.
+for q in ["cal whats the heat index?", "cal what is the heat index",
+          "cal whats the wind chill?", "cal what does it feel like out there?",
+          "cal how is the humidity?", "cal whats the dew point?"]:
+    check(f"triggers: {q!r}", weather.wants_weather(q))
+# ...without becoming trigger-happy on ordinary chatter.
+for q in ["cal are you there", "cal hows the link holding up", "cal whats your status",
+          "cal did you get that", "howdy"]:
+    check(f"does NOT trigger: {q!r}", not weather.wants_weather(q))
+# A forecast-shaped ask still refuses even when it names the new fields.
+check("'whats the heat index tomorrow' is still a forecast refusal",
+      weather.wants_weather("cal whats the heat index tomorrow?")
+      and weather.wants_forecast("cal whats the heat index tomorrow?"))
+
 print("\n== unit: the weather prompt carries the whole fact ==")
 import responder as _r
 _p = _r.build_prompt("!x", "", "95F, heat index 107F, Clear")

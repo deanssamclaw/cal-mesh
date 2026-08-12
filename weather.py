@@ -6,7 +6,11 @@ source (US National Weather Service, api.weather.gov), and the responder injects
 resulting compact fact into the tool-locked generation prompt. The model only narrates.
 
 Design invariants (see docs/proposals/level3-weather.md):
-  * read-only, public, structured/typed source (no free text, no auth, size-bounded, timeout)
+  * read-only, public, TYPED source (no auth, size-bounded, timeout). NOTE, corrected
+    2026-08-11 after review: this is NOT entirely free-text-free. `textDescription` is
+    prose from NWS and is spliced into the prompt, so it is length-capped here
+    (_DESC_MAX) rather than trusted. It is NWS-controlled over HTTPS with no attacker
+    path, but the old "no free text" claim was inaccurate and is not a control.
   * fail-safe: any error / missing value -> return None (the responder then says it can't
     reach weather; it NEVER invents a number)
   * location: a named place is honored ONLY if it is on the operator's whitelist; an
@@ -23,7 +27,13 @@ ALLOWED_HOST = "api.weather.gov"                   # the ONLY host this module w
 # --- intent ---------------------------------------------------------------
 # Strong words fire on their own; weak words need reinforcement (2+ distinct, or a '?').
 # This kills single-word false-fires like "I have a cold" / "that's hot" (review #8).
-_STRONG = re.compile(r"\b(weather|forecast|temperature|temp)\b", re.I)
+# "heat index" / "wind chill" / "feels like" are STRONG: they are unambiguous weather asks and
+# there is no other thing they could mean. Added 2026-08-11 — the capability that reports the
+# heat index shipped without them, so asking "what's the heat index?" by name produced NO
+# weather lookup at all. ("wind chill" only worked by accident: "wind" is a weak word and the
+# question mark carried it.) Build the answer AND check the way people will ask for it.
+_STRONG = re.compile(r"\b(weather|forecast|temperature|temp|heat\s*index|wind\s*chill|"
+                     r"feels?\s+like|dew\s*point|humidity)\b", re.I)
 # Forecast-shaped asks. The capability holds CURRENT OBSERVATIONS ONLY, so these cannot be
 # answered — and answering them with current conditions is the exact confident-wrongness the
 # roadmap forbids ("clear skies" to "is it going to rain?"). Detected deterministically here
@@ -33,7 +43,8 @@ _STRONG = re.compile(r"\b(weather|forecast|temperature|temp)\b", re.I)
 _FORECAST = re.compile(r"\b(forecast|tomorrow|tonight|later|overnight|this\s+(afternoon|evening|week|weekend)|"
                        r"next\s+(hour|day|week)|going\s+to\s+(rain|snow|storm)|will\s+it|gonna)\b", re.I)
 _WEAK   = re.compile(r"\b(rain|raining|snow|snowing|sleet|wind|windy|humid|humidity|"
-                     r"hot|cold|freezing|storm|storms|sunny|cloudy|degrees|precip)\b", re.I)
+                     r"hot|heat|muggy|sticky|cold|chilly|freezing|storm|storms|sunny|cloudy|"
+                     r"degrees|precip)\b", re.I)
 
 
 def wants_forecast(text):
@@ -185,16 +196,38 @@ _DIRS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
 def _compass(d):   return _DIRS[int((d / 22.5) + 0.5) % 16]
 
 
+# A unit token, not merely a suffix. `endswith("degc")` also accepted "wmoUnit:mydegc" and
+# converted it (review finding 6) — the stated rule is that an unrecognised unit is DROPPED,
+# so the match has to end at a token boundary rather than anywhere in the string.
+_UNIT_F_RE = re.compile(r"(?:[a-z]+:)?deg([cf])$")
+
+# Values outside this are not weather, they are a broken feed. Bounds are deliberately wider
+# than any Earth record (-129F Vostok, 134F Death Valley) so a real extreme is never dropped,
+# while 392F and -460F — both produced from malformed input during review — are.
+_PLAUSIBLE_F = (-150.0, 200.0)
+
+
 def _to_F(v, unit):
-    """Convert to whole degrees F by declared unit. Unknown unit -> None (fail-safe)."""
-    if v is None:
+    """Convert to whole degrees F by declared unit. Unknown unit or unusable value -> None.
+
+    Rejects bools explicitly: JSON `true` is numerically 1, so a `{"value": true}` heat index
+    converted cleanly to 34F and shipped (review finding 2) — a wrong-but-plausible number, and
+    one pointing the *safe* direction on a dangerous day, which is the worst possible failure
+    for this field. Also rejects NaN/Infinity, which `json.loads` accepts by default."""
+    if v is None or isinstance(v, bool) or not isinstance(v, (int, float)):
         return None
-    u = (unit or "").lower()
-    if u.endswith("degc"):
-        return round(v * 9 / 5 + 32)
-    if u.endswith("degf"):
-        return round(v)
-    return None
+    try:
+        if v != v or v in (float("inf"), float("-inf")):   # NaN / +-Inf
+            return None
+    except TypeError:
+        return None
+    m = _UNIT_F_RE.match((unit or "").lower())
+    if not m:
+        return None
+    f = v * 9 / 5 + 32 if m.group(1) == "c" else v
+    if not (_PLAUSIBLE_F[0] <= f <= _PLAUSIBLE_F[1]):
+        return None
+    return round(f)
 
 
 def _to_mph(v, unit):
@@ -224,19 +257,57 @@ def _to_mph(v, unit):
 # 95F air, 107F heat index — a 12F gap, and NWS "Danger" territory.
 _APPARENT_MIN_DELTA_F = 3
 
+# A delta threshold alone is the wrong rule, and review proved it: 102F air with a 104F heat
+# index sits in the NWS DANGER band and was DROPPED for a 2F delta, while 79F/82F — entirely
+# harmless — was reported. That is the same silent omission this whole feature exists to fix,
+# just moved. So a value inside a genuinely hazardous band is always reported, however small
+# the gap. NWS heat-index bands: Caution 80, Extreme Caution 90, Danger 103, Extreme Danger 125.
+_HEAT_ALERT_F  = 103
+_CHILL_ALERT_F = 0
+
+# Each index is only DEFINED over part of the range — NWS's heat-index table starts at 80F and
+# the wind-chill formula is specified for 50F and below. Outside its own domain a value is not
+# a cold reading of a hot day, it is garbage. Caught by the eval: a direction check alone let
+# "23F, heat index 107F" through, because 107 really is above 23.
+_HEAT_VALID_MIN_F  = 80
+_CHILL_VALID_MAX_F = 50
+
+# Cap on the source's one free-text field. Real values at Cal's station are '' or 'Clear'.
+_DESC_MAX = 40
+
 
 def apparent_temp(p, tF):
-    """(label, degreesF) for heat index or wind chill when it MATERIALLY differs from air
-    temperature, else None. `p` is the observation's properties dict, `tF` air temp in F.
+    """(label, degreesF) for heat index or wind chill worth reporting, else None.
+    `p` is the observation's properties dict, `tF` air temp in F.
 
-    Heat index is checked first: the two are mutually exclusive in practice, and being wrong
-    about heat is the more dangerous direction."""
+    Reported when it differs from air temperature by >= _APPARENT_MIN_DELTA_F, OR whenever it
+    falls in a hazardous band regardless of the gap (see above).
+
+    Heat index is checked first. The two are mutually exclusive in practice — verified during
+    review across 500 real observations at 5 stations, they were never both non-null — but the
+    ordering is no longer load-bearing, because a value pointing the physically impossible
+    direction is now rejected outright rather than merely deprioritised.
+
+    DIRECTION IS ENFORCED: heat index is by definition >= air temperature and wind chill <= it.
+    Review produced '23F, wind chill 43F' and '95F, heat index 75F' from malformed input — both
+    physically impossible, and the second understates danger, which is the direction that hurts."""
     if tF is None:
         return None
-    for name, key in (("heat index", "heatIndex"), ("wind chill", "windChill")):
-        x = p.get(key) or {}
-        v = _to_F(x.get("value"), x.get("unitCode"))
-        if v is not None and abs(v - tF) >= _APPARENT_MIN_DELTA_F:
+    for name, key, hotter in (("heat index", "heatIndex", True),
+                              ("wind chill", "windChill", False)):
+        try:
+            x = p.get(key) or {}
+            v = _to_F(x.get("value"), x.get("unitCode"))
+        except Exception:
+            continue          # a malformed field costs that field, never the whole observation
+        if v is None:
+            continue
+        if hotter and (v < tF or tF < _HEAT_VALID_MIN_F):
+            continue      # heat index below air temp, or claimed on a cold day: not defined
+        if not hotter and (v > tF or tF > _CHILL_VALID_MAX_F):
+            continue      # wind chill above air temp, or claimed on a warm day: not defined
+        hazardous = (v >= _HEAT_ALERT_F) if hotter else (v <= _CHILL_ALERT_F)
+        if abs(v - tF) >= _APPARENT_MIN_DELTA_F or hazardous:
             return name, v
     return None
 
@@ -278,7 +349,11 @@ def format_fact(obs, label="default", max_age_s=None, now=None):
     tv, tu = fld("temperature")
     wv, wu = fld("windSpeed")
     dv, _  = fld("windDirection")
-    desc = (p.get("textDescription") or "").strip()
+    # The one free-text field from the source, and it goes into the prompt. Real values are a
+    # handful of characters ("Clear"); review demonstrated a 5000-char value producing a
+    # 5323-char prompt with no cap anywhere. Capped, not trusted — see the module docstring.
+    desc = (p.get("textDescription") or "")
+    desc = desc.strip()[:_DESC_MAX] if isinstance(desc, str) else ""
 
     tF, mph = _to_F(tv, tu), _to_mph(wv, wu)
     app = apparent_temp(p, tF)
