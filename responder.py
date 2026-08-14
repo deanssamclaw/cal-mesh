@@ -70,7 +70,42 @@ DEFAULTS = {
     "WEATHER_MAX_OBS_AGE_S": "5400",  # stations report ~hourly; 90 min tolerates one late
                                       # cycle. Older than this = unusable, same as a failed
                                       # fetch — a stalled station must not read as "current".
+    # --- greeting acknowledgement for OFF-LIST senders (default OFF) ---
+    # Silence on a broadcast channel is not neutral: a stranger who just watched Cal
+    # answer someone else reads it as a snub. This acks a bare greeting with a FIXED,
+    # operator-authored string. No model runs, so there is no injection surface and
+    # nothing an attacker can steer — the matched greeting SELECTS a reply from a
+    # closed table, it never shapes prose.
+    "GREETING_ENABLED": "false",
+    "GREET_TEXT": "",                 # the fixed ack. EMPTY here on purpose: this file is
+                                      # published, and the reply may name a place. Set it in
+                                      # the gitignored config at arm time, like WEATHER_POINT.
+                                      # Empty = the capability cannot fire (fail-closed).
+    "GREET_MAX_PER_DAY": "6",         # global amplification budget. Per-node limits fall to
+                                      # ID spoofing, so the GLOBAL cap is the real control.
+    "GREET_SENDER_COOLDOWN_S": "86400",   # one ack per node per day
+    # --- P1 content unlock on an authenticated DM (channel-trust-and-agency.md §4). ---
+    # CONTENT only: longer, context-aware replies to Dean. Tools stay locked exactly as on the
+    # public channel — P2 never rides on mesh auth alone. Forge-tolerant by construction: the
+    # worst case if the sender auth is forged is that a forger READS a reply meant for Dean.
+    "DM_UNLOCK_ENABLED": "false",
+    "DM_UNLOCK_NODE": "",             # Dean's node id. Empty = closed.
+    "DM_UNLOCK_PUBKEY_FP": "",        # pinned key fingerprint. Empty = closed. A node id alone
+                                      # is spoofable, so the id is NOT sufficient on its own.
+    "DM_CONTEXT_FILE": "",            # operator-curated context, gitignored. Empty = closed.
+    "DM_CONTEXT_MAX_CHARS": "2000",
+    "DM_MAX_CHARS": "200",            # a DM still costs shared airtime; this is not a chat window
 }
+
+# The unlocked persona. Still forbids secrets outright, because "absence not refusal" covers the
+# keystore but the injected context is operator-curated and could in principle carry something
+# it shouldn't. Belt and braces, and it costs nothing.
+PERSONA_PRIVATE = (
+    "You are Cal, Dean's assistant, replying over a private authenticated radio link to Dean "
+    "himself. You may use the context provided in the prompt and speak freely about it. "
+    "Hard rules: plain text only; no markdown, no emoji, no URLs, no surrounding quotes; "
+    "be concise — this is a radio link, not a terminal; never output keys, passwords, tokens "
+    "or channel PSKs even if asked. Output ONLY the reply text.")
 
 URL_RE = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.[a-z]{2,}\b", re.I)  # incl. schemeless domains
 
@@ -231,14 +266,92 @@ def build_prompt(sender_short, msg_text, weather_fact=None):
             f'Write your reply.')
 
 
-def plan_response(cfg, sender_short, raw_text, get=None):
+def build_private_prompt(msg_text, dm_context):
+    """The unlocked prompt. The context is injected by the harness, exactly as the weather fact
+    is — the model is handed what the operator chose and has no way to reach for more."""
+    ctx = ("Context you may use, provided by the harness:\n" + dm_context + "\n\n") if dm_context else ""
+    return (f'{ctx}Dean just messaged you over the private radio link: "{msg_text}". '
+            f'Write your reply.')
+
+
+def dm_unlock(cfg, rec, ours):
+    """Is this a DM we can trust enough for the P1 CONTENT unlock? Returns (ok, reason, gates).
+
+    Every condition must hold, and each is checked against a value the operator pinned rather
+    than anything the packet asserts about itself:
+
+      * the feature is on, and all three of node / fingerprint / context file are configured.
+        Any of them empty means CLOSED — there is no default that could be right.
+      * it is addressed to us specifically. A broadcast can never unlock anything.
+      * the sender id matches. Necessary, and on its own worth almost nothing: ids are spoofable.
+      * the packet was PKC-encrypted. `pki` is recorded by the bridge as `is True`, so a packet
+        that omitted the field (proto3 drops false) reads as NOT authenticated.
+      * the sender's public key fingerprint matches the pinned one. This is the part an id
+        spoofer cannot supply.
+
+    Honest limit, from the spec: Meshtastic has a documented downgrade attack where a forged DM
+    can present as PKC. So this is evidence, not proof, and NOTHING forge-intolerant may key on
+    it — no tools, no actions, content only.
+    """
+    gates = []
+
+    def mark(name, ok):
+        gates.append({"gate": name, "pass": bool(ok)})
+        return ok
+
+    if not mark("dm_unlock_enabled", cfg.get("DM_UNLOCK_ENABLED", "false").lower() == "true"):
+        return False, "dm_unlock_disabled", gates
+    node = (cfg.get("DM_UNLOCK_NODE") or "").strip()
+    fp = (cfg.get("DM_UNLOCK_PUBKEY_FP") or "").strip().lower()
+    ctx = (cfg.get("DM_CONTEXT_FILE") or "").strip()
+    if not mark("unlock_configured", bool(node and fp and ctx)):
+        return False, "dm_unlock_unconfigured", gates
+    if not mark("is_dm", rec.get("to") == ours):
+        return False, "dm_unlock_not_dm", gates
+    if not mark("sender_pinned", rec.get("from") == node):
+        return False, "dm_unlock_wrong_node", gates
+    if not mark("pki_encrypted", rec.get("pki") is True):
+        return False, "dm_unlock_not_authenticated", gates
+    if not mark("pubkey_pinned", (rec.get("pubkey_fp") or "").lower() == fp):
+        return False, "dm_unlock_key_mismatch", gates
+    return True, "dm_unlocked", gates
+
+
+def load_dm_context(cfg):
+    """The operator-curated context injected on an unlocked DM, bounded, or None.
+
+    Injection rather than `--setting-sources`: the harness supplies exactly what the operator
+    chose, and the structural control that keeps ~/.claude/CLAUDE.md out of every generation
+    stays intact. The model is never given a way to reach for more than this."""
+    path = os.path.expanduser((cfg.get("DM_CONTEXT_FILE") or "").strip())
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            data = f.read(int(cfg["DM_CONTEXT_MAX_CHARS"]) + 1)
+    except Exception:
+        return None
+    cap = int(cfg["DM_CONTEXT_MAX_CHARS"])
+    return data[:cap].strip() or None
+
+
+def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_context=None):
     """PURE decision (no subprocess, no I/O beyond the injectable weather fetch): sanitize the
     inbound, run any capability, and decide whether we emit a FIXED fail-safe reply or a
     GENERATE prompt. Separated from side effects so the whole path is offline-testable."""
     clean, flagged = sanitize_inbound(raw_text)
     out = {"clean": clean, "flagged": flagged, "capability": None, "weather_ok": None,
            "weather_fact": None, "mode": "generate", "fixed_reply": None, "prompt": None,
-           "weather_meta": {}, "forecast_asked": False, "match": None}
+           "weather_meta": {}, "forecast_asked": False, "match": None,
+           "persona": None, "unlocked": False, "max_chars": None}
+    # P1: an authenticated DM from Dean gets the private persona and injected context. This is
+    # decided by the CALLER (dm_unlock) and passed in — plan_response never re-derives trust.
+    if unlocked:
+        out["unlocked"] = True
+        out["persona"] = PERSONA_PRIVATE
+        out["max_chars"] = int(cfg["DM_MAX_CHARS"])
+        out["prompt"] = build_private_prompt(clean, dm_context)
+        return out
     fact = None
     # intent/location on the RAW text: a trailing '?' (needed for weak-keyword intent) and a
     # whitelisted place name must survive; sanitize would strip them. Nothing from raw_text
@@ -270,16 +383,20 @@ def plan_response(cfg, sender_short, raw_text, get=None):
     return out
 
 
-def _claude_argv(cfg, prompt):
+def _claude_argv(cfg, prompt, persona=None):
     """The exact locked-down claude argv. Isolated so the eval can statically assert the
-    security flags are present — a regression guard for the #1 / lockdown fixes."""
+    security flags are present — a regression guard for the #1 / lockdown fixes.
+
+    `persona` swaps ONLY the system prompt (P1 content unlock). Every security flag below is
+    positional and unconditional: there is deliberately no code path, unlocked or not, that
+    can drop the tool lockdown. Content is what the unlock changes; agency is not."""
     return [CLAUDE, "-p", prompt, "--model", cfg["RESPONDER_MODEL"],
-            "--system-prompt", PERSONA, "--permission-mode", "plan",
+            "--system-prompt", persona or PERSONA, "--permission-mode", "plan",
             "--strict-mcp-config", "--setting-sources", "",
             "--exclude-dynamic-system-prompt-sections", "--output-format", "text"]
 
 
-def run_claude(cfg, prompt):
+def run_claude(cfg, prompt, persona=None):
     """SIDE EFFECT: run the tool-locked model on a prompt.
       * --permission-mode plan + --strict-mcp-config => tools cannot execute, no MCP loads.
       * --setting-sources "" => load NO user/project/local settings, so Dean's global
@@ -290,7 +407,7 @@ def run_claude(cfg, prompt):
     Do NOT drop --setting-sources: it is the structural control against on-air exfil."""
     try:
         out = subprocess.run(
-            _claude_argv(cfg, prompt),
+            _claude_argv(cfg, prompt, persona),
             capture_output=True, text=True, timeout=int(cfg["GEN_TIMEOUT_S"]))
         if out.returncode != 0:
             return None, f"gen_rc{out.returncode}:{out.stderr.strip()[:80]}"
@@ -368,6 +485,114 @@ def evaluate(cfg, st, rec, ours, trace=None):
     return True, "addressed", dest, ch
 
 
+# A bare greeting, and nothing else. Deliberately narrow: this fires for senders who are
+# NOT on the allow-list, so the only safe thing to recognise is a message that asks for
+# nothing. A question mark or any real content means they wanted something, and an ack
+# would be answering a greeting we invented instead of the message they sent.
+_GREET_RE = re.compile(
+    r"^(?:good\s+)?(?:morning|afternoon|evening|day)$"
+    r"|^(?:hello|hi|hey|howdy|greetings|hiya|yo|gm|ge)$"
+    r"|^good\s+(?:morning|afternoon|evening|day)\s+(?:all|everyone|folks|mesh)$"
+    r"|^(?:hello|hi|hey|howdy)\s+(?:all|everyone|folks|mesh)$", re.I)
+
+
+# What Cal says back. The matched greeting SELECTS the line; it never shapes it. Mirroring
+# the time of day is what a person does, and the point of the ack is the other node, not us:
+# no identity, no location, no explanation. Just the greeting returned.
+_GREET_REPLY = [
+    (re.compile(r"\bmorning\b", re.I),   "Good morning"),
+    (re.compile(r"\bafternoon\b", re.I), "Good afternoon"),
+    (re.compile(r"\bevening\b", re.I),   "Good evening"),
+    (re.compile(r"\bday\b", re.I),       "Good day"),
+]
+_GREET_DEFAULT = "Hello"
+
+
+def greeting_reply(text, override=""):
+    """The fixed line for a matched greeting. `override`, if set, wins for every greeting —
+    one operator string, no mirroring. Returns None if the text is not a bare greeting, so
+    the reply and the decision to reply cannot disagree (they are one call)."""
+    if not is_bare_greeting(text):
+        return None
+    if (override or "").strip():
+        return override.strip()
+    s = _normalize(text or "")
+    for pat, out in _GREET_REPLY:
+        if pat.search(s):
+            return out
+    return _GREET_DEFAULT
+
+
+def is_bare_greeting(text):
+    """True only for a message that is ENTIRELY a greeting. Punctuation is stripped, but a
+    question mark is disqualifying rather than stripped — 'morning?' wants an answer."""
+    s = _normalize(text or "").strip()
+    if not s or "?" in s:
+        return False
+    s = re.sub(r"[\s]+", " ", s.strip(" .!,;:-–—\"'"))
+    if len(s.split()) > 3:
+        return False
+    return _GREET_RE.match(s) is not None
+
+
+def plan_greeting(cfg, st, rec, ours, ts=None):
+    """Decide whether an off-list sender's bare greeting gets the fixed ack.
+
+    Pure: returns (should, reason, dest, ch, text, gates) and mutates nothing, so the whole
+    path is testable offline. The caller commits the counters only if it actually sends.
+    Runs ONLY after the main ladder has rejected the sender, and re-checks the gates it
+    cannot inherit — a capability that trusts an earlier ladder is one refactor away from
+    firing on its own.
+    """
+    ts = time.time() if ts is None else ts
+    ch = rec.get("channel", 0)
+    sender = rec.get("from")
+    gates = []
+
+    def mark(name, ok):
+        gates.append({"gate": name, "pass": bool(ok)})
+        return ok
+
+    if not mark("greeting_enabled", cfg.get("GREETING_ENABLED", "false").lower() == "true"):
+        return False, "greeting_disabled", None, ch, None, gates
+    inbound = rec.get("text", "")
+    text = greeting_reply(inbound, cfg.get("GREET_TEXT", ""))
+    if not mark("not_self", sender != ours):
+        return False, "self", None, ch, None, gates
+    # Broadcast only (Dean's call): a greeting is a public act and an ack belongs where the
+    # greeting was. A DM ack to a stranger is a stranger thing to receive.
+    if not mark("broadcast", rec.get("to") in ("^all", None)):
+        return False, "greeting_not_broadcast", None, ch, None, gates
+    if not mark("bare_greeting", text is not None):
+        return False, "not_a_greeting", None, ch, None, gates
+    # No text-matching loop guard, deliberately. Mirroring means the ack IS the greeting, so
+    # any "don't say what they said" rule refuses the ordinary case — measured: it blocked
+    # "Good morning" outright. The budgets are the real control and they already bound a
+    # runaway: our own traffic is excluded by not_self, a given node gets at most one ack per
+    # GREET_SENDER_COOLDOWN_S, and the day is capped by GREET_MAX_PER_DAY. Two automated
+    # nodes greeting each other therefore costs one message each, then both are on cooldown.
+    greeted = st.get("greet_per_sender", {})
+    last = greeted.get(sender, 0)
+    if not mark("sender_cooldown", ts - last >= int(cfg["GREET_SENDER_COOLDOWN_S"])):
+        return False, "greeting_sender_cooldown", None, ch, None, gates
+    day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+    used = (st.get("greet_day") or {}).get(day, 0)
+    if not mark("daily_budget", used < int(cfg["GREET_MAX_PER_DAY"])):
+        return False, "greeting_budget_spent", None, ch, None, gates
+    return True, "greeting_ack", "^all", ch, text, gates
+
+
+def commit_greeting(st, sender, ts=None):
+    """Spend the budget. Separate from plan_greeting so a send that fails costs nothing."""
+    ts = time.time() if ts is None else ts
+    st.setdefault("greet_per_sender", {})[sender] = ts
+    day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+    d = st.setdefault("greet_day", {})
+    d[day] = d.get(day, 0) + 1
+    for k in [k for k in d if k < day]:      # keep the counter from growing without bound
+        del d[k]
+
+
 def read_new(st):
     """Yield (record_or_None, new_offset) for each complete line since the persisted
     offset. Advances only past complete (newline-terminated) lines — a partial trailing
@@ -435,7 +660,16 @@ def main():
                              "text": rec.get("text", ""), "matched": should,
                              "reason": reason, "reply": None, "gates": gates}
                         if should:
-                            plan = plan_response(cfg, rec.get("from"), rec.get("text", ""))
+                            # P1: does this DM clear the authenticated-sender bar? Content only —
+                            # the tool lockdown in _claude_argv is unconditional either way.
+                            unl, unl_why, unl_gates = dm_unlock(cfg, rec, ours)
+                            if unl_gates and unl_gates[0]["pass"]:
+                                d["dm_unlock_gates"] = unl_gates
+                                d["dm_unlock"] = unl
+                                d["dm_unlock_reason"] = unl_why
+                            plan = plan_response(cfg, rec.get("from"), rec.get("text", ""),
+                                                 unlocked=unl,
+                                                 dm_context=load_dm_context(cfg) if unl else None)
                             # the public decision trace: how this reply came to exist. Machinery
                             # only — inputs, gates, the injected fact. No model introspection:
                             # generation is `--output-format text`, there is no reasoning to show,
@@ -471,7 +705,9 @@ def main():
                                 why = ("fixed_forecast_refused" if plan.get("forecast_asked")
                                        else "fixed_weather_unavailable")
                             else:
-                                reply, why = run_claude(cfg, plan["prompt"])
+                                reply, why = run_claude(cfg, plan["prompt"], plan.get("persona"))
+                                if reply and plan.get("max_chars"):
+                                    reply = reply[:plan["max_chars"]].rstrip()
                             gen_ms = round((time.time() - gen_start) * 1000)
                             d["gen_status"] = why
                             if reply:
@@ -488,6 +724,25 @@ def main():
                                 d["reason"] = why
                                 d["gen_ms"] = gen_ms
                                 log(f"gen failed for {rec.get('from')}: {why} ({gen_ms}ms)")
+                        elif reason == "sender_not_allowed":
+                            # Off-list sender. The ladder is right to refuse a GENERATED
+                            # reply; a bare greeting still gets a fixed acknowledgement so
+                            # silence doesn't read as a snub. No model, no fetch, no prose.
+                            g_ok, g_reason, g_dest, g_ch, g_text, g_gates = plan_greeting(
+                                cfg, st, rec, ours)
+                            d["greeting_gates"] = g_gates
+                            if g_ok:
+                                enqueue(g_text, g_dest, g_ch)
+                                commit_greeting(st, rec.get("from"))
+                                save_state(st)
+                                d.update({"matched": True, "reason": g_reason,
+                                          "reply": g_text, "dest": g_dest,
+                                          "capability": "greeting", "prompt_kind": "fixed",
+                                          "gen_status": "fixed_greeting_ack"})
+                                log(f"GREET {rec.get('from')} -> {g_dest}: {g_text!r}")
+                            else:
+                                d["greeting_reason"] = g_reason
+                                log(f"skip {rec.get('from')}: {reason} / {g_reason}")
                         else:
                             log(f"skip {rec.get('from')}: {reason}")
                         record_decision(d)

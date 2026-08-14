@@ -148,6 +148,20 @@ CASES = {
                              trigger_match=TM_STRONG)),
     "content": rec(text="a. b.", reply="ok", trace=dict(
         gates=GATES_OK, sanitize=SAN_CONTENT, prompt_kind="general", model="m", dest="^all")),
+    # An off-list greeting ack: matched deterministically, NOTHING fetched, NO model. Both
+    # pre-existing branches would misdescribe it — the capability branch is weather-shaped,
+    # the general branch credits the model with reading the message.
+    "greeting": rec(text="Good morning", reply="Good morning", capability="greeting",
+                    reason="greeting_ack", gen_ms=None, trace=dict(
+                        gates=GATES_BLOCKED, prompt_kind="fixed", dest="^all",
+                        gen_status="fixed_greeting_ack",
+                        greeting_gates=[{"gate": "greeting_enabled", "pass": True},
+                                        {"gate": "bare_greeting", "pass": True}])),
+    # An attacker-shaped greeting: the ack is fixed, but their TEXT is still drawn.
+    "greetxss": rec(text="<script>alert(1)</script>", reply="Good morning",
+                    capability="greeting", reason="greeting_ack", gen_ms=None, trace=dict(
+                        gates=GATES_BLOCKED, prompt_kind="fixed", dest="^all",
+                        gen_status="fixed_greeting_ack")),
 }
 
 # (case, must-contain, must-NOT-contain, why it exists)
@@ -191,6 +205,17 @@ CHECKS = [
      "message, reply, station and the trigger chips are all attacker-influenced"),
     # ---- a non-number must not be drawn as a reading ----
     ("badnum", [], ["left:NaN", "NaN%"], "NaN in a style landed the marker at the WEAK end of the scale"),
+    # ---- the greeting ack is a third shape, not either existing one ----
+    ("greeting", ["what Cal sent", "Nothing was looked up and no model ran", "a greeting, and nothing else"],
+     ["what the model wrote", "what Cal looked up", "which fact to look up",
+      "sanitized, then given", "wrote a reply from it", "only this crosses",
+      "predates Cal keeping the matched words", "National Weather Service"],
+     "setting capability='greeting' sent it down the WEATHER branch: it claimed a lookup that "
+     "never happened and excused the missing word-match as an old record"),
+    ("greeting", ["not on Cal's reply list"], [],
+     "the point of the ack is that the sender is off-list — the trace must say so"),
+    ("greetxss", ["&lt;script&gt;"], ["<script>alert"],
+     "the ack is fixed but the stranger's own text is still rendered on a public page"),
 ]
 
 failures, checked = [], 0

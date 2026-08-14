@@ -22,3 +22,4 @@ __pycache__/
 *.pyc
 weather-cache.json
 .claude-sandbox/
+battery-history.jsonl

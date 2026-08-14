@@ -221,7 +221,8 @@ def correlate(inbox, sent, decisions):
         rec["trace"] = {k: dec.get(k) for k in
                         ("gates", "sanitize", "prompt_kind", "model", "injected_fact",
                          "weather_ok", "gen_status", "injection_flagged", "dest",
-                         "obs_station", "obs_age_s", "forecast_asked", "trigger_match")
+                         "obs_station", "obs_age_s", "forecast_asked", "trigger_match",
+                         "greeting_gates", "greeting_reason")
                         if dec.get(k) is not None}
 
     replied = [d for d in decisions if d.get("matched") and d.get("reply")]
@@ -306,6 +307,36 @@ def build_decision_stats():
     return {"days": days[:30]}
 
 
+def split_streams(records):
+    """Split traffic into (broadcast, direct). BOTH are published — deliberately.
+
+    The direct channel is Dean and Cal's test bench: a place to try things without spending
+    everyone's airtime on the open channel. Publishing it is the point, not an oversight —
+    the experiments are the interesting part and the page exists to show the machinery.
+
+    So this is a SPLIT, not a filter, and the classification is a whitelist in both
+    directions: a broadcast is one exact value, and everything else is direct. An addressing
+    form this code has never seen lands in `direct`, which is the labelled, explained stream
+    rather than the one a stranger reads as open-channel chatter.
+
+    History worth keeping: this started life as `public_only`, withholding directed traffic
+    entirely, after the first real DM was found being served through three separate paths at
+    once. The withholding was wrong for what this channel is for — but the finding that
+    matters still stands, and is why the split lives at ONE choke point instead of in each
+    consumer: nothing should reach the page without a decision having been made about it.
+    """
+    bcast, direct = [], []
+    for r in records or []:
+        if not isinstance(r, dict):
+            continue
+        # Inbound records carry `to`, outbound carry `dest`. NOT dict.get("to", r["dest"]) —
+        # that returns None when the key exists and is null, so a record with an explicit
+        # `"to": null` would never fall through to `dest` and would be misfiled.
+        dest = r.get("to") if r.get("to") is not None else r.get("dest")
+        (bcast if dest == "^all" else direct).append(r)
+    return bcast, direct
+
+
 def build_state():
     cfg = read_config()
     safe_cfg = {k: cfg[k] for k in PUBLIC_CONFIG_KEYS if k in cfg}
@@ -313,8 +344,16 @@ def build_state():
     status.pop("port", None)   # MAC-bearing serial path — never publish
     # Pull decisions once and use it for both the decisions feed and the in/out correlation.
     # Read deeper than the feeds so a reply near the window edge still finds its partner.
-    decisions = tail_jsonl(DECISIONS, 120)
-    inbox, sent = correlate(tail_jsonl(INBOX, 40), tail_jsonl(SENT_LOG, 40), decisions)
+    # Traffic is split HERE, before correlation, so each stream correlates only against its
+    # own kind — a broadcast reply can never be paired to a DM, or the two streams would
+    # show each other's messages. One choke point rather than a split per consumer.
+    all_dec = tail_jsonl(DECISIONS, 120)
+    dec_b, dec_d = split_streams(all_dec)
+    in_b, in_d = split_streams(tail_jsonl(INBOX, 40))
+    snt_b, snt_d = split_streams(tail_jsonl(SENT_LOG, 40))
+    decisions = dec_b
+    inbox, sent = correlate(in_b, snt_b, dec_b)
+    dm_inbox, dm_sent = correlate(in_d, snt_d, dec_d)
     return {
         "status": status,
         "config": safe_cfg,
@@ -325,6 +364,9 @@ def build_state():
         "sent": sent,
         "inbox": inbox,
         "exchanges": build_exchanges(inbox, sent),
+        # The direct channel, as its own stream. Same shape as `exchanges` so the page can
+        # render it with the identical code — a second renderer would drift from the first.
+        "dm_exchanges": build_exchanges(dm_inbox, dm_sent),
         "totals": {"sent": count_lines(SENT_LOG), "recv": count_lines(INBOX)},
         "responder": {
             "enabled": cfg.get("RESPONDER_ENABLED", "false"),
@@ -1542,6 +1584,20 @@ color:var(--dim);text-transform:uppercase;letter-spacing:.6px;display:flex;gap:8
 .tag.ch{background:#ddf4ff;color:var(--accent)} .tag.auto{background:#fff8c5;color:var(--warn)}
 .tag.offlist{background:#fff8c5;color:var(--warn);border:1px solid #d4a72c}
 .tag.quiet{background:#eef1f5;color:var(--dim)}
+/* --- tabbed streams: one card, two streams, so the page does not grow by one full
+   card every time a stream is added. The pane is toggled with [hidden] rather than
+   re-rendered, so the 3s refresh cannot knock the reader back to the first tab. --- */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);background:var(--card2);padding:0 6px}
+.tab{appearance:none;background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);
+font:inherit;font-size:12.5px;padding:11px 12px;cursor:pointer;display:flex;align-items:center;gap:7px;
+white-space:nowrap}
+.tab:hover{color:var(--fg)}
+.tab[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+.tab .badge{background:var(--card)}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:-3px;border-radius:4px}
+.pane[hidden]{display:none}
+.tabnote{font-size:11.5px;color:var(--dim);line-height:1.55;margin:0;padding:13px 16px 2px;max-width:80ch}
+@media(max-width:520px){.tab{padding:10px 8px;font-size:11.5px}}
 /* --- exchanges --- */
 .xc{padding:14px 16px;border-bottom:1px solid var(--line)}
 .xc:last-child{border-bottom:0}
@@ -1758,7 +1814,22 @@ box-shadow:0 0 0 2px #fff,0 1px 3px rgba(22,27,34,.4);transition:left .7s cubic-
   <div class="tiles" id="tiles"></div>
   <div class="card"><h2>Transports <span class="badge right" id="active-t"></span></h2>
     <div class="trans" id="trans"></div></div>
-  <div class="card"><h2><span class="badge" id="xc-n">0</span> 💬 Exchanges</h2><div id="exchanges"></div></div>
+  <div class="card">
+   <div class="tabs" role="tablist" id="xtabs">
+    <button class="tab" role="tab" id="tab-open" aria-controls="pane-open" aria-selected="true">💬 Open Exchanges <span class="badge" id="xc-n">0</span></button>
+    <button class="tab" role="tab" id="tab-dm" aria-controls="pane-dm" aria-selected="false">🔒 Direct Messages <span class="badge" id="dm-n">0</span></button>
+   </div>
+   <div class="pane" id="pane-open" role="tabpanel" aria-labelledby="tab-open"><div id="exchanges"></div></div>
+   <div class="pane" id="pane-dm" role="tabpanel" aria-labelledby="tab-dm" hidden>
+    <p class="tabnote">Cal and Dean&rsquo;s test bench. Trying things on the open channel costs every
+    node in range airtime, so experiments happen here instead &mdash; one link, two nodes. <b>It is
+    published for the same reason everything else here is:</b> the interesting part is what is being
+    tried and how it works, and a private tier you cannot see is a claim rather than a demonstration.
+    These are authenticated direct messages, so unlike the open channel the sender is
+    cryptographically established rather than merely asserted.</p>
+    <div id="dm-exchanges"></div>
+   </div>
+  </div>
   <div class="card"><h2><span class="badge" id="nn">0</span> Neighbors heard</h2>
     <div id="nodes-wrap"><table id="nodes"><thead><tr>
       <th class="sortable" data-key="short" onclick="setSort('short')">Short</th>
@@ -2153,6 +2224,29 @@ function flowHtml(x,t){
     +`<div class="fn"><span class="onair">✓ sent on air to ${esc(t.dest||'')}</span> — `
     +(modelRan?'5-7 words, because every node in range shares the airtime'
              :'a fixed sentence written into the software — no model ran for this one')+`</div></div>`;
+  // A greeting ack is a THIRD shape, and both of the branches below would misdescribe it.
+  // The capability branch is weather-shaped ("what Cal looked up"); the general branch says
+  // the model was handed the message. Here nothing was fetched AND no model ran: plain word
+  // matching selected a sentence written in advance. Drawn as exactly that.
+  if(x.capability==='greeting'){
+    const g1=`<div class="fb b1"><div class="fk">1 · what they said</div><div class="fv">${inTxt}</div>`
+      +`<div class="fn"><span class="onair">✓ received on air</span> — from a node that is `
+      +`<b>not on Cal's reply list</b>, so no answer was generated for it</div></div>`;
+    const g2=`<div class="fb bx"><div class="fk">2 · what the software recognised</div>`
+      +`<div class="fv">a greeting, and nothing else</div>`
+      +`<div class="fn">the whole message had to be a greeting — a question mark or a real `
+      +`request and this does not fire — plain word matching, <b>no model involved</b></div></div>`;
+    const g3=`<div class="fb b3"><div class="fk">3 · what Cal sent</div><div class="fv">${outTxt}</div>`
+      +`<div class="fn"><span class="onair">✓ sent on air to ${esc(t.dest||'^all')}</span> — the `
+      +`greeting mirrored back, and only once per node per day</div></div>`;
+    return `<div class="flow gen">${g1}${arrow('')}${g2}${arrow('')}${g3}</div>`
+      +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
+      +`Cal answers questions only from known nodes, but staying silent when a stranger says `
+      +`hello reads as a snub — so a greeting gets one back, to say it was heard. Which line `
+      +`goes out is <b>chosen</b> by the greeting they used, from five written in advance `
+      +`(morning, afternoon, evening, day, or plain hello). Nothing they wrote is ever copied `
+      +`into it, so there is nothing in the reply for a stranger to steer.</div>`;
+  }
   if(!capability)
     return `<div class="flow gen">${b1}${arrow('sanitized, then given<br>to the model')}${b3}</div>`
       +`<div class="flowcap">Nothing was looked up for this one, so the model was given `
@@ -2406,15 +2500,22 @@ async function tick(){
  SELF={id:node.id||null, name:node.shortName||node.longName||null};
  lastNodes=(d.nodes&&d.nodes.nodes)||[];
  const xs=d.exchanges||[];
+ const dms=d.dm_exchanges||[];
  $('#xc-n').textContent=xs.length;
+ $('#dm-n').textContent=dms.length;
  // Only touch the DOM when the content actually changed. Cheap, and it stops the 3s refresh
  // from fighting the reader (lost text selection, scroll jump) when nothing has happened.
- const sig=JSON.stringify([xs,SELF,lastNodes.map(n=>[n.id,n.short])]);
+ const sig=JSON.stringify([xs,dms,SELF,lastNodes.map(n=>[n.id,n.short])]);
  if(sig!==lastXsig){
    lastXsig=sig;
    XBYKEY.clear(); xs.forEach(x=>XBYKEY.set(xkey(x),x));
+   dms.forEach(x=>XBYKEY.set(xkey(x),x));
    $('#exchanges').innerHTML=xs.length?xs.map(exchangeHtml).join('')
      :'<div class="empty">nothing on air yet — mesh is quiet or awaiting first inbound</div>';
+   // Same renderer, deliberately. A second one would drift from the first, and the whole
+   // point of the trace is that what it shows and what happened cannot diverge.
+   $('#dm-exchanges').innerHTML=dms.length?dms.map(exchangeHtml).join('')
+     :'<div class="empty">no direct messages yet</div>';
    hydrateOpen();
  }
  $('#nn').textContent=lastNodes.length;
@@ -2444,7 +2545,25 @@ function hydrate(el,k,animate){
 function hydrateOpen(){
   document.querySelectorAll('#exchanges details.tr[open]').forEach(el=>hydrate(el,el.dataset.k,false));
 }
-$('#exchanges').addEventListener('toggle', e=>{
+// Tabs. Bound once at load, never from tick(), and the panes are hidden rather than
+// rebuilt — so a refresh mid-read cannot switch the tab out from under you.
+$('#xtabs').addEventListener('click', e=>{
+  const b=e.target.closest('.tab'); if(!b) return;
+  document.querySelectorAll('#xtabs .tab').forEach(t=>{
+    const on = t===b;
+    t.setAttribute('aria-selected', on?'true':'false');
+    const pane=document.getElementById(t.getAttribute('aria-controls'));
+    if(pane) pane.hidden = !on;
+  });
+});
+$('#xtabs').addEventListener('keydown', e=>{
+  if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight') return;
+  const tabs=[...document.querySelectorAll('#xtabs .tab')];
+  const cur=tabs.findIndex(t=>t.getAttribute('aria-selected')==='true');
+  const nxt=tabs[(cur+(e.key==='ArrowRight'?1:tabs.length-1))%tabs.length];
+  nxt.click(); nxt.focus(); e.preventDefault();
+});
+[$('#exchanges'),$('#dm-exchanges')].forEach(c=>c.addEventListener('toggle', e=>{
   const el=e.target;
   if(!el.matches||!el.matches('details.tr')) return;
   const k=el.dataset.k;
@@ -2458,7 +2577,7 @@ $('#exchanges').addEventListener('toggle', e=>{
   const x=XBYKEY.get(k);
   if(body&&!body.firstChild&&x) body.innerHTML=traceHtml(x);
   hydrate(el,k,true);
-}, true);
+}, true));
 (function(){
   const m=location.pathname.match(/\/(old-\d+)\/?$/);
   if(!m) return;

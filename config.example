@@ -42,3 +42,26 @@ WEATHER_PLACES=
 WEATHER_UA=cal-mesh/1.0 (github.com/deanssamclaw/cal-mesh)
 # Per-request fetch timeout (seconds). The station is cached, so steady state is one GET.
 WEATHER_TIMEOUT_S=4
+
+# --- greeting ack for OFF-LIST senders ---
+# A bare greeting from a node that is NOT on ALLOW_FROM gets this fixed string back, so
+# silence on a shared channel doesn't read as a snub. No model runs: the match SELECTS
+# this reply, it never shapes it. Leave GREET_TEXT empty to keep the capability closed.
+# NOTE: whatever you put here is broadcast in the clear and logged by every node in
+# range, permanently. If it names a place, that place is public.
+GREETING_ENABLED=false
+GREET_TEXT=
+GREET_MAX_PER_DAY=6
+GREET_SENDER_COOLDOWN_S=86400
+
+# --- P1 content unlock on an authenticated DM (docs/proposals/channel-trust-and-agency.md) ---
+# Longer, context-aware replies to ONE pinned node over an authenticated direct message.
+# CONTENT only — tools stay locked exactly as on the public channel.
+# All four must be set or the unlock is closed. The key fingerprint is what an id-spoofer
+# cannot supply; the node id alone is worth nothing.
+DM_UNLOCK_ENABLED=false
+DM_UNLOCK_NODE=
+DM_UNLOCK_PUBKEY_FP=
+DM_CONTEXT_FILE=
+DM_CONTEXT_MAX_CHARS=2000
+DM_MAX_CHARS=200

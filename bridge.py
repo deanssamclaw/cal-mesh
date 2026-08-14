@@ -15,7 +15,7 @@ Also emits, for the dashboard:
 Design note: a serial/TCP link has exactly one owner. This process IS that owner.
 While it runs, do NOT run `meshtastic --port ...` against Cal HT — send via the outbox.
 """
-import os, sys, time, json, glob, fcntl, threading, traceback
+import os, sys, time, json, glob, fcntl, threading, traceback, base64, hashlib
 from datetime import datetime, timezone
 
 BASE     = os.path.expanduser("~/cal-mesh")
@@ -144,6 +144,25 @@ def hops_taken(packet):
     return hs - hl, hs, hl
 
 
+def pubkey_fp(pub):
+    """Short, stable fingerprint of a node's public key, or None.
+
+    The library hands this back as raw bytes or as base64 depending on path, so normalize to
+    bytes first — comparing a str to bytes silently never matches, which for an auth signal
+    would fail OPEN-looking (always 'no key') rather than loudly.
+    """
+    if not pub:
+        return None
+    if isinstance(pub, str):
+        try:
+            pub = base64.b64decode(pub)
+        except Exception:
+            return None
+    if not isinstance(pub, (bytes, bytearray)):
+        return None
+    return hashlib.sha256(bytes(pub)).hexdigest()[:16]
+
+
 def on_receive(packet=None, interface=None):
     try:
         if not packet:
@@ -161,12 +180,26 @@ def on_receive(packet=None, interface=None):
         # relayNode is a ONE-BYTE truncation of the last relayer's node number, so it narrows
         # the candidates but does not identify a node. Stored raw; never resolved to a name.
         relay = packet.get("relayNode")
+        # Sender authentication signal. `pkiEncrypted` is a proto3 bool with no presence, so
+        # FALSE IS OMITTED ENTIRELY by MessageToDict — the same omission that discarded the
+        # hop count twice. Absent must therefore read as NOT authenticated, never as unknown
+        # and never as true. `is True` rather than truthiness so a stray string cannot pass.
+        # This records the signal only; nothing yet decides anything with it. Note the
+        # documented downgrade attack: a forged DM can present as PKC, so this is evidence,
+        # not proof — which is why only forge-TOLERANT things may ever key on it.
+        pki = packet.get("pkiEncrypted") is True
+        pub = packet.get("publicKey")
         rec = {"ts": now(), "from": frm, "to": node_id(packet.get("to"), packet.get("toId")),
                "channel": packet.get("channel", 0), "text": d.get("text", ""),
                "snr": packet.get("rxSnr"), "rssi": packet.get("rxRssi"),
                "id": packet.get("id"),
                "hops": hops, "hop_start": hs, "hop_limit": hl,
-               "relay_byte": relay if isinstance(relay, int) else None}
+               "relay_byte": relay if isinstance(relay, int) else None,
+               "pki": pki,
+               # A node's public key is public by design (it is broadcast in NodeInfo), but the
+               # full value is not useful here and the dashboard is public — keep a short
+               # fingerprint for display and comparison instead of the key itself.
+               "pubkey_fp": pubkey_fp(pub)}
         with open(INBOX, "a") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         COUNTS["rx"] += 1
@@ -238,9 +271,14 @@ def write_nodes(iface):
         rows = []
         for nid, n in (iface.nodes or {}).items():
             u = n.get("user", {})
+            # The key FINGERPRINT, never the key. A node's public key is public by design, but
+            # this feeds a public page and the fingerprint is all that is needed to check that
+            # an authenticated DM carries the same key the node advertised in its NodeInfo —
+            # heard over the air separately from the DM, so it is an independent record.
             rows.append({"id": nid, "short": u.get("shortName"), "long": u.get("longName"),
                          "hw": u.get("hwModel"), "hops": n.get("hopsAway"),
-                         "snr": n.get("snr"), "lastHeard": n.get("lastHeard")})
+                         "snr": n.get("snr"), "lastHeard": n.get("lastHeard"),
+                         "pubkey_fp": pubkey_fp(u.get("publicKey"))})
         rows.sort(key=lambda r: (r["hops"] if r["hops"] is not None else 99,
                                  -(r["snr"] or -999)))
         # Positions are deliberately NOT stored or published: nodes.json feeds a PUBLIC page,
