@@ -91,7 +91,7 @@ def correlate(d):
 
 def rec(**kw):
     """An exchange as /api/state emits it."""
-    base = dict(kind="exchange", ts="2026-08-12T12:00:00+00:00", **{"from": "!11cfaafd"},
+    base = dict(kind="exchange", ts="2026-08-12T12:00:00+00:00", **{"from": "!aaaaaaaa"},
                 to="^all", channel="0", text="", reply=None, verdict="replied",
                 snr=5.5, rssi=-41, hops=0, capability=None, gen_ms=1000)
     base.update({k: v for k, v in kw.items() if k != "trace"})

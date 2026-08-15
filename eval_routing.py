@@ -81,7 +81,7 @@ check("recorded hop_limit is the resolved 0", bridge.hops_taken(as_dict(3, 0))[2
 check("unresolved sender falls back to the packet's nodenum",
       bridge.node_id(0xBA0CC0C0, None), "!ba0cc0c0")
 check("resolved id passes through untouched",
-      bridge.node_id(0x11CFAAFD, "!11cfaafd"), "!11cfaafd")
+      bridge.node_id(0xAAAAAAAA, "!aaaaaaaa"), "!aaaaaaaa")
 check("broadcast nodenum never becomes !ffffffff",
       bridge.node_id(BROADCAST, None), "^all")
 check("zero nodenum -> None", bridge.node_id(0, None), None)

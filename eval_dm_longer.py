@@ -21,8 +21,8 @@ _spec = importlib.util.spec_from_file_location("responder_under_test",
 R = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(R)
 
-OURS = "!27ca6210"
-PEER = "!11cfaafd"
+OURS = "!c0dec0de"
+PEER = "!aaaaaaaa"
 
 passed = 0
 failures = []
