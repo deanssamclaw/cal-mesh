@@ -202,7 +202,10 @@ _LEN = {
 AMBIGUOUS = {"ton", "tons", "gallon", "gallons", "gal", "cup", "cups", "pint", "pints",
              "quart", "quarts", "fl oz", "ounce", "ounces", "oz"}
 
-_NUM = r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)"
+# The lookbehind is load-bearing: without it ".5 mi" matched the 5 and aired a 10x wrong answer,
+# and "10^3 w" matched the 3. A leading decimal is ordinary usage, so this is the most likely
+# wrong number the module could produce. Refusing is the safe direction.
+_NUM = r"(?<![\d.,^eE])(?<!\^[-+])(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)"
 
 
 def _dec(s):
@@ -275,7 +278,7 @@ def fspl_db(dist_km, freq_mhz):
 # Intent: a SUCCESSFUL BOUNDED PARSE, never "contains a number".
 # Each handler returns a finished reply string or None.
 # ---------------------------------------------------------------------------------------------
-def _h_wavelength(t):
+def _h_wavelength(t, trig=None):
     m = re.search(r"(?:wavelength|wave length|quarter.?wave|antenna).*?" + _NUM + r"\s*(hz|khz|mhz|ghz)"
                   r"|" + _NUM + r"\s*(hz|khz|mhz|ghz).*?(?:wavelength|quarter.?wave|antenna)", t)
     if not m:
@@ -296,7 +299,7 @@ def _h_wavelength(t):
         label, fmt(lam * 100, 1), fmt(quarter * 100, 1))
 
 
-def _h_fspl(t):
+def _h_fspl(t, trig=None):
     m = re.search(r"(?:path loss|fspl|free.?space).*?" + _NUM + r"\s*(km|mi|miles?)\b", t)
     f = re.search(_NUM + r"\s*(hz|khz|mhz|ghz)", t)
     if not m or not f:
@@ -309,7 +312,7 @@ def _h_fspl(t):
         fmt(fspl_db(d, mhz), 1), fmt(mhz, 3), fmt(d, 2))
 
 
-def _h_dbm(t):
+def _h_dbm(t, trig=None):
     m = re.search(r"(-?\d+(?:\.\d+)?)\s*dbm\b", t)
     if m and ("watt" in t or "w)" in t or "in w" in t or "to w" in t or "power" in t):
         w = dbm_to_w(Decimal(m.group(1)))
@@ -333,12 +336,12 @@ _OHM_WORDS = {"v", "volt", "volts", "a", "amp", "amps", "ampere", "amperes",
               "ohm", "ohms", "at", "across", "and", "into", "\u03a9"}
 
 
-def _h_ohm(t):
+def _h_ohm(t, trig=None):
     # Every other handler has a distinctive keyword ("wavelength", "acres", "dbm"); this one is
     # two single letters. Unless the sender explicitly asked to calculate, the whole message must
     # BE the expression -- "need a 12 v 20 a battery" is a shopping note, not Ohm's law.
     if not _CUE.search(t):
-        rest = _strip_trigger(t)
+        rest = _strip_trigger(t, trig)
         for tok in rest.replace(",", " ").split():
             if tok.strip("().") in _OHM_WORDS:
                 continue
@@ -362,7 +365,7 @@ def _h_ohm(t):
     return None
 
 
-def _h_acres(t):
+def _h_acres(t, trig=None):
     m = re.search(_NUM + r"\s*(?:ft|feet|foot)?\s*(?:x|by|\*|×)\s*" + _NUM +
                   r"\s*(?:ft|feet|foot)\b", t)
     if not m or "acre" not in t and "sq" not in t:
@@ -373,7 +376,7 @@ def _h_acres(t):
                                                    fmt(area_acres(a, b), 3))
 
 
-def _h_convert(t):
+def _h_convert(t, trig=None):
     m = re.search(_NUM + r"\s*([a-z]+)\s*(?:in|to|into)\s*([a-z]+)\b", t)
     if not m:
         return None
@@ -385,7 +388,7 @@ def _h_convert(t):
     return "%s %s = %s %s" % (fmt(val, 4), frm, fmt(convert_length(val, frm, to), 4), to)
 
 
-def _h_fraction(t):
+def _h_fraction(t, trig=None):
     m = re.search(r"(\d+)\s*/\s*(\d+)\s*([+\-*x×])\s*(\d+)\s*/\s*(\d+)", t)
     if not m:
         return None
@@ -400,7 +403,7 @@ def _h_fraction(t):
     return "%s %s %s = %s" % (a, op, b, r)
 
 
-def _h_percent(t):
+def _h_percent(t, trig=None):
     m = re.search(r"(\d+(?:\.\d+)?)\s*%\s*(off|of|tip on)\s*\$?" + _NUM, t)
     if not m:
         return None
@@ -420,11 +423,16 @@ def _h_percent(t):
 _CUE = re.compile(r"\b(calc|calculate|what\s+is|what's|whats|how\s+much\s+is|equals?)\b")
 
 
-def _strip_trigger(t):
-    """Drop a single leading trigger token ("cal", "Cal,"). Punctuation first: "cal," is not
-    .isalpha(), and 8 of 25 real inbound messages use that form."""
+def _strip_trigger(t, trig=None):
+    """Drop a leading TRIGGER token ("cal", "Cal,") and nothing else.
+
+    Stripping any leading alphabetic token instead meant "temp 12*12" reduced to an expression and
+    computed. That is reachable: a DM counts as addressed with no trigger word, and DMs are
+    published to the public page. Punctuation is stripped first because "cal," is not .isalpha()
+    and 8 of 25 real inbound messages use that form.
+    """
     toks = t.split()
-    if toks and toks[0].strip(",:;.!?").isalpha():
+    if toks and trig and toks[0].strip(",:;.!?").lower() == trig.lower():
         toks = toks[1:]
     return " ".join(toks).strip(" ?.")
 
@@ -437,7 +445,7 @@ _BARE_DIMS = re.compile(r"\d[\d,.]*x[\d,.]*\d")
 _BARE_NUM = re.compile(r"[-+]?\d[\d,.]*")
 
 
-def _h_arith(t):
+def _h_arith(t, trig=None):
     """Plain arithmetic. Runs LAST so a unit/RF question is never eaten as bare maths.
 
     Intent is the hard part here, not evaluation. Mesh traffic is full of hyphenated ranges and
@@ -454,11 +462,11 @@ def _h_arith(t):
         # "12 * 12 =" is a calculation; "temp = 90-95" and "rssi=-105" are telemetry. The test is
         # whether the LEFT side is itself an expression. '=' is NOT treated as a word cue, so the
         # bare-shape refusals below stay active for it.
-        expr = _strip_trigger(t.split("=")[0])
+        expr = _strip_trigger(t.split("=")[0], trig)
         if re.search(r"[a-wyz]", expr) or not re.search(r"[+\-*/x×^]", expr):
             return None
     else:
-        rest = _strip_trigger(t)
+        rest = _strip_trigger(t, trig)
         # any remaining letter other than 'x' (the multiply symbol) means this is prose
         if re.search(r"[a-wyz]", rest):
             return None
@@ -491,7 +499,7 @@ HANDLERS = (_h_wavelength, _h_fspl, _h_dbm, _h_ohm, _h_acres, _h_convert,
             _h_fraction, _h_percent, _h_arith)
 
 
-def try_answer(text, max_chars=160):
+def try_answer(text, max_chars=160, trigger="cal"):
     """Return (reply, meta). reply is None when nothing parsed — the caller then says nothing.
 
     Never raises: a CalcError anywhere becomes a refusal, because a missing answer beats a
@@ -512,13 +520,13 @@ def try_answer(text, max_chars=160):
     t = text.lower().strip()
     with localcontext() as ctx:
         ctx.prec = PREC
-        return _dispatch(t, meta, max_chars)
+        return _dispatch(t, meta, max_chars, trigger)
 
 
-def _dispatch(t, meta, max_chars):
+def _dispatch(t, meta, max_chars, trig=None):
     for h in HANDLERS:
         try:
-            r = h(t)
+            r = h(t, trig)
         except CalcError as e:
             meta["handler"] = h.__name__[3:]
             meta["refused"] = str(e)

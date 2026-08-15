@@ -417,7 +417,8 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
     # anything that is not a calculation returns None here and the weather path is unaffected.
     # No model is involved on this path: Python formats the reply and we emit it as fixed.
     if cfg.get("CALC_ENABLED", "false").lower() == "true":
-        c_reply, c_meta = calc.try_answer(clean, max_chars=int(cfg["CALC_MAX_CHARS"]))
+        c_reply, c_meta = calc.try_answer(clean, max_chars=int(cfg["CALC_MAX_CHARS"]),
+                                          trigger=cfg.get("TRIGGER_WORD", "cal"))
         out["calc_meta"] = c_meta
         if c_reply:
             out["capability"] = "calc"

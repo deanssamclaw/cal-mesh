@@ -109,7 +109,21 @@ def run():
     check("general, not authed: no max_chars", plan["max_chars"] is None)
 
     # ---- weather path must be untouched --------------------------------------------------
+    # The forecast refusal returns EARLY, before the budget block, so it cannot detect the budget
+    # being applied to weather. A mutation doing exactly that survived this file. The generate
+    # path is the one that reaches the block, so stub a successful fetch and test THAT.
     won = cfg(DM_LONGER_ENABLED="true", WEATHER_ENABLED="true")
+    _real_fetch = R.weather.fetch_current
+    try:
+        R.weather.fetch_current = lambda *a, **k: "72F, clear"
+        wplan = R.plan_response(won, PEER, "cal what is the temperature?", dm_authed=True)
+        check("weather GENERATE path keeps its own budget", wplan["max_chars"] is None)
+        check("weather GENERATE path keeps the public persona", wplan["persona"] is None)
+        check("weather generate path really was exercised", wplan["capability"] == "weather"
+              and wplan["mode"] == "generate")
+    finally:
+        R.weather.fetch_current = _real_fetch
+
     plan = R.plan_response(won, PEER, "cal will it rain tonight?", dm_authed=True)
     check("forecast refusal still fixed", plan["mode"] == "fixed")
     check("forecast refusal text unchanged",

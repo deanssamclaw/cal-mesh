@@ -355,6 +355,54 @@ def run():
     for t in ("cal box 5 * 3", "cal battery 12 + 4", "cal set gain 3 * 2"):
         check(f"prose with an expression refused: {t[4:24]}", ans(t) is None)
 
+    # ---- 8g. ROUND-3 FINDINGS (assertions written before the fixes) --------------------------
+    # (1) BLOCKER: _NUM had no LEFT boundary, so a leading decimal point silently dropped and the
+    #     answer came out 10x-1000x wrong across five handlers. ".5" is ordinary usage.
+    for t in ("cal .5 mi in km", "cal .25 ft in m", "cal .5 w in dbm", "cal .12 v .5 a",
+              "cal .915 ghz antenna", "cal path loss at .915 ghz over .5 km"):
+        check(f"leading decimal not mis-read: {t[4:30]}", ans(t) is None)
+    # the '^' form is the same bug the 'e' refusal did not cover
+    for t in ("cal 10^-3 w in dbm", "cal 10^3 w in dbm"):
+        check(f"caret exponent not mis-read: {t[4:22]}", ans(t) is None)
+    check("uppercase E refused too", ans("cal 1E5 ft in m") is None)
+    check("ordinary decimals still work", ans("cal 0.5 mi in km") == "0.5 mi = 0.8047 km")
+
+    # (2) _strip_trigger dropped ANY leading word, so prose + an operator computed. Reachable on
+    #     the DM path, where a message is "addressed" with no trigger word — and DMs are published.
+    for t in ("temp 12*12", "rssi -105+5", "freq 915/2", "battery 12.6*2", "noise -120+3"):
+        check(f"prose first word does not strip: {t[:18]}", ans(t) is None)
+    check("the real trigger word still strips", ans("cal 2+2") == "2+2 = 4")
+    check("trigger with punctuation still strips", ans("Cal, 2+2") == "2+2 = 4")
+    check("no trigger word at all still works", ans("2+2") == "2+2 = 4")
+
+    # (3) guards the sweep proved untested
+    check("_BARE_NUM covers decimals", ans("cal -8.5") is None)
+    check("_BARE_NUM covers plain integers", ans("cal -600") is None)
+    check("bare shapes use fullmatch, not search",
+          ans("cal 100-4+2") == "100-4+2 = 98")          # a real expression CONTAINING a range
+    check("ohm gate strips bracketing punctuation", ans("cal (a) 12 v 5 a") is not None)
+
+    # (4) claim REFUTED by review: safe_eval's own localcontext is load-bearing for a direct
+    #     caller, not redundant with try_answer's. Removing it alone survived every eval.
+    import decimal as _dm2
+    _b = _dm2.getcontext().prec
+    try:
+        _dm2.getcontext().prec = 5
+        check("safe_eval pins its own precision for direct callers",
+              str(C.safe_eval("100/3")).startswith("33.3333333333"))
+    finally:
+        _dm2.getcontext().prec = _b
+
+    # the responder must RECORD which handler fired, or the public trace loses it. Deleting that
+    # one line survived every eval.
+    _cfg = dict(_RCFG); _cfg["CALC_ENABLED"] = "true"; _cfg["WEATHER_ENABLED"] = "false"
+    _p = _RM.plan_response(_cfg, "!aaaaaaaa", "cal wavelength at 915 MHz")
+    check("responder records the calc handler for the trace",
+          (_p.get("calc_meta") or {}).get("handler") == "wavelength")
+    check("responder marks the calc capability", _p["capability"] == "calc")
+    check("responder emits calc as a FIXED reply (no model)", _p["mode"] == "fixed"
+          and _p.get("fixed_kind") == "calc")
+
     # ---- 9. constants are the exact defined values ------------------------------------------
     check("foot exact", C.FT_M == Decimal("0.3048"))
     check("mile exact", C.MI_M == Decimal("1609.344"))
