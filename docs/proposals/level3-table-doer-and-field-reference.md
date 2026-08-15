@@ -77,16 +77,19 @@ wiring problem or a darkness problem. A field reference is indexed by situation.
 
 Proposed slate, resilient-first. Every row is offline-capable unless marked.
 
-| Situation | Content | Doer | Status |
-|---|---|---|---|
-| Antenna / radio | wavelength, quarter-wave, path loss, dBm↔W, Ohm's law | compute | **BUILT** (eval 101, pending review) |
-| Wiring and power | wire gauge, ampacity, voltage drop, fuse sizing | **table** + compute | proposed |
-| Measuring and building | length, area, acreage, lumber, fasteners | compute + **table** | partly built |
-| Load and rigging | rope / chain / cable strength, knot efficiency | **table** | proposed |
-| Darkness and timing | sunrise/set, twilight, moonrise/set, phase | compute | CANDIDATE (roadmap) |
-| Signaling and orientation | phonetics, Q-codes, Morse, prosigns, whistle/light signals | knowledge (small, closed) | CANDIDATE (roadmap) |
-| Navigation | great-circle distance/bearing, Maidenhead grid | compute | CANDIDATE (roadmap) |
-| Water, exposure, signaling for help | conservative survival basics | knowledge — **hardest gate** | CANDIDATE, do last |
+**Channel** per Bob's Q3: a compute answer is short enough to broadcast; a table row carrying its
+conditions is not.
+
+| Situation | Content | Doer | Channel | Status |
+|---|---|---|---|---|
+| Antenna / radio | wavelength, quarter-wave, path loss, dBm↔W, Ohm's law | compute | broadcast | **BUILT** (eval 132, reviewed) |
+| Wiring and power | wire gauge, ampacity, voltage drop, fuse sizing | **table** + compute | **DM** | proposed |
+| Measuring and building | length, area, acreage, lumber, fasteners | compute + **table** | mixed | partly built |
+| Load and rigging | rope / chain / cable strength, knot efficiency | **table** | **DM** | proposed |
+| Darkness and timing | sunrise/set, twilight, moonrise/set, phase | compute | broadcast | CANDIDATE (roadmap) |
+| Signaling and orientation | phonetics, Q-codes, Morse, prosigns | knowledge (small, closed) | broadcast | CANDIDATE (roadmap) |
+| Navigation | great-circle distance/bearing, Maidenhead grid | compute | broadcast | CANDIDATE (roadmap) |
+| Water, exposure, signaling for help | conservative survival basics | knowledge — **hardest gate** | **DM** | CANDIDATE, do last |
 
 First aid stays exactly where the roadmap put it: last, strictest curation, explicit
 not-medical-advice edge, and **scope limited to signaling, exposure and water** — nothing
@@ -127,6 +130,31 @@ Table-pack eval must cover: correctness of every row against its cited source; *
 rows and outside range** (the new invariant); conditions present in every reply; staleness /
 last-verified; output length within one transmission; and false-fires (a question that merely
 contains a gauge number is not a lookup).
+
+## 6a. Review outcome (Bob, 2026-08-15)
+
+Q1, Q2 and Q4 are **settled**; Q3 is **answered against the draft** and changes the design.
+
+- **Q1 — TABLE is a fifth doer: confirmed**, with a sharper argument than the draft's. Folding it
+  into COMPUTE loses the interpolation invariant *because formulas are continuous* — interpolating
+  between two formula outputs is legitimate, and between two table rows it is not.
+- **Q2 — the offline inversion holds.** *"You don't build the fire department for ordinary days."*
+  With the nuance already in §2: it reorders priority, it does not demote fetch.
+- **Q3 — conditions do NOT fit a 5-7 word broadcast. The draft underweighted this.**
+  `10 AWG 30A 75C` is five words and conveys almost nothing to a reader who does not already know
+  what 75C means, and it still drops ambient temperature and conductor count. The conditions
+  invariant (§1) and the broadcast budget are in direct conflict for most table content.
+  **Resolution: TABLE is primarily a DM-tier capability.** On the public channel Cal acknowledges
+  the question and answers by authenticated DM, where the budget is 200 chars rather than 5-7
+  words. Consequences, both adopted below: the content slate needs a broadcast/DM column, and
+  **the unknown-sender tier cannot serve TABLE content at all** — a stranger on the public channel
+  has no DM path back, so they get an acknowledgment and nothing more.
+- **Q4 — the life-safety line stays where it is.** Signaling, exposure, water. Above that line a
+  trained human is the source, not a radio.
+- **Adopted addition — the rate budget is the capacity plan, not just a safety control.** A table
+  tier that is genuinely useful generates traffic, and on a shared mesh traffic is the cost. Table
+  content should be designed for **low query frequency per user**: you ask for ampacity once and
+  remember it. Content that invites repeat querying is the wrong content for this channel.
 
 ## 7. Open questions for review
 
