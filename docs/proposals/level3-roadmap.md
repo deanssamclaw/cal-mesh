@@ -2,6 +2,9 @@
 
 The index for Cal's on-air capabilities. Framework: `level3-weather.md` (two axes, the capability
 triple, the safety invariants). Doer taxonomy + compute/knowledge specs: `level3-calc-and-knowledge.md`.
+**Pending amendment:** `level3-table-doer-and-field-reference.md` proposes a fifth **TABLE** doer and
+argues this catalog should be reordered resilient-first (compute/table before fetch) and indexed by
+situation rather than by doer. Under review — the ordering below is unchanged until that lands.
 
 **The one discipline that governs all of it:** *confident wrongness is the enemy.* Every capability
 must keep a crisp edge where it says **"I can't verify that"** instead of guessing. As the surface
