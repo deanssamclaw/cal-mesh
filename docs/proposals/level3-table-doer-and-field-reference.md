@@ -80,16 +80,23 @@ Proposed slate, resilient-first. Every row is offline-capable unless marked.
 **Channel** per Bob's Q3: a compute answer is short enough to broadcast; a table row carrying its
 conditions is not.
 
-| Situation | Content | Doer | Channel | Status |
-|---|---|---|---|---|
-| Antenna / radio | wavelength, quarter-wave, path loss, dBm↔W, Ohm's law | compute | broadcast | **BUILT** (eval 132, reviewed) |
-| Wiring and power | wire gauge, ampacity, voltage drop, fuse sizing | **table** + compute | **DM** | proposed |
-| Measuring and building | length, area, acreage, lumber, fasteners | compute + **table** | mixed | partly built |
-| Load and rigging | rope / chain / cable strength, knot efficiency | **table** | **DM** | proposed |
-| Darkness and timing | sunrise/set, twilight, moonrise/set, phase | compute | broadcast | CANDIDATE (roadmap) |
-| Signaling and orientation | phonetics, Q-codes, Morse, prosigns | knowledge (small, closed) | broadcast | CANDIDATE (roadmap) |
-| Navigation | great-circle distance/bearing, Maidenhead grid | compute | broadcast | CANDIDATE (roadmap) |
-| Water, exposure, signaling for help | conservative survival basics | knowledge — **hardest gate** | **DM** | CANDIDATE, do last |
+Ordered by Q2: **lookup-y first** (you re-ask it every time, so Cal replaces a book you are not
+carrying), memorable last (you ask once and carry the answer, so Cal barely beats a laminated card).
+
+| Situation | Content | Doer | Kind | Channel | Status |
+|---|---|---|---|---|---|
+| Load and rigging | rope / chain / cable strength, knot efficiency | **table** | lookup-y | **DM** | proposed — **highest value** |
+| Fasteners and materials | bolt grades, torque, drill/tap, lumber spans | **table** | lookup-y | **DM** | proposed |
+| Wiring and power | wire gauge, ampacity, voltage drop, fuse sizing | **table** + compute | mixed | **DM** | proposed |
+| Antenna / radio | wavelength, quarter-wave, path loss, dBm↔W, Ohm's law | compute | memorable | broadcast | **BUILT + ARMED** (eval 214, 3 review rounds) |
+| Darkness and timing | sunrise/set, twilight, moonrise/set, phase | compute | lookup-y | broadcast | CANDIDATE (roadmap) |
+| Navigation | great-circle distance/bearing, Maidenhead grid | compute | lookup-y | broadcast | CANDIDATE (roadmap) |
+| Measuring and building | length, area, acreage | compute | memorable | broadcast | partly built |
+| Signaling and orientation | phonetics, Q-codes, Morse, prosigns | knowledge (small, closed) | memorable | broadcast | CANDIDATE (roadmap) |
+| Water, exposure, signaling for help | conservative survival basics | knowledge — **hardest gate** | lookup-y | **DM** | CANDIDATE, do last |
+
+Compute capabilities stay on broadcast even when lookup-y: they are short enough to say in one
+transmission, which is the constraint the channel split exists to respect.
 
 First aid stays exactly where the roadmap put it: last, strictest curation, explicit
 not-medical-advice edge, and **scope limited to signaling, exposure and water** — nothing
@@ -155,6 +162,31 @@ Q1, Q2 and Q4 are **settled**; Q3 is **answered against the draft** and changes 
   tier that is genuinely useful generates traffic, and on a shared mesh traffic is the cost. Table
   content should be designed for **low query frequency per user**: you ask for ampacity once and
   remember it. Content that invites repeat querying is the wrong content for this channel.
+
+## 6b. Review round 2 (Bob, 2026-08-15) — Q2 inverts the slate
+
+All three questions answered. **Q2 reverses its own premise and changes the ordering.**
+
+- **Q1 — 180 chars is workable, with a method.** Before curating any pack, write out the LONGEST
+  plausible answer *with full conditions* and measure it. Fits → ship. Does not → that table needs
+  a shorter format convention, or it does not ship. Do not lower information density to fit the
+  budget: *"if you can't say it honestly in 180 chars, you shouldn't say it dishonestly in 62."*
+  Expectation: wire ampacity with conditions fits; rope strength with load factors, safety margins
+  and material specs probably does not. **That measurement is now a precondition on every pack.**
+- **Q2 — the low-query-frequency rule argues AGAINST memorable content, not for it.** Memorable
+  content (ampacity, standard conversions) is asked once and carried, so Cal's value over a
+  laminated card is marginal. **Lookup-y content is where Cal earns his place** — rope strength,
+  fastener specs, fuse sizing: things you cannot remember and should not trust memory for when
+  they are safety-critical. But lookup-y content is also the highest airtime cost, so the
+  resolution is a channel split: **lookup-y on DM only** (one transmission per query),
+  **memorable on broadcast** (one query per lifetime per user, low aggregate cost).
+- **Q3 — silence on broadcast, not an acknowledgement.** An ack is a transmission carrying zero
+  information for everyone except the asker. On the allow-list they get the DM anyway; unknown,
+  they cannot get a DM at all, so the ack is a promise of nothing. Any courtesy ack belongs to
+  the **unknown-sender tier**, not to TABLE.
+
+**Consequence for §3:** the slate below is reordered — lookup-y packs rank above memorable ones,
+inverting the draft's order, which had put the most-memorable content first because it was easiest.
 
 ## 7. Open questions for review
 
