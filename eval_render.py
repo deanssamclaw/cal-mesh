@@ -67,9 +67,17 @@ globalThis.fetch = () => Promise.reject(new Error('no network in eval'));
 """
 
 # Records shaped exactly as responder.py writes them, then filtered the way correlate() filters.
-TRACE_KEYS = ("gates", "sanitize", "prompt_kind", "model", "injected_fact", "weather_ok",
-              "gen_status", "injection_flagged", "dest", "obs_station", "obs_age_s",
-              "forecast_asked", "trigger_match")
+# READ the whitelist out of dashboard.py rather than mirroring it. A duplicated copy meant a key
+# could be dropped from the dashboard and this eval would keep exercising it from its own list —
+# the mutation "remove 'calc' from the dashboard whitelist" survived exactly that way.
+_WL = re.search(r'rec\["trace"\] = \{k: dec\.get\(k\) for k in\s*\((.*?)\)', SRC, re.S)
+if _WL is None:
+    print("FAIL: could not read the trace whitelist out of dashboard.py")
+    sys.exit(1)
+TRACE_KEYS = tuple(re.findall(r'"([a-z_]+)"', _WL.group(1)))
+if "calc" not in TRACE_KEYS:
+    print("FAIL: dashboard.py trace whitelist is missing 'calc' — the handler never reaches the page")
+    sys.exit(1)
 
 GATES_OK = [{"gate": g, "pass": True} for g in
             ("not_self", "fresh", "responder_enabled", "sender_allowed", "addressed", "within_rate")]
@@ -157,6 +165,21 @@ CASES = {
                         gen_status="fixed_greeting_ack",
                         greeting_gates=[{"gate": "greeting_enabled", "pass": True},
                                         {"gate": "bare_greeting", "pass": True}])),
+    # A COMPUTED answer: parsed by Python, nothing fetched, no model. The weather-shaped branch
+    # would claim a failed lookup for a reply that never touched the network.
+    "calc": rec(text="cal wavelength at 915 MHz",
+                reply="915 MHz: wavelength 32.8 cm, quarter-wave 8.2 cm (free space)",
+                capability="calc", reason="addressed", gen_ms=None, trace=dict(
+                    gates=GATES_OK, sanitize=SAN_PUNCT,
+                    prompt_kind="fixed", dest="!aaaaaaaa",
+                    gen_status="fixed_calc",
+                    calc={"handler": "wavelength", "refused": None})),
+    # Attacker text in a calc question is still rendered on a public page.
+    "calcxss": rec(text="cal <script>alert(1)</script> 2*2", reply="2*2 = 4",
+                   capability="calc", reason="addressed", gen_ms=None, trace=dict(
+                       gates=GATES_OK, sanitize=SAN_PUNCT,
+                       prompt_kind="fixed", dest="!aaaaaaaa", gen_status="fixed_calc",
+                       calc={"handler": "arith", "refused": None})),
     # An attacker-shaped greeting: the ack is fixed, but their TEXT is still drawn.
     "greetxss": rec(text="<script>alert(1)</script>", reply="Good morning",
                     capability="greeting", reason="greeting_ack", gen_ms=None, trace=dict(
@@ -214,6 +237,20 @@ CHECKS = [
      "never happened and excused the missing word-match as an old record"),
     ("greeting", ["not on Cal's reply list"], [],
      "the point of the ack is that the sender is off-list — the trace must say so"),
+    # ---- a computed answer is a FOURTH shape ----
+    ("calc", ["what Cal computed", "nothing was fetched and no model ran",
+              "not in the number path"],
+     ["what the model wrote", "what Cal looked up", "which fact to look up",
+      "the lookup failed", "weather service could not be reached",
+      "only this crosses", "National Weather Service"],
+     "capability='calc' fell into the weather-shaped branch: with no injected_fact it told "
+     "readers a weather lookup had been attempted and failed, for a reply that never "
+     "touched the network"),
+    ("calc", ["wavelength"], [],
+     "the trace must name WHICH handler parsed the question — the responder records it and "
+     "the dashboard whitelist was dropping it before it reached the page"),
+    ("calcxss", ["&lt;script&gt;"], ["<script>alert"],
+     "a calc question is attacker-controlled text and is rendered on a public page"),
     ("greetxss", ["&lt;script&gt;"], ["<script>alert"],
      "the ack is fixed but the stranger's own text is still rendered on a public page"),
 ]

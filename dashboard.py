@@ -222,7 +222,7 @@ def correlate(inbox, sent, decisions):
                         ("gates", "sanitize", "prompt_kind", "model", "injected_fact",
                          "weather_ok", "gen_status", "injection_flagged", "dest",
                          "obs_station", "obs_age_s", "forecast_asked", "trigger_match",
-                         "greeting_gates", "greeting_reason")
+                         "greeting_gates", "greeting_reason", "calc")
                         if dec.get(k) is not None}
 
     replied = [d for d in decisions if d.get("matched") and d.get("reply")]
@@ -2246,6 +2246,32 @@ function flowHtml(x,t){
       +`goes out is <b>chosen</b> by the greeting they used, from five written in advance `
       +`(morning, afternoon, evening, day, or plain hello). Nothing they wrote is ever copied `
       +`into it, so there is nothing in the reply for a stranger to steer.</div>`;
+  }
+  // A computed answer is a FOURTH shape. The capability branch below is weather-shaped and
+  // would say "what Cal looked up" and, with no injected_fact, "the lookup failed — the weather
+  // service could not be reached" — for a reply that never touched the network. Nothing is
+  // fetched here and no model runs: Python parsed the question and computed every digit.
+  if(x.capability==='calc'){
+    const handler=(t.calc&&t.calc.handler)?String(t.calc.handler):'';
+    const c1=`<div class="fb b1"><div class="fk">1 · the question</div><div class="fv">${inTxt}</div>`
+      +`<div class="fn"><span class="onair">✓ received on air</span> — it parsed as a `
+      +`calculation, which is what selected this path</div></div>`;
+    const c2=`<div class="fb bx"><div class="fk">2 · what the software recognised</div>`
+      +`<div class="fv">${esc(handler||'a calculation')}</div>`
+      +`<div class="fn">a <b>successful bounded parse</b>, not merely a number in the text — `
+      +`anything that does not parse gets no answer at all</div></div>`;
+    const c3=`<div class="fb bx"><div class="fk">3 · what Cal computed</div>`
+      +`<div class="fv">Python, from exact constants</div>`
+      +`<div class="fn"><b>nothing was fetched and no model ran</b> — the digits are computed `
+      +`and formatted by the software itself</div></div>`;
+    const c4=`<div class="fb b3"><div class="fk">4 · what Cal sent</div><div class="fv">${outTxt}</div>`
+      +`<div class="fn"><span class="onair">✓ sent on air to ${esc(t.dest||'')}</span></div></div>`;
+    return `<div class="flow gen">${c1}${arrow('')}${c2}${arrow('')}${c3}${arrow('')}${c4}</div>`
+      +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
+      +`The model is not in the number path at all — Python parses the question, computes the `
+      +`answer from exact defined constants, and formats the sentence. Where a value is `
+      +`ambiguous (a gallon is not the same on both sides of the Atlantic) or falls outside `
+      +`what can be answered exactly, Cal says nothing rather than guess.</div>`;
   }
   if(!capability)
     return `<div class="flow gen">${b1}${arrow('sanitized, then given<br>to the model')}${b3}</div>`

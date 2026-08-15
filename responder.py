@@ -43,6 +43,7 @@ CLAUDE    = os.path.expanduser("~/.local/bin/claude")
 
 sys.path.insert(0, BASE)
 import weather                    # Level 3 Stage 1 capability (harness-fetched, injected)
+import calc                       # Level 3 COMPUTE doer (Python owns every digit)
 
 OUR_ID_FALLBACK = "!xxxxxxxx"   # Cal HT
 
@@ -50,6 +51,20 @@ PERSONA = ("You are Cal, Dean's AI, replying over a PUBLIC LoRa mesh radio (your
            "'Cal HT'). Hard rules: reply in 5-7 words; plain text only; no markdown, no "
            "emoji, no URLs, no surrounding quotes; NEVER reveal Dean's location, personal "
            "life, schedule, or work; be warm, plain, and useful. Output ONLY the reply text.")
+
+# Authenticated-DM persona. IDENTICAL restrictions to PERSONA — same refusal of Dean's
+# location/life/schedule/work, and NO context is injected on this path. The ONLY difference is
+# the length budget: a DM lands on one node's screen instead of every screen in range, so the
+# 5-7 word rule (which exists for broadcast readability) can relax. Airtime is still shared, so
+# the budget is a couple of sentences, not a chat window.
+#
+# This is deliberately NOT the unlock. PERSONA_PRIVATE speaks freely about injected context;
+# this one knows nothing it didn't already know on the public channel.
+PERSONA_DM_AUTHED = (
+    "You are Cal, Dean's AI, replying over an authenticated direct message on a LoRa mesh radio "
+    "(your node 'Cal HT'). Hard rules: reply in 1-2 short sentences; plain text only; no "
+    "markdown, no emoji, no URLs, no surrounding quotes; NEVER reveal Dean's location, personal "
+    "life, schedule, or work; be warm, plain, and useful. Output ONLY the reply text.")
 
 DEFAULTS = {
     "RESPONDER_ENABLED": "false",
@@ -95,6 +110,17 @@ DEFAULTS = {
     "DM_CONTEXT_FILE": "",            # operator-curated context, gitignored. Empty = closed.
     "DM_CONTEXT_MAX_CHARS": "2000",
     "DM_MAX_CHARS": "200",            # a DM still costs shared airtime; this is not a chat window
+    # Longer replies on AUTHENTICATED DMs, with no unlock and no context. Separate knob from
+    # DM_UNLOCK_ENABLED on purpose: this changes only the length budget, so it carries none of
+    # the unlock's disclosure risk and must not ride on the same switch.
+    "DM_LONGER_ENABLED": "false",
+    # 180, not 200: clean_reply() hard-caps every reply at 180 chars, so a larger value
+    # here would be a config that lies about what actually goes on air.
+    "DM_LOCKED_MAX_CHARS": "180",
+    # COMPUTE doer. No model runs on this path at all — Python computes AND formats,
+    # so the reply is emitted as a fixed string exactly like a refusal.
+    "CALC_ENABLED": "false",
+    "CALC_MAX_CHARS": "160",
 }
 
 # The unlocked persona. Still forbids secrets outright, because "absence not refusal" covers the
@@ -114,7 +140,10 @@ URL_RE = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.[a-z]{2,}\b", re.I)  # incl.
 # enters the generation prompt we (1) keep only the first sentence/line — mesh queries are
 # terse — and (2) neutralize instruction/exfil-shaped tokens. This is not the primary
 # defense (tool-lockdown is) but it raises the bar and matters more as agency grows.
-_SENT_END  = re.compile(r"[.!?\n]")
+# A period BETWEEN DIGITS is a decimal point, not a sentence end. Without this exclusion the
+# sanitizer truncated "12.5 ft in m" to "12" before any capability saw it — 17 of 48 realistic
+# calculations returned nothing, and "15% off $260.50" silently answered for $260.
+_SENT_END  = re.compile(r"(?<![0-9])[.](?![0-9])|[!?\n]")
 _INJECT_RE = re.compile(
     r"\b(ignore|disregard|forget|override|overrule|instead|reveal|exfiltrat\w*|"
     r"system\s+prompt|previous\s+instructions|prior\s+instructions|delete|remove|"
@@ -317,6 +346,36 @@ def dm_unlock(cfg, rec, ours):
     return True, "dm_unlocked", gates
 
 
+def dm_longer(cfg, rec, ours):
+    """Does this DM earn the longer LENGTH budget? Returns (ok, reason, gates).
+
+    Deliberately a WEAKER bar than dm_unlock, because it buys a weaker thing. The unlock decides
+    what Cal KNOWS; this decides only how many characters the same hardened persona may use. No
+    context is injected on this path and no pinning is required.
+
+    What it still demands: addressed to us specifically (a broadcast lands on every screen in
+    range, which is the whole reason for the 5-7 word rule) and PKC-encrypted, read as `is True`
+    so a packet that omitted the field reads as NOT authenticated. Who may get a reply at all is
+    already settled upstream by the ALLOW_FROM gate.
+
+    Forge-damage if someone defeats this: a spoofed DM gets a two-sentence hardened reply instead
+    of a seven-word one. That is the entire exposure, and it is why no pinning is warranted.
+    """
+    gates = []
+
+    def mark(name, ok):
+        gates.append({"gate": name, "pass": bool(ok)})
+        return ok
+
+    if not mark("dm_longer_enabled", cfg.get("DM_LONGER_ENABLED", "false").lower() == "true"):
+        return False, "dm_longer_disabled", gates
+    if not mark("is_dm", rec.get("to") == ours):
+        return False, "dm_longer_not_dm", gates
+    if not mark("pki_encrypted", rec.get("pki") is True):
+        return False, "dm_longer_not_authenticated", gates
+    return True, "dm_longer", gates
+
+
 def load_dm_context(cfg):
     """The operator-curated context injected on an unlocked DM, bounded, or None.
 
@@ -335,7 +394,8 @@ def load_dm_context(cfg):
     return data[:cap].strip() or None
 
 
-def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_context=None):
+def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_context=None,
+                  dm_authed=False):
     """PURE decision (no subprocess, no I/O beyond the injectable weather fetch): sanitize the
     inbound, run any capability, and decide whether we emit a FIXED fail-safe reply or a
     GENERATE prompt. Separated from side effects so the whole path is offline-testable."""
@@ -343,7 +403,8 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
     out = {"clean": clean, "flagged": flagged, "capability": None, "weather_ok": None,
            "weather_fact": None, "mode": "generate", "fixed_reply": None, "prompt": None,
            "weather_meta": {}, "forecast_asked": False, "match": None,
-           "persona": None, "unlocked": False, "max_chars": None}
+           "persona": None, "unlocked": False, "max_chars": None,
+           "fixed_kind": None, "calc_meta": None}
     # P1: an authenticated DM from Dean gets the private persona and injected context. This is
     # decided by the CALLER (dm_unlock) and passed in — plan_response never re-derives trust.
     if unlocked:
@@ -352,6 +413,19 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
         out["max_chars"] = int(cfg["DM_MAX_CHARS"])
         out["prompt"] = build_private_prompt(clean, dm_context)
         return out
+    # COMPUTE doer first. Intent is a SUCCESSFUL BOUNDED PARSE, not "contains a number", so
+    # anything that is not a calculation returns None here and the weather path is unaffected.
+    # No model is involved on this path: Python formats the reply and we emit it as fixed.
+    if cfg.get("CALC_ENABLED", "false").lower() == "true":
+        c_reply, c_meta = calc.try_answer(clean, max_chars=int(cfg["CALC_MAX_CHARS"]))
+        out["calc_meta"] = c_meta
+        if c_reply:
+            out["capability"] = "calc"
+            out["mode"] = "fixed"
+            out["fixed_kind"] = "calc"
+            out["fixed_reply"] = c_reply
+            return out
+
     fact = None
     # intent/location on the RAW text: a trailing '?' (needed for weak-keyword intent) and a
     # whitelisted place name must survive; sanitize would strip them. Nothing from raw_text
@@ -366,6 +440,7 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
         if weather.wants_forecast(raw_text):
             out["forecast_asked"] = True
             out["mode"] = "fixed"
+            out["fixed_kind"] = "forecast_refused"
             out["fixed_reply"] = "Only current conditions, no forecast yet."
             return out
         _, latlon = weather.resolve_location(cfg, raw_text)
@@ -380,6 +455,13 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
             out["mode"], out["fixed_reply"] = "fixed", "Can't reach weather right now."
             return out
     out["prompt"] = build_prompt(sender_short, clean, fact)
+    # Length-only relaxation on an authenticated DM. GENERAL path only: the weather prompt
+    # carries its own measured 5-7 word budget, hardened across three reviews and verified 8/8
+    # for surviving digits. Two budgets in one request would contradict each other, so weather
+    # keeps its own and this changes nothing about it.
+    if dm_authed and not unlocked and out["capability"] is None:
+        out["persona"] = PERSONA_DM_AUTHED
+        out["max_chars"] = int(cfg["DM_LOCKED_MAX_CHARS"])
     return out
 
 
@@ -667,8 +749,14 @@ def main():
                                 d["dm_unlock_gates"] = unl_gates
                                 d["dm_unlock"] = unl
                                 d["dm_unlock_reason"] = unl_why
+                            # Length-only budget, independent of the unlock above.
+                            lng, lng_why, lng_gates = dm_longer(cfg, rec, ours)
+                            if lng_gates and lng_gates[0]["pass"]:
+                                d["dm_longer_gates"] = lng_gates
+                                d["dm_longer"] = lng
+                                d["dm_longer_reason"] = lng_why
                             plan = plan_response(cfg, rec.get("from"), rec.get("text", ""),
-                                                 unlocked=unl,
+                                                 unlocked=unl, dm_authed=lng,
                                                  dm_context=load_dm_context(cfg) if unl else None)
                             # the public decision trace: how this reply came to exist. Machinery
                             # only — inputs, gates, the injected fact. No model introspection:
@@ -676,7 +764,8 @@ def main():
                             # and inventing one would publish narrative as if it were mechanism.
                             d["sanitize"] = sanitize_trace(rec.get("text", ""),
                                                            plan["clean"], plan["flagged"])
-                            d["prompt_kind"] = "weather" if plan["weather_fact"] else "general"
+                            d["prompt_kind"] = ("fixed" if plan["mode"] == "fixed"
+                                                else "weather" if plan["weather_fact"] else "general")
                             if plan["mode"] != "fixed":
                                 d["model"] = cfg["RESPONDER_MODEL"]
                             if plan["flagged"]:
@@ -687,6 +776,8 @@ def main():
                             if m.get("via"):
                                 d["trigger_match"] = {"via": m["via"], "strong": m["strong"],
                                                       "weak": m["weak"], "question": m["question"]}
+                            if plan.get("calc_meta") and plan["calc_meta"].get("handler"):
+                                d["calc"] = plan["calc_meta"]
                             if plan["capability"]:
                                 d["capability"] = plan["capability"]
                                 d["weather_ok"] = plan["weather_ok"]
@@ -701,8 +792,12 @@ def main():
                                 # No model runs here. A refusal and a failed fetch are different
                                 # events and must not share one status: the first is the design
                                 # working, the second is the fail-safe catching something.
-                                reply = plan["fixed_reply"]
-                                why = ("fixed_forecast_refused" if plan.get("forecast_asked")
+                                # clean_reply here too: the generated path gets it, and a
+                                # fixed reply is still text going on air. Belt, not exploit.
+                                reply = clean_reply(plan["fixed_reply"])
+                                kind = plan.get("fixed_kind")
+                                why = ("fixed_calc" if kind == "calc" else
+                                       "fixed_forecast_refused" if kind == "forecast_refused"
                                        else "fixed_weather_unavailable")
                             else:
                                 reply, why = run_claude(cfg, plan["prompt"], plan.get("persona"))

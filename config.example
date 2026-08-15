@@ -65,3 +65,18 @@ DM_UNLOCK_PUBKEY_FP=
 DM_CONTEXT_FILE=
 DM_CONTEXT_MAX_CHARS=2000
 DM_MAX_CHARS=200
+
+# Longer replies on AUTHENTICATED DMs, with NO unlock and NO injected context. Separate
+# knob from DM_UNLOCK_ENABLED on purpose: this changes only the length budget, so it
+# carries none of the unlock's disclosure risk. Requires: addressed to us + pki true.
+# The persona keeps every restriction of the public one; only the 5-7 word cap relaxes.
+DM_LONGER_ENABLED=false
+DM_LOCKED_MAX_CHARS=180
+
+# --- Level 3 COMPUTE doer: arithmetic, measurements, RF formula pack (default OFF) ---
+# The model is NOT in the number path. Python computes AND formats; the reply is emitted as a
+# fixed string, so no prompt and no model call happen on this path at all.
+# Refuses rather than guesses: ambiguous units (gal/ton/cup), div-zero, unparseable input,
+# anything over the cost bounds. Intent is a successful bounded parse, never "contains a number".
+CALC_ENABLED=false
+CALC_MAX_CHARS=160
