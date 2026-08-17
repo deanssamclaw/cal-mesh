@@ -514,15 +514,32 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
         # temp at dusk" answered with a sunset time instead of weather. The calc rescue is the
         # same rule already applied to weather (see _calc_collision) — hoisted here so every
         # capability above weather inherits it rather than each one re-forgetting it.
-        # Give way to weather on ANY weather word, strong or weak — not merely when weather would
-        # claim the message. "will it rain at sunset" carries one weak word and no question mark,
-        # so weather declines it, and sun/moon used to answer it with a sunset time. The first fix
-        # widened WEATHER to grab it; that claimed 210 of 210 synthetic non-weather pairs and was
-        # reverted. Declining here costs nothing (the ask falls to the general model, which
-        # invents no time because no fixed reply is emitted) and cannot over-claim.
-        wm = weather.explain_weather_match(raw_text) if enabled_weather(cfg) else None
-        weather_words = bool(wm and (wm["strong"] or wm["weak"]))
-        if sm_match["via"] and not weather_words and not _calc_collision(cfg, clean, out):
+        # Yield to weather when weather will ACTUALLY CLAIM the message — not on the mere
+        # presence of a weather word.
+        #
+        # Two round-2 fixes collided here. Reverting weather's over-wide claim rule removed its
+        # hold on weak-word asks; yielding on any weather word removed sun/moon's. Together a
+        # whole class reached NEITHER capability — measured at 86% of a 168-case grid, e.g. "when
+        # does it get dark, storm coming" — and the comment justifying the yield claimed the ask
+        # would "fall to the general model, which invents no time", which is exactly backwards:
+        # the general model is what invents the time. Worst instance, a moonrise ask reaching the
+        # weather fetch, defeating the unconditional refusal sun/moon exists to give it.
+        #
+        # The real discriminator is grammatical, not lexical: is the sun/moon word the OBJECT of
+        # the question, or a TIME QUALIFIER on some other question? "when is sunset" is the
+        # former; "will it rain AT sunset" is the latter, and only the latter belongs to weather.
+        # The grammar alone decides it. An earlier form also required that weather would not
+        # claim, which handed "cal sunrise? chilly out" to weather — the person asked when sunrise
+        # is, and an incidental weather word in the same sentence is not a competing question.
+        # If the sun/moon word is the OBJECT, this capability answers; if it is only a qualifier
+        # on someone else's question, it stays out. Nothing else is needed.
+        # A moon rise/set ask NEVER yields. The module recognises it specifically so it can be
+        # refused, and yielding sent it to a live weather fetch — a moonrise question answered
+        # with a temperature, which is the same shape as the temp 12*12 bug fixed twice already.
+        # Recognition is the refusal only if nothing can take the message away first.
+        riseset = sm_match["via"] == "moon_riseset"
+        if sm_match["via"] and (riseset or not sunmoon.only_time_qualifier(raw_text)) \
+                and not _calc_collision(cfg, clean, out):
             lat, lon = _sunmoon_point(cfg)
             if lat is None:                 # fail-closed, exactly like GREET_TEXT and the point
                 out["capability"] = "sunmoon"

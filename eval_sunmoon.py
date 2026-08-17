@@ -430,9 +430,12 @@ def run():
         # declined" and hand the question to the model, so a length bound became a route to an
         # invented time. The refusal must be a string, must say nothing numeric, and must be
         # marked in meta.
+        # Below the shortest refusal the honest outcome is silence, not a message that itself
+        # violates the bound. What must hold at every size is that it is MARKED refused and never
+        # carries a number.
         check(f"over-length refused on every branch: {t[:26]}",
-              isinstance(r, str) and m["refused"] == "too long"
-              and not any(ch.isdigit() for ch in r), (r, m))
+              m["refused"] == "too long" and (r is None or (len(r) <= 5
+                                              and not any(ch.isdigit() for ch in r))), (r, m))
 
     # ---- 13f. solar noon is keyed to the LOCAL date ------------------------------------------
     #      At 01:00 local the UTC date is already the next day, so using now.date() silently
@@ -628,6 +631,111 @@ def run():
     for t in ("cal sunset", "cal when does it get dark", "cal sunrise?"):
         check(f"today's ask still answered: {t[:26]}",
               S.answer(t, LAT, LON, TZ, now)[1]["refused"] is None)
+
+    # ---- 13k. ROUND 3 FINDINGS ---------------------------------------------------------------
+    # (a) THE YIELD COLLISION. Reverting weather's wide claim rule and yielding on any weather
+    #     word were each defensible and together sent 86% of a measured grid to NO capability.
+    #     Yield only when weather will actually CLAIM, and decide by grammar: is the sun/moon word
+    #     the OBJECT of the ask, or a TIME QUALIFIER on a different one?
+    _yc = dict(R.DEFAULTS)
+    _yc.update({"SUNMOON_ENABLED": "true", "WEATHER_POINT": f"{LAT},{LON}",
+                "CALC_ENABLED": "true", "WEATHER_ENABLED": "true"})
+    for q in ("cal when does it get dark, storm coming", "cal how long till dark, cold front coming",
+              "cal sunset time, it was windy earlier", "cal when does the sun go down, gonna be cloudy",
+              "cal whens sunset, need to beat the rain", "cal sunrise? chilly out",
+              "cal whens sunset, snow coming"):
+        _p = R.plan_response(_yc, "!aaaaaaaa", q)
+        check(f"weather word does not steal the sun ask: {q[:40]}",
+              _p["capability"] == "sunmoon" and _p["fixed_reply"], (_p["capability"], _p["fixed_reply"]))
+    #     a moon rise/set ask NEVER yields — recognition is the refusal only if nothing can take
+    #     the message away first. This one reached a live weather fetch.
+    for q in ("cal when is moonrise? sunny day", "cal moonset tonight? rainy",
+              "cal what time is moonrise, cold out"):
+        _p = R.plan_response(_yc, "!aaaaaaaa", q)
+        check(f"moon rise/set never yields: {q[:36]}",
+              _p["capability"] == "sunmoon" and "not built" in (_p["fixed_reply"] or ""),
+              (_p["capability"], _p["fixed_reply"]))
+    #     but a genuine time-qualifier ask still belongs to weather, not here
+    for q in ("cal will it rain at sunset", "cal whats the temp at dusk", "cal cold by dusk?",
+              "cal high today at sunset"):
+        _p = R.plan_response(_yc, "!aaaaaaaa", q)
+        check(f"time-qualifier ask not claimed by sunmoon: {q[:34]}",
+              _p["capability"] != "sunmoon", (_p["capability"], _p["fixed_reply"]))
+    check("only_time_qualifier: object form", not S.only_time_qualifier("cal when is sunset"))
+    check("only_time_qualifier: qualifier form", S.only_time_qualifier("cal will it rain at sunset"))
+    check("only_time_qualifier: mixed counts as object",
+          not S.only_time_qualifier("cal sunset time, and will it rain at dusk"))
+    check("only_time_qualifier: 'till dark' is the ask, not a qualifier",
+          not S.only_time_qualifier("cal how long till dark"))
+    #     "recognition is the refusal" is UNCONDITIONAL, so a moon rise/set ask is claimed even
+    #     when the word appears only as a qualifier. Without that clause "will it rain at
+    #     moonrise" declines and the model answers a moonrise question.
+    for q in ("cal will it rain at moonrise", "cal cold by moonset?"):
+        check(f"qualifier-form moon rise/set STILL claimed: {q[:34]}",
+              S.only_time_qualifier(q) and S.explain_match(q)["via"] == "moon_riseset")
+        _p = R.plan_response(_yc, "!aaaaaaaa", q)
+        check(f"qualifier-form moon rise/set refused, not dropped: {q[:34]}",
+              _p["capability"] == "sunmoon" and "not built" in (_p["fixed_reply"] or ""),
+              (_p["capability"], _p["fixed_reply"]))
+    #     the span dedupe: overlapping patterns must not double-count a single mention, or a fully
+    #     qualified ask never looks fully qualified. "cold by dusk?" is one mention, not two.
+    check("single mention counted once (span dedupe)", S.only_time_qualifier("cal cold by dusk?"))
+    check("two mentions, one qualified, is NOT fully qualified",
+          not S.only_time_qualifier("cal sunset time, and will it rain at dusk"))
+
+    # (b) ONE TEMPORAL TABLE, OR AT LEAST TWO THAT AGREE. _OTHER_DAY sits beside
+    #     weather._FORECAST and they diverged immediately — weather knew "this weekend" and
+    #     "next week" while this missed them, and each miss was answered with TODAY's time. Cross
+    #     -check every day-shifting phrase weather knows so they cannot drift apart silently.
+    import importlib.util as _ilu
+    _wspec = _ilu.spec_from_file_location("weather_x", os.path.join(HERE, "weather.py"))
+    _W = _ilu.module_from_spec(_wspec); _wspec.loader.exec_module(_W)
+    #     The two tables legitimately differ, and the cross-check has to respect that or it is
+    #     just wrong in the other direction. Weather refuses ANY future phrase because it holds
+    #     observations only — "later", "tonight", "this evening", "overnight" are all forecasts to
+    #     it. Sun/moon can compute any instant TODAY; what it cannot do is another DAY. So the
+    #     shared obligation is only over genuine day shifts, and this list is exactly those. The
+    #     six within-today phrases that surfaced when this check was first written too broadly are
+    #     named here so nobody re-adds them thinking they were an oversight.
+    _DAY_SHIFTS = ("tomorrow", "this week", "this weekend", "next week", "next day")
+    _WITHIN_TODAY = ("later", "tonight", "overnight", "this afternoon", "this evening", "next hour")
+    for phrase in _DAY_SHIFTS:
+        q = "cal sunset " + phrase
+        check(f"weather calls {phrase!r} a forecast (fixture is valid)", _W.wants_forecast(q))
+        _r, _m = S.answer(q, LAT, LON, TZ, now)
+        check(f"day shift refused here too: {phrase!r}", _m["refused"] == "other day", (_r, _m))
+    for phrase in _WITHIN_TODAY:
+        _r, _m = S.answer("cal sunset " + phrase, LAT, LON, TZ, now)
+        check(f"within-today phrase still answered: {phrase!r}",
+              _m["refused"] != "other day", (_r, _m))
+    for q in ("cal sunrise sunday?", "cal sunset saturday?", "cal sunset this weekend?",
+              "cal sunset in 3 days?", "cal sunset on the 4th?", "cal sunset in a week?",
+              "cal sunset next week", "cal sunset dec 25", "cal sunset on monday"):
+        _r, _m = S.answer(q, LAT, LON, TZ, now)
+        check(f"other-day refused: {q[:32]}", _m["refused"] == "other day", (_r, _m))
+    for q in ("cal sunset", "cal when does it get dark", "cal when does the sun go down",
+              "cal sunrise?", "cal when is dawn?", "cal how long till dark", "cal solar noon"):
+        check(f"today's ask NOT refused as other-day: {q[:34]}",
+              S.answer(q, LAT, LON, TZ, now)[1]["refused"] != "other day", q)
+
+    # (c) THE IMPORT GUARD MUST READ THE LIST IT GUARDS. It iterated a hardcoded copy, so adding a
+    #     fifth weak token sailed straight past the check written to catch exactly that.
+    import re as _re2
+    _src = open(os.path.join(HERE, "sunmoon.py")).read()
+    check("import guard iterates _WEAK_TOKENS, not a literal",
+          _re2.search(r"for\s+_tok\s+in\s+_WEAK_TOKENS\b", _src) is not None)
+    check("no hardcoded weak-token tuple in the guard",
+          _re2.search(r'for\s+_tok\s+in\s+\(\s*"dawn"', _src) is None)
+    for tok in S._WEAK_TOKENS:
+        check(f"weak token resolves: {tok}", S._resolve_intent(tok) is not None)
+
+    # (d) THE REFUSAL MUST FIT THE BOUND IT ENFORCES. The old string was 29 chars and was emitted
+    #     at max_chars=25 — the exact case _bounded's own docstring names.
+    for mc in (0, 1, 5, 8, 10, 15, 25, 29, 120):
+        _r, _m = S.answer("cal when does it get dark", LAT, LON, TZ, now, max_chars=mc)
+        check(f"reply or refusal fits max_chars={mc}", _r is None or len(_r) <= mc, (_r, mc))
+        if mc < 28:
+            check(f"over-length is marked refused at max_chars={mc}", _m["refused"] == "too long")
 
     # ---- 14. moon rise/set is REFUSED, never estimated ----------------------------------------
     for t in ("cal when does the moon rise", "cal moonset tonight", "cal what time is moonrise",

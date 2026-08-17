@@ -304,13 +304,38 @@ _MOON_RISESET = re.compile(r"\b(moon\s*rise|moonrise|moon\s*set|moonset|moon\s*o
 #
 # A comment would not have caught that. This does: every weak token must resolve to a real intent,
 # checked at import, so the module refuses to load rather than answering the wrong half of the day.
+#
+# And it iterates _WEAK_TOKENS, not a literal copy of it. The first version listed the four words
+# inline, so adding a fifth weak token sailed past the very guard written to catch exactly that —
+# a guard that does not read the list it guards is decoration.
+# Any ask about a day that is not today. This module computes for NOW only, so answering one with
+# today's time is the same confident wrongness weather refuses forecasts to avoid.
+#
+# It is a SECOND temporal table beside weather._FORECAST and they diverged immediately: weather
+# already knew "this weekend" and "next week" while this missed them, along with bare weekday names
+# ("sunset saturday") and relative offsets ("in 3 days"), each of which was answered with today's
+# time. The eval now cross-checks this against every day-shifting phrase weather knows, so the two
+# cannot drift apart silently again — the divergence, not the individual misses, is the defect.
+_DAYNAME = r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun"
+_MONTH = (r"january|february|march|april|may|june|july|august|september|october|november|december|"
+          r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec")
 _OTHER_DAY = re.compile(
-    r"\b(tomorrow|tmrw|yesterday|next\s+(?:week|month|year|monday|tuesday|wednesday|thursday|"
-    r"friday|saturday|sunday)|last\s+(?:week|month|year|night)|"
-    r"on\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|christmas|"
-    r"new\s*years?|thanksgiving|halloween|easter)|"
-    r"in\s+(?:january|february|march|april|may|june|july|august|september|october|november|"
-    r"december)|\d{1,2}/\d{1,2}|\b(?:jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2})\b",
+    r"\b(?:tomorrow|tmrw|tmw|yesterday|"
+    r"(?:next|last|this)\s+(?:day|week|month|year|weekend|" + _DAYNAME + r")|"
+    r"last\s+night|"
+    r"(?:on|this|next|last)\s+(?:" + _DAYNAME + r")|"
+    # A bare weekday name anywhere is a day shift ("sunset saturday?"). FULL names only: the
+    # abbreviations collide badly on this of all paths — "sun" is inside no word boundary of
+    # "sunset" but IS a bare word in "when does the sun go down", and "mar"/"may"/"sat" collide
+    # with months and ordinary verbs.
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"in\s+\d+\s+(?:day|days|week|weeks|month|months)|"
+    r"in\s+a\s+(?:day|week|month)|"
+    r"\d+\s+days?\s+(?:from\s+now|out|ahead)|"
+    r"on\s+(?:christmas|new\s*years?|thanksgiving|halloween|easter|the\s+\d{1,2}(?:st|nd|rd|th)?)|"
+    r"in\s+(?:" + _MONTH + r")|"
+    r"(?:" + _MONTH + r")\s+\d{1,2}|"
+    r"\d{1,2}/\d{1,2})\b",
     re.I)
 
 
@@ -318,7 +343,7 @@ def _resolve_intent(text):
     return next((n for n, rx in _INTENTS if rx.search(text)), None)
 
 
-for _tok in ("dawn", "dusk", "twilight", "daylight"):
+for _tok in _WEAK_TOKENS:                       # NOT a hardcoded copy — see below
     if _resolve_intent(_tok) is None:
         raise AssertionError(
             "sunmoon: weak trigger %r matches no _INTENTS pattern, so it would fall through to "
@@ -370,6 +395,47 @@ def explain_match(text):
             "excluded": excluded}
 
 
+# A sun/moon word can be the OBJECT of the question ("when is sunset") or a TIME QUALIFIER on a
+# different question ("will it rain AT sunset", "cold BY dusk"). Only the first belongs to this
+# capability. Detecting the difference grammatically is what lets sun/moon yield precisely, instead
+# of yielding on the mere presence of a weather word — which dropped 86% of a measured grid to no
+# capability at all, including moonrise asks this module recognises specifically in order to refuse.
+# 'til/till/until' are deliberately NOT qualifiers: "how long till dark" is the ask itself, and
+# _INTENTS already lists "till dark"/"until dark" as dark-intent phrases. Treating them as
+# qualifiers made the module decline the exact question it exists to answer.
+_QUALIFIER = re.compile(r"\b(?:at|by|before|after|around|during)\s+"
+                        r"(?:the\s+)?(?:sunset|sunrise|sundown|dusk|dawn|dark|nightfall|"
+                        r"twilight|daylight|first\s*light|last\s*light|moonrise|moonset)\b", re.I)
+
+
+def only_time_qualifier(text):
+    """True if EVERY sun/moon word in the text is preceded by a qualifier preposition.
+
+    'will it rain at sunset' -> True (the ask is about rain). 'when is sunset' -> False.
+    'sunset time, and will it rain at dusk' -> False, because one mention is unqualified.
+    """
+    t = text or ""
+    m = explain_match(t)
+    if not m["via"]:
+        return False
+    # Count DISTINCT mentions by span. The regexes overlap by design — "dusk" is both a derived
+    # strong token and a weak one — so summing findall() counts it twice and the message never
+    # looks fully qualified. ("cold by dusk?" scored 1 qualifier against 2 mentions and was
+    # claimed.) Spans dedupe it without caring which pattern matched.
+    spans = set()
+    for rx in (_SUN_STRONG, _SUN_WEAK, _MOON_STRONG, _MOON_RISESET):
+        for mm in rx.finditer(t):
+            spans.add(mm.span())
+    # drop spans wholly contained in a larger one, so a single phrase counts once
+    mentions = [sp for sp in spans
+                if not any(o != sp and o[0] <= sp[0] and sp[1] <= o[1] for o in spans)]
+    if not mentions:
+        return False
+    qual = [mm.span() for mm in _QUALIFIER.finditer(t)]
+    covered = sum(1 for sp in mentions if any(q[0] <= sp[0] and sp[1] <= q[1] for q in qual))
+    return covered == len(mentions)
+
+
 def wants_sunmoon(text):
     return explain_match(text)["via"] is not None
 
@@ -387,7 +453,14 @@ def _bounded(reply, meta, max_chars):
         # compute doer became a route to an INVENTED time. Measured: SUNMOON_MAX_CHARS=25, a
         # plausible operator setting for airtime, turned every sun answer into a model answer.
         meta["refused"] = "too long"
-        return "Answer too long for this link", meta
+        # The refusal has to fit the bound it is enforcing. The old string was 29 chars and was
+        # emitted at max_chars=5, 10 and 25 — including 25, the exact setting this function's own
+        # docstring names as the motivating case. A bound that its own violation message breaks is
+        # not a bound. Below any plausible floor it degrades rather than lying.
+        for cand in ("Answer too long for this link", "Answer too long", "Too long"):
+            if len(cand) <= max_chars:
+                return cand, meta
+        return None, meta
     return reply, meta
 
 
