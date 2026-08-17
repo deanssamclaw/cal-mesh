@@ -109,7 +109,19 @@ for t in ["cal whats the weather", "cal hows the temp", "cal is it windy out"]:
 for t in ["cal will it rain at sunset", "cal whats the temp at dusk", "cal whats the wind at dawn",
           "cal how hot by noon", "cal rain before dark", "cal windy after sunset"]:
     check(f"time-of-day qualifier is forecast: {t!r}", weather.wants_forecast(t), t)
-    check(f"time-of-day qualifier REACHES weather: {t!r}", weather.wants_weather(t), t)
+# A "weak word + forecast phrase" branch briefly made these REACH weather too. It was reverted:
+# measured, it claimed 210 of 210 synthetic weak x forecast pairs and 13 of 14 realistic
+# non-weather sentences ("i have a cold, will it get better"), each getting a nonsense forecast
+# refusal. The collision it was meant to solve is now handled where the stealing happened —
+# sun/moon declines any message carrying a weather word — so the claim rule stays narrow.
+for t in ["cal i have a cold, will it get better", "cal the heat sink is gonna melt",
+          "cal cold boot the node later", "cal snow tires arriving tomorrow",
+          "cal my hands are freezing, gonna find gloves"]:
+    check(f"non-weather NOT claimed by weather: {t[:36]!r}", not weather.wants_weather(t), t)
+# and a strong word plus a qualifier still reaches it and is still refused as a forecast
+for t in ["cal whats the temperature at dusk", "cal hows the weather by sunset"]:
+    check(f"strong + qualifier still refused: {t!r}",
+          weather.wants_weather(t) and weather.wants_forecast(t), t)
 for t in ["cal whats the temp", "cal whats the weather", "cal hows the humidity",
           "cal is it raining or windy"]:
     check(f"bare present-tense still answered: {t!r}",

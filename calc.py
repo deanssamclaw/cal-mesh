@@ -431,6 +431,18 @@ def _h_percent(t, trig=None):
 _CUE = re.compile(r"\b(calc|calculate|what\s+is|what's|whats|how\s+much\s+is|equals?)\b")
 
 
+def _trim_edges(s):
+    """Trim surrounding whitespace and TRAILING sentence punctuation only.
+
+    The old form was .strip(" ?.") on both edges, which ate a LEADING decimal point and put a
+    10x-1000x wrong number on air as a fixed Python-authored string: "whats .5 * 4" answered
+    "5 * 4 = 20", and ".25 * 4" answered "25 * 4 = 100". _NUM's lookbehind never protected this
+    path because _h_arith does not use _NUM — so the leading-decimal fix landed on five handlers
+    and missed the one that needed it most. A leading '.' is a digit, never punctuation.
+    """
+    return re.sub(r"[\s?.]+$", "", s.lstrip(" \t?")).strip()
+
+
 def _strip_trigger(t, trig=None):
     """Drop a leading TRIGGER token ("cal", "Cal,") and nothing else.
 
@@ -442,7 +454,7 @@ def _strip_trigger(t, trig=None):
     toks = t.split()
     if toks and trig and toks[0].strip(",:;.!?").lower() == trig.lower():
         toks = toks[1:]
-    return " ".join(toks).strip(" ?.")
+    return _trim_edges(" ".join(toks))
 
 
 # Shapes that are a calculation only if the sender explicitly asked for one. All three accept
@@ -453,7 +465,13 @@ _BARE_DIMS = re.compile(r"\d[\d,.]*x[\d,.]*\d")
 _BARE_NUM = re.compile(r"[-+]?\d[\d,.]*")
 
 _EMBED_RUN = re.compile(r"[\d,.]+(?:\s*[-+*/×^]\s*[\d,.]+)*")
-_UNAMBIG = re.compile(r"[*×^]")
+# '^' was here and is deliberately gone. _embedded_expr EXTRACTS a substring and re-dispatches on
+# it alone, which drops _NUM's caret lookbehind — so "temp 10^3 w in dbm" answered "10^3 = 1,000"
+# instead of refusing, i.e. arithmetic offered as the answer to a dBm question. The default path
+# refused it correctly the whole time; the embedded path introduced the hole in the same commit
+# that claimed "the caret forms stay refused". Carets in mesh traffic sit next to units far more
+# often than they are a bare calculation, so the shape is not unambiguous enough to rescue.
+_UNAMBIG = re.compile(r"[*×]")
 
 
 def _embedded_expr(s):
@@ -496,7 +514,7 @@ def _h_arith(t, trig=None):
     """
     cue = _CUE.search(t)
     if cue:
-        expr = t[cue.end():].strip(" ?.")
+        expr = _trim_edges(t[cue.end():])
     elif "=" in t:
         # "12 * 12 =" is a calculation; "temp = 90-95" and "rssi=-105" are telemetry. The test is
         # whether the LEFT side is itself an expression. '=' is NOT treated as a word cue, so the

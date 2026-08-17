@@ -426,8 +426,13 @@ def run():
     for t in ("cal when does it get dark", "cal sunset", "cal sunrise", "cal moon phase",
               "cal solar noon", "cal twilight?", "cal moonrise"):
         r, m = S.answer(t, LAT, LON, TZ, now, max_chars=5)
+        # REFUSES, does not abstain. Returning None made the responder read it as "capability
+        # declined" and hand the question to the model, so a length bound became a route to an
+        # invented time. The refusal must be a string, must say nothing numeric, and must be
+        # marked in meta.
         check(f"over-length refused on every branch: {t[:26]}",
-              r is None and m["refused"] == "too long", (r, m))
+              isinstance(r, str) and m["refused"] == "too long"
+              and not any(ch.isdigit() for ch in r), (r, m))
 
     # ---- 13f. solar noon is keyed to the LOCAL date ------------------------------------------
     #      At 01:00 local the UTC date is already the next day, so using now.date() silently
@@ -466,6 +471,163 @@ def run():
     for nm in ("full moon", "new moon", "first quarter", "last quarter"):
         if nm in span:
             check(f"'{nm}' window is under 2 days", span[nm] <= 48, span[nm])
+
+    # ---- 13i. GAPS FOUND BY ROUND 2 — 9 mutations survived 510 checks, all in code added
+    #      that same day. The pattern was that the fixes themselves had no assertions.
+    # (a) the TWILIGHT refusal pair (the sunrise and sunset pairs were covered; this one was not)
+    for reason, want, avoid in (("always_above", "no full dark", "twilight never"),
+                                ("always_below", "twilight never", "no full dark")):
+        txt = S._no_event_text("civil_dusk", reason).lower()
+        check(f"twilight refusal sentence for {reason}", want in txt and avoid not in txt, txt)
+    check("twilight refusal differs from the sunset refusal",
+          S._no_event_text("civil_dusk", "always_above")
+          != S._no_event_text("sunset", "always_above"))
+    # (b) the tomorrow roll must SCAN A WINDOW, not walk forward from today, and must label from
+    #     the local date. Reverting either was invisible.
+    kir = ZoneInfo("Pacific/Kiritimati")
+    for tzname, la, lo in (("Pacific/Kiritimati", 1.87, -157.4), ("America/Anchorage", 61.22, -149.9),
+                           ("Pacific/Chatham", -43.95, -176.55)):
+        z = ZoneInfo(tzname)
+        for hh in (0, 6, 12, 18):
+            when = datetime(2026, 4, 4, hh, 3, tzinfo=timezone.utc)
+            t, flag = S._next_event(when, z, la, lo, "sunset")
+            if t is None:
+                continue
+            check(f"next sunset is in the future {tzname} {hh}h", t > when)
+            check(f"next sunset is the EARLIEST ahead {tzname} {hh}h",
+                  (t - when).total_seconds() <= 26 * 3600, (t - when))
+            check(f"tomorrow flag matches the local date {tzname} {hh}h",
+                  flag == (t.astimezone(z).date() != when.astimezone(z).date()))
+    # (c) the sunset/dusk pair must be COHERENT everywhere, not just at one latitude. The
+    #     same-day guard broke silently when the flags it keyed on changed meaning; keying on
+    #     "the dusk that follows THIS sunset" removes the calendar from the question entirely.
+    # The dateline zones are load-bearing here, not decoration: where the zone offset is far from
+    # the longitude, the dusk following a sunset sits on a DIFFERENT local date, so a search window
+    # anchored only on the sunset's own date finds nothing and reports "no full dark" for a night
+    # that gets dark. Measured across 9 zones x 365 days, narrowing the window changes 2190 of
+    # 9855 answers — and none of the mid-latitude zones show it.
+    for tzname, la, lo in (("Europe/Oslo", 59.91, 10.75), ("Europe/Helsinki", 60.17, 24.94),
+                           ("America/Anchorage", 61.22, -149.9), ("America/Chicago", 39.0, -95.0),
+                           ("Pacific/Chatham", -43.95, -176.55),
+                           ("Pacific/Kiritimati", 1.87, -157.4),
+                           ("Asia/Kathmandu", 27.7, 85.3),
+                           ("Atlantic/Reykjavik", 64.15, -21.9)):
+        z = ZoneInfo(tzname)
+        # June at high latitude is where civil dusk crosses local midnight, which is the ONLY
+        # regime where a same-day pairing and a follows-this-sunset pairing disagree. Sampling
+        # only round-numbered offsets missed it and let a truncated search window survive.
+        for dd in (0, 40, 80, 120, 152, 155, 158, 160, 165, 170, 175, 180, 190, 200):
+            when = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=dd, hours=19, minutes=33)
+            ss, f1 = S._next_event(when, z, la, lo, "sunset")
+            if ss is None:
+                continue
+            cd, _r = S._following(ss, z, la, lo, "civil_dusk")
+            # Below ~50 degrees latitude civil dusk occurs EVERY night of the year, so "not
+            # found" there is always a bug and the assertion must be unconditional. Guarding it
+            # behind `if cd is None: continue` made it vacuous — it could then only ever run in
+            # the case where it already passed, which is how a narrowed search window survived.
+            if abs(la) < 50.0:
+                check(f"dusk exists and is FOUND {tzname} +{dd}d", cd is not None, _r)
+            if cd is None:
+                continue
+            gap = (cd - ss).total_seconds() / 60.0
+            check(f"dusk follows sunset {tzname} +{dd}d", 0 < gap <= 360, round(gap, 1))
+    # (d) the exclusion list must be EXERCISED — deleting it entirely passed, because the two
+    #     cases present were already declined by the weak rule for want of a question mark.
+    for t in ("cal twilight zone episode?", "cal moon landing year?", "cal daylight savings when?",
+              "cal how far to the moon in miles?"):
+        check(f"exclusion holds even with a question mark: {t[:34]}", not S.wants_sunmoon(t))
+    check("exclusion does NOT veto an unambiguous ask in the same message",
+          S.wants_sunmoon("cal moon landing anniversary and when is sunset?"))
+    check("exclusion does NOT veto a strong ask", S.wants_sunmoon("cal does it get dark earlier "
+                                                                  "after daylight savings?"))
+    # (d2) _following must SCAN THE WHOLE WINDOW, not bail on the first eventless day. Near the
+    #      edge of the midnight-sun band a place has civil dusk on some nights and not others; a
+    #      bail reported "no full dark" for 731 nights that genuinely get dark.
+    _ank = ZoneInfo("America/Anchorage")
+    for dd in (180, 183, 186, 189, 192, 195, 200, 205):
+        w = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=dd, hours=19, minutes=33)
+        _ss, _f = S._next_event(w, _ank, 61.22, -149.9, "sunset")
+        if _ss is None:
+            continue
+        _cd, _r = S._following(_ss, _ank, 61.22, -149.9, "civil_dusk")
+        # either a dusk that FOLLOWS the sunset, or an honest reason — never a bail with a
+        # reason borrowed from a different day
+        check(f"Anchorage +{dd}d dusk follows or refuses honestly",
+              (_cd is not None and 0 < (_cd - _ss).total_seconds() / 60.0 <= 360)
+              or _r in ("always_above", "always_below", "not_found"), (_cd, _r))
+    _w = datetime(2026, 7, 5, 19, 33, tzinfo=timezone.utc)
+    _rep = S.answer("when does it get dark", 61.22, -149.9, _ank, _w)[0]
+    check("Anchorage midsummer night that DOES get dark says so",
+          "dark" in _rep and "no full dark" not in _rep, _rep)
+
+    # (e0) an unresolved intent FAILS CLOSED rather than defaulting to a branch. Forced by
+    #      emptying the intent table, since the import-time guard makes it otherwise unreachable.
+    _saved = S._INTENTS
+    try:
+        S._INTENTS = ()
+        _r2, _m2 = S.answer("cal sunset", LAT, LON, TZ, now)
+        check("unresolved intent refuses, does not guess",
+              _m2["refused"] == "unresolved intent"
+              and not any(c.isdigit() for c in (_r2 or "")), (_r2, _m2))
+    finally:
+        S._INTENTS = _saved
+    # (e) the intent fall-through must be UNREACHABLE, not merely harmless. A mutation changing
+    #     its default from "dark" to "sunset" survives, and that is only acceptable if no claiming
+    #     message can ever reach the default. Assert exactly that, so the day someone adds a
+    #     trigger word without an intent, this fails instead of the radio answering the wrong
+    #     half of the day. (That is precisely how "cal when is dawn?" returned a sunset time.)
+    _claiming = ["cal sunset", "cal sunrise?", "cal when is dawn?", "cal dusk?", "cal twilight?",
+                 "cal daylight?", "cal when does it get dark", "cal solar noon", "cal sundown",
+                 "cal first light", "cal how long till dark", "cal is it dark yet",
+                 "cal when does night fall", "cal what time does the sun go down",
+                 "cal when does the sun come up", "cal when is the sun highest",
+                 "cal solar zenith", "cal how much light is left", "cal will it be dark by 8",
+                 "cal golden hour", "cal daybreak?", "cal last light"]
+    for t in _claiming:
+        if S.explain_match(t)["via"] == "sun":
+            check(f"intent resolves without the default: {t[:34]}",
+                  S._resolve_intent(t) is not None, t)
+    #     every weak token must resolve to a REAL intent — the hole behind the dawn bug
+
+    for tok, want in (("dawn", "sunrise"), ("dusk", "dark"), ("twilight", "twilight"),
+                      ("daylight", "twilight")):
+        check(f"weak token {tok!r} resolves to {want}", S._resolve_intent(tok) == want)
+    check("dawn answers a MORNING event",
+          "Sunrise" in (S.answer("cal when is dawn?", LAT, LON, TZ, now)[0] or ""))
+    check("dawn never answers with a sunset",
+          "Sunset" not in (S.answer("cal when is dawn?", LAT, LON, TZ, now)[0] or ""))
+    # (f) the length bound is exact at the boundary
+    r_ok, m_ok = S.answer("cal sunset", LAT, LON, TZ, now, max_chars=14)
+    check("bound allows exactly max_chars", m_ok["refused"] is None and len(r_ok) == 14, r_ok)
+    r_no, m_no = S.answer("cal sunset", LAT, LON, TZ, now, max_chars=13)
+    check("bound refuses at max_chars+1", m_no["refused"] == "too long", (r_no, m_no))
+    # (g) the exact-pole guard
+    # The exact-pole guard is the cos(lat)->0 division, not the |cos H|>1 refusal. Pick a
+    # declination near 0, where a near-polar latitude genuinely DOES have a rise, or the check
+    # passes for the wrong reason: at 89N with declination +10 the sun never sets at all, so
+    # None there proves nothing about the guard.
+    check("exact pole refuses (division guard)", S._hour_angle(90.0, 0.0, -0.833) is None)
+    check("near-pole with a real rise still computes",
+          S._hour_angle(89.0, 0.0, -0.833) is not None)
+    check("near-pole midnight sun still refuses", S._hour_angle(89.0, 10.0, -0.833) is None)
+    # NOTE, recorded rather than chased: loosening the division guard from 1e-12 to 1e-300 is an
+    # EQUIVALENT mutation, not an eval gap — at the exact pole cos(lat) is ~6e-17, so the division
+    # still yields |cos H| far outside [-1, 1] and the refusal fires one line later. Two guards
+    # cover the same input; only the second is load-bearing.
+    # (h) moon must not outrank an unambiguous sun ask in the same message
+    check("sun wins over a bare moon mention",
+          S.explain_match("cal sunset, and is the moon nice?")["via"] == "sun")
+
+    # ---- 13j. DATE-QUALIFIED asks are refused, not answered with today's time ----------------
+    for t in ("cal sunset tomorrow?", "cal what time is sunset on christmas?",
+              "cal when was sunset yesterday?", "cal sunrise next monday", "cal sunset 12/25"):
+        r, m = S.answer(t, LAT, LON, TZ, now)
+        check(f"other-day ask refused: {t[:34]}",
+              m["refused"] == "other day" and not any(c.isdigit() for c in (r or "")), (r, m))
+    for t in ("cal sunset", "cal when does it get dark", "cal sunrise?"):
+        check(f"today's ask still answered: {t[:26]}",
+              S.answer(t, LAT, LON, TZ, now)[1]["refused"] is None)
 
     # ---- 14. moon rise/set is REFUSED, never estimated ----------------------------------------
     for t in ("cal when does the moon rise", "cal moonset tonight", "cal what time is moonrise",
@@ -519,11 +681,20 @@ def run():
         p2 = R.plan_response(cfg, "!aaaaaaaa", q)
         check(f"calc not stolen: {q}", p2["capability"] == want and "144" in (p2["fixed_reply"] or ""),
               (p2["capability"], p2["fixed_reply"]))
-    for q in ("cal whats the temp at dusk", "cal whats the wind at dawn",
-              "cal will it rain at sunset", "cal high today at sunset"):
+    # A message carrying a STRONG weather word reaches weather and is refused as a forecast.
+    for q in ("cal whats the temp at dusk", "cal high today at sunset"):
         p2 = R.plan_response(cfg, "!aaaaaaaa", q)
         check(f"weather not stolen: {q[:32]}",
               p2["capability"] == "weather" and p2.get("forecast_asked") is True,
+              (p2["capability"], p2["fixed_reply"]))
+    # A message carrying only a WEAK weather word reaches neither: weather's claim rule is
+    # deliberately narrow (widening it claimed 210 of 210 synthetic non-weather pairs and was
+    # reverted), and sun/moon declines anything with a weather word rather than grabbing it.
+    # What matters here is only that sun/moon does NOT answer it with a sun time.
+    for q in ("cal whats the wind at dawn", "cal will it rain at sunset", "cal rain before dark"):
+        p2 = R.plan_response(cfg, "!aaaaaaaa", q)
+        check(f"sunmoon yields on a weather word: {q[:32]}",
+              p2["capability"] != "sunmoon" and p2["fixed_reply"] is None,
               (p2["capability"], p2["fixed_reply"]))
     for q in ("cal when does it get dark", "cal sunset", "cal moon phase",
               "cal what time does the sun go down"):

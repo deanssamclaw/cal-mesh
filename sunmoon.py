@@ -260,12 +260,12 @@ def moon_phase(when):
 _INTENTS = (
     ("noon", re.compile(r"\b(solar\s*noon|sun\s*(?:is\s*)?highest|zenith|"
                         r"highest\s*point)\b", re.I)),
-    ("sunrise", re.compile(r"\b(sunrise|sun\s*rise|first\s*light|"
+    ("sunrise", re.compile(r"\b(sunrise|sun\s*rise|first\s*light|dawn|daybreak|"
                            r"sun\s*(?:come|comes|coming)\s*up|sun\s*up\b)", re.I)),
     ("dark", re.compile(r"\b(get\s*dark|gets\s*dark|getting\s*dark|dark\s*out|"
                         r"night\s*fall|last\s*light|till\s*dark|until\s*dark|"
                         r"dark\s*by|is\s*it\s*dark|when\s*is\s*it\s*dark|"
-                        r"how\s*much\s*light|light\s*left|dark\s*yet)\b", re.I)),
+                        r"how\s*much\s*light|light\s*left|dark\s*yet|dusk)\b", re.I)),
     ("sunset", re.compile(r"\b(sunset|sun\s*set|sundown|"
                           r"sun\s*(?:go|goes|going)\s*down|golden\s*hour)\b", re.I)),
     ("twilight", re.compile(r"\b(twilight|daylight)\b", re.I)),
@@ -277,7 +277,8 @@ _SUN_STRONG = re.compile("|".join("(?:%s)" % rx.pattern for name, rx in _INTENTS
 # Ambiguous wording: a real word in ordinary traffic too, so it needs corroboration. "dawn" is a
 # name, "twilight" and "dusk" are nouns people use about other things. Mirrors weather's
 # strong/weak split for exactly the same reason.
-_SUN_WEAK = re.compile(r"\b(dawn|dusk|twilight|daylight)\b", re.I)
+_WEAK_TOKENS = ("dawn", "dusk", "twilight", "daylight")
+_SUN_WEAK = re.compile(r"\b(" + "|".join(_WEAK_TOKENS) + r")\b", re.I)
 _MOON_STRONG = re.compile(r"\b(moonrise|moonset|moon\s*phase|full\s*moon|new\s*moon|"
                           r"waxing|waning|gibbous|crescent)\b", re.I)
 _MOON_WEAK = re.compile(r"\bmoon\b", re.I)
@@ -289,24 +290,66 @@ _NOT_SKY = re.compile(r"twilight\s*zone|moon\s*landing|moon\s*shot|daylight\s*sa
                       r"how\s*far.{0,12}moon|distance.{0,12}moon", re.I)
 # Rise/set for the MOON is not built. It must be recognised so it can be refused explicitly —
 # an unrecognised ask would fall through to the general model, which would invent a time.
-_MOON_RISESET = re.compile(r"\b(moon\s*rise|moonrise|moon\s*set|moonset)\b|"
-                           r"\bmoon\b[^.?!]{0,20}\b(rise|rises|set|sets|up|down)\b", re.I)
+_MOON_RISESET = re.compile(r"\b(moon\s*rise|moonrise|moon\s*set|moonset|moon\s*out)\b|"
+                           r"\bmoon\b[^.?!]{0,20}\b(rise|rises|set|sets|up|down|out)\b", re.I)
+
+# STRUCTURAL GUARD, and it exists because the obvious fix created the opposite bug.
+#
+# Deriving _SUN_STRONG from _INTENTS guaranteed the front door could never be NARROWER than the
+# intent table. Then a hand-maintained _SUN_WEAK was layered on top, containing "dawn" and "dusk"
+# — words that were, at that moment, in no _INTENTS pattern at all. So the door became WIDER than
+# the table, and the widening fell straight into the intent resolver's default. "cal when is
+# dawn?" was answered "Sunset 8:12 PM, dark 8:40 PM": a morning question given an evening time,
+# as a fixed Python-authored reply, with no model to blame.
+#
+# A comment would not have caught that. This does: every weak token must resolve to a real intent,
+# checked at import, so the module refuses to load rather than answering the wrong half of the day.
+_OTHER_DAY = re.compile(
+    r"\b(tomorrow|tmrw|yesterday|next\s+(?:week|month|year|monday|tuesday|wednesday|thursday|"
+    r"friday|saturday|sunday)|last\s+(?:week|month|year|night)|"
+    r"on\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|christmas|"
+    r"new\s*years?|thanksgiving|halloween|easter)|"
+    r"in\s+(?:january|february|march|april|may|june|july|august|september|october|november|"
+    r"december)|\d{1,2}/\d{1,2}|\b(?:jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2})\b",
+    re.I)
+
+
+def _resolve_intent(text):
+    return next((n for n, rx in _INTENTS if rx.search(text)), None)
+
+
+for _tok in ("dawn", "dusk", "twilight", "daylight"):
+    if _resolve_intent(_tok) is None:
+        raise AssertionError(
+            "sunmoon: weak trigger %r matches no _INTENTS pattern, so it would fall through to "
+            "the resolver's default and be answered as the wrong time of day" % _tok)
+del _tok
 
 
 def explain_match(text):
     """Why the text did or did not read as a sun/moon query, in a form safe to publish."""
     t = text or ""
-    if _NOT_SKY.search(t):
-        return {"sun": [], "moon": [], "via": None, "moon_riseset": False,
-                "excluded": True}
     q = "?" in t
-    sun_s = sorted({m.group(0).lower().strip() for m in _SUN_STRONG.finditer(t)})
+    # Derived from _INTENTS, then MINUS the weak tokens. "dawn" must live in _INTENTS so it
+    # resolves to the sunrise branch rather than the resolver's default — but it is also a common
+    # given name, so it must not claim on its own. Both properties are needed and they pull in
+    # opposite directions; subtracting here keeps the derivation while preserving the weak rule.
+    sun_s = sorted({m.group(0).lower().strip() for m in _SUN_STRONG.finditer(t)}
+                   - set(_WEAK_TOKENS))
     sun_w = sorted({m.group(0).lower() for m in _SUN_WEAK.finditer(t)})
     moon_s = sorted({m.group(0).lower() for m in _MOON_STRONG.finditer(t)})
     moon_w = sorted({m.group(0).lower() for m in _MOON_WEAK.finditer(t)})
     riseset = bool(_MOON_RISESET.search(t))
     sun = sorted(set(sun_s) | set(sun_w))
     moon = sorted(set(moon_s) | set(moon_w))
+    # The exclusion list vetoes only the WEAK layer, and only when nothing unambiguous is present.
+    # It used to run first and veto the whole message, so "does it get dark earlier after daylight
+    # savings?" and "moon landing anniversary and when is sunset?" fell through to the model even
+    # though each carries a strong token — defeating the very purpose of recognising an ask so it
+    # can be answered or refused. An exclusion should suppress ambiguity, never override certainty.
+    excluded = bool(_NOT_SKY.search(t))
+    if excluded and not (sun_s or moon_s or riseset):
+        return {"sun": [], "moon": [], "via": None, "moon_riseset": False, "excluded": True}
     if riseset:
         # A moon rise/set ask is claimed UNCONDITIONALLY, weak wording or not, because claiming it
         # is the only way to refuse it. "when does the moon rise" carries no strong token and no
@@ -324,7 +367,7 @@ def explain_match(text):
     else:
         via = None
     return {"sun": sun, "moon": moon, "via": via, "moon_riseset": riseset,
-            "excluded": False}
+            "excluded": excluded}
 
 
 def wants_sunmoon(text):
@@ -339,8 +382,12 @@ def _bounded(reply, meta, max_chars):
     capability is in right before someone adds a longer string.
     """
     if reply is not None and len(reply) > max_chars:
+        # REFUSE, do not abstain. Returning None made the responder read this as "the capability
+        # declined", which hands the question to the language model — so a length bound on a
+        # compute doer became a route to an INVENTED time. Measured: SUNMOON_MAX_CHARS=25, a
+        # plausible operator setting for airtime, turned every sun answer into a model answer.
         meta["refused"] = "too long"
-        return None, meta
+        return "Answer too long for this link", meta
     return reply, meta
 
 
@@ -377,24 +424,63 @@ def _clock(dt, tz):
 def _next_event(now, tz, lat, lon, key):
     """(datetime, is_tomorrow) for the next occurrence of an event, or (None, reason).
 
-    Looks at today first and rolls to tomorrow once today's has passed, because 'when does it get
-    dark' asked after dark means tomorrow. The roll is explicit in the reply — one word to remove
-    a real ambiguity is worth the airtime.
+    Scans a WINDOW of solar days around today and returns the EARLIEST event still ahead, rather
+    than walking forward from today and stopping at the first hit. Two bugs came from the walk:
+    `today` is a LOCAL date while event_with_reason computes around the solar noon of a UTC date,
+    so where the zone offset is far from the longitude the two disagree and a nearer event sits on
+    the day BEFORE the one the loop starts at (measured: whole-day-late answers on the far side of
+    the dateline, and an Anchorage case where the next civil dusk was 17 minutes away and the
+    answer given was 24 hours later). Starting at -1 and taking the minimum removes the ordering
+    assumption entirely.
     """
     today = now.astimezone(tz).date()
     alt, direction = event_altitude(key), _EVENTS[key][1]
-    for offset in (0, 1, 2):
-        d = today + timedelta(days=offset)
-        t, reason = event_with_reason(d, lat, lon, alt, direction)
+    best, reason = None, None
+    for offset in (-1, 0, 1, 2):
+        t, r = event_with_reason(today + timedelta(days=offset), lat, lon, alt, direction)
         if t is None:
-            return None, reason
-        # The UTC instant can land on the previous or next LOCAL date when the zone offset is far
-        # from the longitude, so compare local dates rather than trusting the loop index. Without
-        # this, a Chatham Islands observer got a sunset a full day late (measured, 62 min wrong
-        # after the roll). The scan runs one day past the roll to cover the shifted case.
-        if t > now:
-            return t, (t.astimezone(tz).date() != today)
-    return None, "not_found"
+            reason = reason or r
+            continue
+        if t > now and (best is None or t < best):
+            best = t
+    if best is None:
+        return None, (reason or "not_found")
+    return best, (best.astimezone(tz).date() != today)
+
+
+def _following(after, tz, lat, lon, key, max_hours=12):
+    """The first occurrence of `key` strictly after a given instant, or (None, reason).
+
+    This is how the sunset/dusk pair is kept coherent, and it is deliberately NOT expressed as
+    "the same day". Civil dusk falls after local midnight at high latitude, so a same-day test is
+    a date-bookkeeping question with a different answer depending on which calendar you mean —
+    which is exactly how the pairing broke: one fix redefined the is_tomorrow flag from loop index
+    to local-date comparison, and the guard in the OTHER fix was keyed on those flags being
+    unequal, so it silently stopped firing. 461 mispaired replies followed, worst case 24.2 hours
+    off, all above about 59N. "The dusk that follows THIS sunset" needs no calendar at all.
+    """
+    base = after.astimezone(tz).date()
+    alt, direction = event_altitude(key), _EVENTS[key][1]
+    reason = None
+    for offset in (-1, 0, 1, 2):
+        t, r = event_with_reason(base + timedelta(days=offset), lat, lon, alt, direction)
+        if t is None:
+            # KEEP SCANNING. Bailing on the first eventless day was wrong: near the edge of the
+            # midnight-sun band a location has civil dusk on some days and not others, so the
+            # window opens on a day without one and the day that HAS one is never reached.
+            # Measured at 731 cases across 8 zones — every one reported "no full dark" for a night
+            # that genuinely gets dark. A refusal is only honest once the whole window is empty.
+            reason = reason or r
+            continue
+        if t > after:
+            # It must belong to the SAME night. A dusk two days later is a real event and a
+            # dishonest answer: at the edge of the midnight-sun band the night after a given
+            # sunset can have no civil dusk while a later one does, and pairing across that gap
+            # would tell someone it gets dark tonight when it does not.
+            if (t - after).total_seconds() <= max_hours * 3600:
+                return t, None
+            return None, (reason or "always_above")
+    return None, (reason or "not_found")
 
 
 def answer(text, lat, lon, tz, now, max_chars=160):
@@ -412,6 +498,14 @@ def answer(text, lat, lon, tz, now, max_chars=160):
     # J2000, and the lunar series is stated valid 1900-2100. Outside that it does not fail — it
     # DRIFTS, silently, still returning a plausible time. A capability whose whole claim is that
     # Python owns the digits cannot serve a number it has no accuracy claim for.
+    # A date-qualified ask cannot be served: this capability computes for NOW only, and answering
+    # "sunset tomorrow" with today's time is the same confident wrongness the weather capability
+    # refuses forecasts to avoid. Weather's own temporal machinery sits in the same process and
+    # was never consulted here.
+    if _OTHER_DAY.search(text):
+        meta["intent"], meta["refused"] = "other_day", "other day"
+        return "I only have today's times", meta
+
     if not (1901 <= now.year <= 2099):
         meta["refused"] = "out of epoch"
         return "Date outside my accurate range", meta
@@ -427,7 +521,14 @@ def answer(text, lat, lon, tz, now, max_chars=160):
         meta["intent"] = "moon"
         return _bounded("Moon %d%%, %s" % (round(k * 100), name), meta, max_chars)
 
-    intent = next((n for n, rx in _INTENTS if rx.search(text)), "dark")
+    # FAIL CLOSED on an unresolved intent rather than defaulting to an arbitrary branch. The
+    # import-time guard makes this unreachable for the shipped table, and that is the point: if a
+    # trigger word is ever added without an intent, this refuses instead of answering the wrong
+    # half of the day, which is exactly what a silent "dark" default did to "cal when is dawn?".
+    intent = _resolve_intent(text)
+    if intent is None:
+        meta["intent"], meta["refused"] = None, "unresolved intent"
+        return _bounded("Not sure which time you mean", meta, max_chars)
     meta["intent"] = intent
 
     if intent == "noon":
@@ -464,29 +565,19 @@ def answer(text, lat, lon, tz, now, max_chars=160):
     # intent == "dark": the field question. Sunset alone under-answers it — there is usable light
     # for roughly half an hour after — so the pair is the honest answer and it still fits.
     ss, f1 = _next_event(now, tz, lat, lon, "sunset")
-    cd, f2 = _next_event(now, tz, lat, lon, "civil_dusk")
-    # The two events are refused INDEPENDENTLY, and a missing civil dusk must not be described as
-    # a missing sunset. Above ~61N in midsummer the sun sets perfectly normally and simply never
-    # reaches -6 degrees; the old code answered "Sun stays up here today" while the sunset branch
-    # of the same module answered "Sunset 9:54 PM" — two flatly contradictory published claims,
-    # one line apart. Report the event that is actually missing.
-    if cd is None and ss is not None:
-        meta["refused"], meta["event"] = f2, "sunset"
-        return _bounded("Sunset %s, no full dark tonight" % _clock(ss, tz), meta, max_chars)
     if ss is None:
         meta["refused"] = f1
         return _bounded(_no_event_text("sunset", f1), meta, max_chars)
-    # Pair the SAME day. _next_event rolls each event independently, so in the ~30 min window
-    # between sunset and civil dusk it would return tomorrow's sunset beside today's dusk and
-    # label the pair "Tomorrow" — measured up to 6 minutes wrong at high latitude.
-    if f1 != f2:
-        day = (now.astimezone(tz).date() + timedelta(days=1)) if f1 else now.astimezone(tz).date()
-        cd2 = event_utc(day, lat, lon, event_altitude("civil_dusk"), "set")
-        if cd2 is None:
-            meta["refused"], meta["event"] = "always_above", "sunset"
-            return _bounded("%sSunset %s, no full dark" % ("Tomorrow " if f1 else "",
-                                                           _clock(ss, tz)), meta, max_chars)
-        cd = cd2
+    # The dusk that FOLLOWS this sunset, not "today's" dusk. See _following.
+    cd, r2 = _following(ss, tz, lat, lon, "civil_dusk")
+    if cd is None:
+        # The sun sets normally but never reaches -6: real above ~61N in midsummer. Reporting this
+        # as a missing SUNSET is a published falsehood, and the reply must still carry the
+        # Tomorrow qualifier when the sunset it quotes is tomorrow's — the branch added for this
+        # case originally dropped it.
+        meta["refused"], meta["event"], meta["tomorrow"] = r2, "sunset", f1
+        return _bounded("%sSunset %s, no full dark" % ("Tomorrow " if f1 else "", _clock(ss, tz)),
+                        meta, max_chars)
     meta["event"], meta["tomorrow"] = "sunset+civil_dusk", bool(f1)
     return _bounded("%sSunset %s, dark %s" % ("Tomorrow " if f1 else "",
                                               _clock(ss, tz), _clock(cd, tz)), meta, max_chars)

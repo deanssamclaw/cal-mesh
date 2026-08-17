@@ -466,12 +466,16 @@ def run():
     check("embedded multiplication claimed on opt-in", emb("temp 12*12") == "12*12 = 144")
     check("embedded multiplication with a cue word", emb("whats temp 12*12?") == "12*12 = 144")
     check("embedded multiplication, unicode operator", emb("temp 12×12") == "12×12 = 144")
-    check("embedded caret claimed on opt-in", emb("gain 2^8") == "2^8 = 256")
-    # the cost bounds are not bypassed by the second look, and the reason survives for the trace
-    check("embedded expression still hits the exponent bound", emb("gain 2^10") is None)
-    check("embedded refusal recorded for the trace",
-          C.try_answer("gain 2^10", embedded=True)[1].get("embedded_refused")
-          == "exponent too large")
+    # CARET IS NOT RESCUED FROM PROSE. _embedded_expr extracts a substring and re-dispatches on
+    # it alone, which drops _NUM's caret lookbehind — so "temp 10^3 w in dbm" answered
+    # "10^3 = 1,000", arithmetic offered as the answer to a dBm question, while the DEFAULT path
+    # refused it correctly the whole time. Carets in mesh traffic sit beside units far more often
+    # than they are a bare sum, so the shape is not unambiguous enough to claim.
+    for t in ("gain 2^8", "temp 10^3 w in dbm", "hows the weather, 10^3 w in dbm",
+              "cold snap tomorrow 10^3 w amp"):
+        check(f"caret not rescued from prose: {t[:30]}", emb(t) is None)
+    check("caret still works on the DEFAULT path", ans("cal 2^8") == "2^8 = 256")
+    check("caret with a unit still refused on the default path", ans("cal 10^3 w in dbm") is None)
     check("embedded result is marked as such for the trace",
           C.try_answer("temp 12*12", embedded=True)[1].get("embedded") is True)
     # the ambiguous shapes stay refused EVEN on opt-in: '-', 'x' and '/' are ranges, dimensions

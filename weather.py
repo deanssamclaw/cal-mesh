@@ -65,10 +65,21 @@ _WEAK   = re.compile(r"\b(rain|raining|snow|snowing|sleet|wind|windy|humid|humid
 # the ask. This feeds BOTH the forecast test and the strong-keyword match below, so an ask that
 # carries no other weather word still reaches the capability and gets refused BY it, rather than
 # falling through to the general model to invent a number.
+# Every alternative below requires an explicit TEMPORAL marker, or the bare-object form anchored
+# to the end of the ask. Two live regressions taught this:
+#   - the old bare "(high|low) + temp" bigram matched regardless of tense, so "whats the high temp
+#     RIGHT NOW?" and "cpu high temp?" were refused as forecasts when they had been answered.
+#   - the old trailing guard was a negative lookahead (?![\s\w]) which excludes whitespace and
+#     word characters but NOT punctuation, so every hyphenated RF term matched: "the low-noise
+#     amp", "the high-gain antenna", "the low-pass filter", "the high/low switch" — 16 of 16
+#     forms refused, and that is core vocabulary on a ham radio. Anchoring to end-of-ask is the
+#     positive form of what the lookahead was trying to say, and it cannot be fooled by a
+#     character class nobody thought to exclude.
 _EXTREME = re.compile(r"\b(?:todays?|today'?s|tonights?|tonight'?s)\s+(?:high|low)s?\b"
-                      r"|\b(?:high|low)s?\s+(?:temp|temps|temperature|temperatures)\b"
+                      r"|\b(?:high|low)s?\s+(?:temp|temps|temperature|temperatures)"
+                      r"\s+(?:today|tonight|tomorrow|tmrw)\b"
                       r"|\b(?:high|low)s?\s+(?:today|tonight|tomorrow|tmrw)\b"
-                      r"|\bthe\s+(?:high|low)s?\b(?![\s\w])", re.I)
+                      r"|\bthe\s+(?:high|low)s?\s*[?.!]*\s*$", re.I)
 
 
 def wants_forecast(text):
@@ -97,21 +108,23 @@ def explain_weather_match(text):
                     | {m.group(0).lower().strip() for m in _EXTREME.finditer(t)})
     weak = sorted({m.group(0).lower() for m in _WEAK.finditer(t)})
     q = "?" in t
-    fc = bool(_FORECAST.search(t))
     if strong:
         via = "strong"
     elif len(weak) >= 2:
         via = "two_weak"
     elif len(weak) >= 1 and q:
         via = "weak_plus_question"
-    elif len(weak) >= 1 and fc:
-        # A forecast phrase plus any weather word IS a weather question, question mark or not.
-        # "will it rain at sunset" carries one weak word and no '?', so it fell through the gate
-        # entirely and a different capability answered it. The capability that must refuse an ask
-        # has to claim it first — an unclaimed question is answered by whoever claims it next.
-        via = "weak_plus_forecast"
     else:
         via = None
+    # REVERTED 2026-08-17: a "weak word + forecast phrase" branch briefly lived here, added so
+    # "will it rain at sunset" would be claimed by weather rather than answered with a sunset
+    # time. It was far too wide — measured, it claimed 210 of 210 synthetic weak x forecast pairs
+    # and 13 of 14 realistic non-weather sentences ("i have a cold, will it get better", "cold
+    # boot the node later"), each getting a nonsense forecast refusal, and it dragged the embedded
+    # calc rescue with it so "cold box 5 * 3 later" started computing. The right place to solve
+    # that collision is the capability doing the stealing: sun/moon now declines any message
+    # carrying a weather word at all. A capability should give way to its neighbour, not grab
+    # wider to beat it.
     return {"strong": strong, "weak": weak, "question": q, "via": via}
 
 

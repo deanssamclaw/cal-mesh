@@ -396,10 +396,10 @@ def load_dm_context(cfg):
         return None
     try:
         with open(path) as f:
-            data = f.read(int(cfg["DM_CONTEXT_MAX_CHARS"]) + 1)
+            data = f.read(_int_cfg(cfg, "DM_CONTEXT_MAX_CHARS", DEFAULTS["DM_CONTEXT_MAX_CHARS"]) + 1)
     except Exception:
         return None
-    cap = int(cfg["DM_CONTEXT_MAX_CHARS"])
+    cap = _int_cfg(cfg, "DM_CONTEXT_MAX_CHARS", DEFAULTS["DM_CONTEXT_MAX_CHARS"])
     return data[:cap].strip() or None
 
 
@@ -486,14 +486,14 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
     if unlocked:
         out["unlocked"] = True
         out["persona"] = PERSONA_PRIVATE
-        out["max_chars"] = int(cfg["DM_MAX_CHARS"])
+        out["max_chars"] = _int_cfg(cfg, "DM_MAX_CHARS", DEFAULTS["DM_MAX_CHARS"])
         out["prompt"] = build_private_prompt(clean, dm_context)
         return out
     # COMPUTE doer first. Intent is a SUCCESSFUL BOUNDED PARSE, not "contains a number", so
     # anything that is not a calculation returns None here and the weather path is unaffected.
     # No model is involved on this path: Python formats the reply and we emit it as fixed.
     if cfg.get("CALC_ENABLED", "false").lower() == "true":
-        c_reply, c_meta = calc.try_answer(clean, max_chars=int(cfg["CALC_MAX_CHARS"]),
+        c_reply, c_meta = calc.try_answer(clean, max_chars=_int_cfg(cfg, "CALC_MAX_CHARS", DEFAULTS["CALC_MAX_CHARS"]),
                                           trigger=cfg.get("TRIGGER_WORD", "cal"))
         out["calc_meta"] = c_meta
         if c_reply:
@@ -514,8 +514,15 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
         # temp at dusk" answered with a sunset time instead of weather. The calc rescue is the
         # same rule already applied to weather (see _calc_collision) — hoisted here so every
         # capability above weather inherits it rather than each one re-forgetting it.
-        if sm_match["via"] and not _calc_collision(cfg, clean, out) \
-                and not (enabled_weather(cfg) and weather.explain_weather_match(raw_text)["via"]):
+        # Give way to weather on ANY weather word, strong or weak — not merely when weather would
+        # claim the message. "will it rain at sunset" carries one weak word and no question mark,
+        # so weather declines it, and sun/moon used to answer it with a sunset time. The first fix
+        # widened WEATHER to grab it; that claimed 210 of 210 synthetic non-weather pairs and was
+        # reverted. Declining here costs nothing (the ask falls to the general model, which
+        # invents no time because no fixed reply is emitted) and cannot over-claim.
+        wm = weather.explain_weather_match(raw_text) if enabled_weather(cfg) else None
+        weather_words = bool(wm and (wm["strong"] or wm["weak"]))
+        if sm_match["via"] and not weather_words and not _calc_collision(cfg, clean, out):
             lat, lon = _sunmoon_point(cfg)
             if lat is None:                 # fail-closed, exactly like GREET_TEXT and the point
                 out["capability"] = "sunmoon"
@@ -588,7 +595,7 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
     # keeps its own and this changes nothing about it.
     if dm_authed and not unlocked and out["capability"] is None:
         out["persona"] = PERSONA_DM_AUTHED
-        out["max_chars"] = int(cfg["DM_LOCKED_MAX_CHARS"])
+        out["max_chars"] = _int_cfg(cfg, "DM_LOCKED_MAX_CHARS", DEFAULTS["DM_LOCKED_MAX_CHARS"])
     return out
 
 
@@ -617,7 +624,7 @@ def run_claude(cfg, prompt, persona=None):
     try:
         out = subprocess.run(
             _claude_argv(cfg, prompt, persona),
-            capture_output=True, text=True, timeout=int(cfg["GEN_TIMEOUT_S"]))
+            capture_output=True, text=True, timeout=_int_cfg(cfg, "GEN_TIMEOUT_S", DEFAULTS["GEN_TIMEOUT_S"]))
         if out.returncode != 0:
             return None, f"gen_rc{out.returncode}:{out.stderr.strip()[:80]}"
         reply = clean_reply(out.stdout)
@@ -643,12 +650,12 @@ def enqueue(text, dest, channel):
 
 
 def rate_ok(cfg, st, sender, ts):
-    if ts - st.get("last_reply_ts", 0) < int(cfg["COOLDOWN_S"]):
+    if ts - st.get("last_reply_ts", 0) < _int_cfg(cfg, "COOLDOWN_S", DEFAULTS["COOLDOWN_S"]):
         return False, "cooldown"
-    win = int(cfg["RATE_WINDOW_S"])
+    win = _int_cfg(cfg, "RATE_WINDOW_S", DEFAULTS["RATE_WINDOW_S"])
     hits = [t for t in st["per_sender"].get(sender, []) if ts - t < win]
     st["per_sender"][sender] = hits
-    if len(hits) >= int(cfg["RATE_MAX"]):
+    if len(hits) >= _int_cfg(cfg, "RATE_MAX", DEFAULTS["RATE_MAX"]):
         return False, "rate_limited"
     return True, None
 
@@ -675,7 +682,7 @@ def evaluate(cfg, st, rec, ours, trace=None):
     except Exception:
         mark("fresh", False)
         return False, "too_old", None, ch
-    if not mark("fresh", age <= int(cfg["MAX_AGE_S"])):
+    if not mark("fresh", age <= _int_cfg(cfg, "MAX_AGE_S", DEFAULTS["MAX_AGE_S"])):
         return False, "too_old", None, ch
     if not mark("responder_enabled", cfg["RESPONDER_ENABLED"].lower() == "true"):
         return False, "disabled", None, ch
@@ -782,11 +789,11 @@ def plan_greeting(cfg, st, rec, ours, ts=None):
     # nodes greeting each other therefore costs one message each, then both are on cooldown.
     greeted = st.get("greet_per_sender", {})
     last = greeted.get(sender, 0)
-    if not mark("sender_cooldown", ts - last >= int(cfg["GREET_SENDER_COOLDOWN_S"])):
+    if not mark("sender_cooldown", ts - last >= _int_cfg(cfg, "GREET_SENDER_COOLDOWN_S", DEFAULTS["GREET_SENDER_COOLDOWN_S"])):
         return False, "greeting_sender_cooldown", None, ch, None, gates
     day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
     used = (st.get("greet_day") or {}).get(day, 0)
-    if not mark("daily_budget", used < int(cfg["GREET_MAX_PER_DAY"])):
+    if not mark("daily_budget", used < _int_cfg(cfg, "GREET_MAX_PER_DAY", DEFAULTS["GREET_MAX_PER_DAY"])):
         return False, "greeting_budget_spent", None, ch, None, gates
     return True, "greeting_ack", "^all", ch, text, gates
 
