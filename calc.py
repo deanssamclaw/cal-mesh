@@ -460,9 +460,14 @@ def _strip_trigger(t, trig=None):
 # Shapes that are a calculation only if the sender explicitly asked for one. All three accept
 # decimals and commas: an integer-only version let "39.0,-95.0" through as arithmetic, airing
 # "-56" for a COORDINATE PAIR onto a public page.
-_BARE_RANGE = re.compile(r"\d[\d,.]*-[\d,.]*\d")
-_BARE_DIMS = re.compile(r"\d[\d,.]*x[\d,.]*\d")
-_BARE_NUM = re.compile(r"[-+]?\d[\d,.]*")
+# Each accepts a LEADING DECIMAL POINT as well as a digit. They previously required a leading
+# digit, which was safe only because the old both-edges .strip(" ?.") had already eaten any
+# leading '.' — so fixing that strip silently un-refused every bare shape whose left operand
+# starts with a point: ".8-.9" computed -0.1, "-.5" computed -0.5. A fix that removes a
+# normalisation has to widen whatever depended on it.
+_BARE_RANGE = re.compile(r"[\d.][\d,.]*-[\d,.]*\d")
+_BARE_DIMS = re.compile(r"[\d.][\d,.]*x[\d,.]*\d")
+_BARE_NUM = re.compile(r"[-+]?[\d.][\d,.]*")
 
 _EMBED_RUN = re.compile(r"[\d,.]+(?:\s*[-+*/×^]\s*[\d,.]+)*")
 # '^' was here and is deliberately gone. _embedded_expr EXTRACTS a substring and re-dispatches on
@@ -497,7 +502,11 @@ def _embedded_expr(s):
     Two candidates in one message is an intent we will not guess at, so that returns None
     rather than picking one.
     """
-    cands = [m.group(0).strip(" ,.") for m in _EMBED_RUN.finditer(s)
+    # _trim_edges, NOT .strip(" ,."). Round 2 fixed the leading-decimal bug in _strip_trigger and
+    # the cue path and left this one — the path _calc_collision uses for exactly the armed
+    # weather+calc traffic that fix was written about. "temp .5*4" answered "5*4 = 20". Same
+    # defect, third path, found by the third review.
+    cands = [_trim_edges(m.group(0).strip(",")) for m in _EMBED_RUN.finditer(s)
              if _UNAMBIG.search(m.group(0))]
     return cands[0] if len(cands) == 1 else None
 

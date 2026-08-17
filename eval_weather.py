@@ -147,6 +147,20 @@ for t in ["cal whats high temp today?", "cal whats the high today", "cal whats t
     check(f"extreme is forecast-shaped: {t!r}", weather.wants_forecast(t), t)
 # high/low are ordinary adjectives in a CURRENT reading; refusing those would break the
 # capability in the other direction, which is the failure mode this fix must not create.
+# The BARE phrasing is the one the original live defect used. Requiring a future marker on the
+# extreme put it straight back on the current-conditions path; an explicit PRESENT marker is what
+# distinguishes them. Both directions asserted so neither fix can be undone silently.
+for t in ["cal whats the high temp?", "cal whats the low temp?", "cal high temp?",
+          "cal whats the high", "cal todays high"]:
+    check(f"bare daily extreme IS a forecast: {t!r}", weather.wants_forecast(t), t)
+for t in ["cal whats the high temp right now?", "cal high temp currently?",
+          "cal whats the low temp at the moment"]:
+    check(f"explicit present tense is NOT a forecast: {t!r}", not weather.wants_forecast(t), t)
+# the hyphenated-RF family: 16 of 16 were falsely refused once; none may be again
+for t in ["cal hows the low-noise amp", "cal the high-gain antenna is up",
+          "cal the low-pass filter is in", "cal set the high-pass at 300hz",
+          "cal the low-battery cutoff", "cal the high/low switch"]:
+    check(f"hyphenated RF term NOT a forecast: {t!r}", not weather.wants_forecast(t), t)
 for t in ["cal are there high winds", "cal is humidity low", "cal hows the high pressure",
           "cal whats the temp", "cal is it windy out"]:
     check(f"adjective use NOT forecast: {t!r}", not weather.wants_forecast(t), t)

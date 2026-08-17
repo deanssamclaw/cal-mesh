@@ -76,17 +76,27 @@ _WEAK   = re.compile(r"\b(rain|raining|snow|snowing|sleet|wind|windy|humid|humid
 #     positive form of what the lookahead was trying to say, and it cannot be fooled by a
 #     character class nobody thought to exclude.
 _EXTREME = re.compile(r"\b(?:todays?|today'?s|tonights?|tonight'?s)\s+(?:high|low)s?\b"
-                      r"|\b(?:high|low)s?\s+(?:temp|temps|temperature|temperatures)"
-                      r"\s+(?:today|tonight|tomorrow|tmrw)\b"
+                      r"|\b(?:high|low)s?\s+(?:temp|temps|temperature|temperatures)\b"
                       r"|\b(?:high|low)s?\s+(?:today|tonight|tomorrow|tmrw)\b"
                       r"|\bthe\s+(?:high|low)s?\s*[?.!]*\s*$", re.I)
+
+
+# An explicitly PRESENT-TENSE ask overrides the daily-extreme reading. "whats the high temp right
+# now" is a current observation; "whats the high temp" is the day's maximum. Requiring a temporal
+# marker on the extreme instead put the bare, most natural phrasing back on the current-conditions
+# path — restoring the original live defect this whole family exists to prevent. Naming the
+# present tense is the narrow fix; demanding a future marker was the wide one.
+_PRESENT = re.compile(r"\b(right\s*now|just\s*now|currently|at\s+the\s+moment|"
+                      r"at\s+present|out\s+there\s+now|this\s+(?:second|minute))\b", re.I)
 
 
 def wants_forecast(text):
     """True if the ask is about a FUTURE state we cannot source. Run on RAW text, same as
     wants_weather — the words live in parts sanitize would trim."""
     t = text or ""
-    return bool(_FORECAST.search(t) or _EXTREME.search(t))
+    if _FORECAST.search(t):
+        return True
+    return bool(_EXTREME.search(t)) and not _PRESENT.search(t)
 
 
 def explain_weather_match(text):

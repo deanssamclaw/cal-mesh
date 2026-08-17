@@ -475,6 +475,24 @@ def run():
               "cold snap tomorrow 10^3 w amp"):
         check(f"caret not rescued from prose: {t[:30]}", emb(t) is None)
     check("caret still works on the DEFAULT path", ans("cal 2^8") == "2^8 = 256")
+    # THE PAIR INVARIANT MUST COVER _h_arith, which is the ONLY handler that does not route
+    # through _NUM — and therefore the one the leading-decimal fix kept missing. It was fixed on
+    # five handlers twice and on this one never, so ".5 * 4" answered 20 and "temp .5*4" answered
+    # 20 again on the embedded path. A "universal invariant" instantiated only on the handlers
+    # that were already correct proves nothing.
+    for a, b in (("cal whats .5 * 4", "cal whats 0.5 * 4"), ("cal what is .25 * 4", "cal what is 0.25 * 4"),
+                 ("cal calc .5+.5", "cal calc 0.5+0.5"), ("cal how much is .1 + .2", "cal how much is 0.1 + 0.2")):
+        ra, rb = ans(a), ans(b)
+        check(f"arith leading decimal == 0-prefixed: {a[4:26]}",
+              ra is not None and ra.split("=")[-1].strip() == rb.split("=")[-1].strip())
+    check("arith leading decimal is arithmetically right", ans("cal whats .5 * 4").endswith("= 2"))
+    for t, want in (("temp .5*4", "= 2"), ("temp .25*4", "= 1"), ("temp 12*12", "= 144")):
+        r = C.try_answer(t, embedded=True)[0]
+        check(f"EMBEDDED path leading decimal: {t}", r is not None and r.endswith(want))
+    # and the bare-shape refusals must still hold once a leading '.' is no longer normalised away
+    for t in (".8-.9", ".75-.25", "-.5", ".5-.5", ".5x.5", "0.8-0.9"):
+        check(f"bare shape with a leading decimal refused: {t}",
+              C.try_answer(t, trigger="cal")[0] is None)
     check("caret with a unit still refused on the default path", ans("cal 10^3 w in dbm") is None)
     check("embedded result is marked as such for the trace",
           C.try_answer("temp 12*12", embedded=True)[1].get("embedded") is True)
