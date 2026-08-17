@@ -18,10 +18,22 @@ determines whether the model is in the answer path:
 | **fetch** | weather (NWS) | narrates the fetched fact | leak / SSRF |
 | **local-read** | mesh status | narrates local state | leak of Dean's ops data |
 | **compute** | math, units, physics | **NONE — Python owns every digit** | confidently-wrong number |
+| **table** | wire ampacity, rigging | **NONE — the harness returns the row** | wrong/stale row; silent nearest-match |
 | **knowledge** | LoRa/mesh Q&A | narrates a *vetted* fact only | hallucination on niche/new tech |
 
+**TABLE added 2026-08-17** by `level3-table-doer-and-field-reference.md`, adopted after two review
+rounds. It is a fifth doer rather than a variant of COMPUTE because it introduces an invariant
+compute cannot hold: **no interpolation between rows, no silent nearest-match.** Interpolating
+between two *formula* outputs is legitimate — formulas are continuous — and between two *table
+rows* it is not. On the safety axis TABLE behaves like compute (deterministic, harness-returned,
+model out of the number path); on the content axis it behaves like knowledge (curated, needs
+sourcing and a last-verified date). The practical payoff is that a large slice of a field reference
+ships at **compute-tier risk rather than knowledge-tier risk**.
+
 Two families fall out:
-- **COMPUTE doers** (Tiers 0–2 below): deterministic; the model never touches the number.
+- **COMPUTE doers** (Tiers 0–2 below) **and TABLE**: deterministic; the model never touches the
+  number. TABLE additionally owes: conditions in every reply, refusal between rows and outside
+  range, and a source + last-verified date per table.
 - **NARRATE doers** (fetch/read/**knowledge**): the harness supplies a fact; the model voices
   *only* that, or the harness returns it directly. The **knowledge tier (Part 2) is a sibling of
   weather, not of math** — this is the key architectural point.
