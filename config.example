@@ -80,3 +80,24 @@ DM_LOCKED_MAX_CHARS=180
 # anything over the cost bounds. Intent is a successful bounded parse, never "contains a number".
 CALC_ENABLED=false
 CALC_MAX_CHARS=160
+
+# --- Level 3 COMPUTE doer: sun / moon / twilight (default OFF) ---
+# Closed-form astronomy (NOAA solar equations; Meeus ch.48 for lunar phase). No network, no
+# curation, no model in the number path — Python formats the whole reply. Measured against 43
+# U.S. Naval Observatory published times: max error 43 s, median 15 s.
+#
+# Observer location is READ FROM WEATHER_POINT and is never taken from the message: a named
+# place in the text cannot move the sun observer, because the reply would then disclose which
+# whitelisted place the asker named. Times only — no coordinate ever appears in a reply.
+#
+# Be aware the ANSWER is itself a weak position fix: two replies from different seasons bound the
+# observer to roughly 21 x 8 miles. That is looser than the observing station already named on
+# every weather reply, so it discloses nothing new today — but revisit it if the station is ever
+# withheld. Detail in the sunmoon.py module docstring.
+#
+# SUNMOON_TZ FAILS CLOSED. An unparseable zone refuses rather than falling back to UTC; a silent
+# UTC fallback put a five-hours-wrong local time on air during review.
+# Moonrise/moonset is NOT implemented and is refused explicitly rather than estimated.
+SUNMOON_ENABLED=false
+SUNMOON_TZ=America/Chicago
+SUNMOON_MAX_CHARS=120

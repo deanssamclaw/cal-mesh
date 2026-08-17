@@ -203,9 +203,17 @@ AMBIGUOUS = {"ton", "tons", "gallon", "gallons", "gal", "cup", "cups", "pint", "
              "quart", "quarts", "fl oz", "ounce", "ounces", "oz"}
 
 # The lookbehind is load-bearing: without it ".5 mi" matched the 5 and aired a 10x wrong answer,
-# and "10^3 w" matched the 3. A leading decimal is ordinary usage, so this is the most likely
-# wrong number the module could produce. Refusing is the safe direction.
-_NUM = r"(?<![\d.,^eE])(?<!\^[-+])(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)"
+# and "10^3 w" matched the 3.
+#
+# The first fix for that made a bare leading decimal UNMATCHABLE, which stopped the wrong answer
+# by removing the shape from the module entirely — and said so nowhere. Live traffic on
+# 2026-08-17 (".5 mi in km") fell straight through to the general model, which produced the
+# digits itself; it happened to be right, which is exactly the failure that hides. The premise
+# here is that Python owns every digit, so the trailing branch PARSES the leading decimal
+# instead. The lookbehind still governs it: a '.' preceded by a digit is a decimal point inside
+# a number, never the start of a new one, so "10.5" and "1.5.2" behave as before.
+_NUM = (r"(?<![\d.,^eE])(?<!\^[-+])"
+        r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?|\.\d+)")
 
 
 def _dec(s):
@@ -444,6 +452,37 @@ _BARE_RANGE = re.compile(r"\d[\d,.]*-[\d,.]*\d")
 _BARE_DIMS = re.compile(r"\d[\d,.]*x[\d,.]*\d")
 _BARE_NUM = re.compile(r"[-+]?\d[\d,.]*")
 
+_EMBED_RUN = re.compile(r"[\d,.]+(?:\s*[-+*/×^]\s*[\d,.]+)*")
+_UNAMBIG = re.compile(r"[*×^]")
+
+
+def _embedded_expr(s):
+    """A calculation typed INSIDE prose ("temp 12*12"). Returns the expression, or None.
+
+    NOT used by the ordinary path, and deliberately so. Round 3 closed a hole where
+    _strip_trigger dropped any leading word, so "rssi -105+5" computed as arithmetic; the rule
+    that came out of it — prose containing an expression does not compute — is correct and
+    stays. "box 5 * 3" is a box and "set gain 3 * 2" is gain staging, and no property of the
+    TEXT separates either from "temp 12*12". The discriminator is not in the message.
+
+    It is in which capability would otherwise claim it. See try_answer(embedded=True): the
+    caller opts in only for a message the WEATHER capability is about to answer, because that
+    is the collision that produced a real wrong reply — "temp 12*12" was answered "70F, clear,
+    north wind 5 mph" twice on 2026-08-17, an observation offered as the answer to a sum.
+    Nothing here fires for prose that no other capability wants.
+
+    Even then, only operators carrying unambiguous typing intent qualify: '*', '×', '^'.
+    Excluded on purpose:
+      '-'  ranges, coordinate pairs, repeater pairs, negative telemetry ("temp 90-95", "10-4")
+      'x'  dimensions ("8 x 10") — the module already treats 'x' as ambiguous
+      '/'  dates ("see you 10/4")
+    Two candidates in one message is an intent we will not guess at, so that returns None
+    rather than picking one.
+    """
+    cands = [m.group(0).strip(" ,.") for m in _EMBED_RUN.finditer(s)
+             if _UNAMBIG.search(m.group(0))]
+    return cands[0] if len(cands) == 1 else None
+
 
 def _h_arith(t, trig=None):
     """Plain arithmetic. Runs LAST so a unit/RF question is never eaten as bare maths.
@@ -499,11 +538,17 @@ HANDLERS = (_h_wavelength, _h_fspl, _h_dbm, _h_ohm, _h_acres, _h_convert,
             _h_fraction, _h_percent, _h_arith)
 
 
-def try_answer(text, max_chars=160, trigger="cal"):
+def try_answer(text, max_chars=160, trigger="cal", embedded=False):
     """Return (reply, meta). reply is None when nothing parsed — the caller then says nothing.
 
     Never raises: a CalcError anywhere becomes a refusal, because a missing answer beats a
     confident wrong one. `meta` records which handler fired for the public decision trace.
+
+    embedded=True additionally accepts an unambiguous calculation typed inside prose. It is OFF
+    by default and must stay that way: the caller opts in only when ANOTHER capability is about
+    to answer the message, which is the only context where the ambiguity resolves. See
+    _embedded_expr. A refusal already recorded is never overridden — if the direct parse
+    refused, that verdict stands.
     """
     meta = {"handler": None, "refused": None}
     if not text:
@@ -520,7 +565,20 @@ def try_answer(text, max_chars=160, trigger="cal"):
     t = text.lower().strip()
     with localcontext() as ctx:
         ctx.prec = PREC
-        return _dispatch(t, meta, max_chars, trigger)
+        r, meta = _dispatch(t, meta, max_chars, trigger)
+        if r is None and embedded and meta["refused"] is None:
+            expr = _embedded_expr(t)
+            if expr:
+                r2, m2 = _dispatch(expr, {"handler": None, "refused": None}, max_chars, trigger)
+                if r2:
+                    m2["embedded"] = True
+                    return r2, m2
+                # the embedded expression parsed but hit a bound (cost, length, div-zero). The
+                # primary verdict still stands, but the trace should say why the second look
+                # produced nothing rather than showing a bare "no handler".
+                if m2["refused"]:
+                    meta["embedded_refused"] = m2["refused"]
+        return r, meta
 
 
 def _dispatch(t, meta, max_chars, trig=None):

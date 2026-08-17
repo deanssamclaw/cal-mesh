@@ -102,6 +102,52 @@ for t in ["cal whats the forecast", "Cal, is it going to rain?", "cal will it ra
     check(f"forecast-shaped: {t!r}", weather.wants_forecast(t), t)
 for t in ["cal whats the weather", "cal hows the temp", "cal is it windy out"]:
     check(f"present-tense NOT forecast: {t!r}", not weather.wants_forecast(t), t)
+# session 126: a time-of-day qualifier is a FUTURE state. "will it rain at sunset" carried one
+# weak word and no '?', so weather never claimed it at all — and the sun/moon capability, which
+# sits above weather, answered it with a sunset time. The capability that must refuse an ask has
+# to claim it first; an unclaimed question is answered by whoever claims it next.
+for t in ["cal will it rain at sunset", "cal whats the temp at dusk", "cal whats the wind at dawn",
+          "cal how hot by noon", "cal rain before dark", "cal windy after sunset"]:
+    check(f"time-of-day qualifier is forecast: {t!r}", weather.wants_forecast(t), t)
+    check(f"time-of-day qualifier REACHES weather: {t!r}", weather.wants_weather(t), t)
+for t in ["cal whats the temp", "cal whats the weather", "cal hows the humidity",
+          "cal is it raining or windy"]:
+    check(f"bare present-tense still answered: {t!r}",
+          weather.wants_weather(t) and not weather.wants_forecast(t), t)
+# KNOWN GAP, asserted so it is recorded rather than discovered again: a single WEAK word with no
+# question mark does not reach the capability. "cal is it raining" and "cal hows the wind" are
+# ordinary present-tense weather questions and both fall through to the general model, which
+# answers them with no injected fact. This is pre-existing (the weak+question rule predates the
+# sun/moon work) and is NOT changed here — weather is armed and live, so widening its front door
+# is a deliberate decision, not a side effect of an unrelated fix. Same bug family as the heat
+# index (session 118) and the sun/moon front door (session 126).
+for t in ["cal is it raining", "cal hows the wind", "cal is it windy out"]:
+    check(f"KNOWN GAP - weak word, no '?', not claimed: {t!r}", not weather.wants_weather(t), t)
+    check(f"KNOWN GAP - and a '?' does claim it: {t!r}", weather.wants_weather(t + "?"), t)
+
+# session 126: "Cal whats high temp today?" was answered on the OPEN channel with a 13-minute-old
+# observation ("70F clear skies") — a daily extreme answered with a present-tense reading. The
+# refusal was correct and the phrasing walked around it: _FORECAST had no notion of high/low.
+print("\n== unit: daily extremes (high/low) are forecast asks ==")
+for t in ["cal whats high temp today?", "cal whats the high today", "cal whats the high",
+          "cal todays high", "cal high temperature today", "cal whats the low tonight",
+          "cal what are the highs", "cal low temp today"]:
+    check(f"extreme is forecast-shaped: {t!r}", weather.wants_forecast(t), t)
+# high/low are ordinary adjectives in a CURRENT reading; refusing those would break the
+# capability in the other direction, which is the failure mode this fix must not create.
+for t in ["cal are there high winds", "cal is humidity low", "cal hows the high pressure",
+          "cal whats the temp", "cal is it windy out"]:
+    check(f"adjective use NOT forecast: {t!r}", not weather.wants_forecast(t), t)
+# and the ask has to REACH the weather capability to be refused by it — "whats the high today"
+# carries no strong/weak keyword of its own, so without this it falls through to the general
+# model, which then invents the number itself.
+check("bare extreme routes to weather", weather.wants_weather("cal whats the high today"))
+check("bare extreme still not a plain-adjective match",
+      not weather.wants_weather("cal is the antenna mounted high"))
+pe = responder.plan_response(cfg(), "n1", "cal whats high temp today?", get=Stub())
+check("extreme ask -> fixed refusal, no fetch",
+      pe["mode"] == "fixed" and pe["forecast_asked"] and pe["weather_fact"] is None, pe["fixed_reply"])
+
 p = responder.plan_response(cfg(), "n1", "cal whats the forecast", get=Stub())
 check("forecast ask -> fixed reply, no generation", p["mode"] == "fixed" and p["forecast_asked"])
 check("forecast ask -> reply states we only have current conditions",

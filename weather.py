@@ -41,16 +41,41 @@ _STRONG = re.compile(r"\b(weather|forecast|temperature|temp|heat\s*index|wind\s*
 # 5-7 words it drops caveats (measured 4/4). Remove this gate only when a real forecast fact
 # is being injected — see docs/proposals/level3-weather-point-accuracy.md.
 _FORECAST = re.compile(r"\b(forecast|tomorrow|tonight|later|overnight|this\s+(afternoon|evening|week|weekend)|"
-                       r"next\s+(hour|day|week)|going\s+to\s+(rain|snow|storm)|will\s+it|gonna)\b", re.I)
+                       r"next\s+(hour|day|week)|going\s+to\s+(rain|snow|storm)|will\s+it|gonna|"
+                       # time-of-day qualifiers: "at dusk", "by sunset", "before dark" are all
+                       # FUTURE states. Added 2026-08-17 when the sun/moon capability went in and
+                       # "will it rain at sunset" was answered with a sunset time — the weather
+                       # question was never claimed at all, so the time-of-day word won by default.
+                       r"(at|by|before|after|around)\s+(dusk|dawn|sunset|sunrise|sundown|dark|"
+                       r"nightfall|first\s+light|last\s+light|noon|midnight|morning|afternoon|"
+                       r"evening|night))\b", re.I)
 _WEAK   = re.compile(r"\b(rain|raining|snow|snowing|sleet|wind|windy|humid|humidity|"
                      r"hot|heat|muggy|sticky|cold|chilly|freezing|storm|storms|sunny|cloudy|"
                      r"degrees|precip)\b", re.I)
+# Daily extremes. "Whats high temp today?" is a FORECAST — the day's maximum is not a reading
+# any observation carries — and on 2026-08-17 it was answered on the open channel with a
+# 13-minute-old 70F, which was that morning's temperature and not the day's high. _FORECAST had
+# no notion of high/low, so the refusal built for exactly this was walked around by the most
+# natural phrasing of the question.
+#
+# The word cannot simply be added to _FORECAST: "high" and "low" are ordinary adjectives in a
+# PRESENT-tense reading ("high winds", "low humidity", "the high pressure"), and refusing those
+# breaks the capability in the other direction. So they are matched only where they NAME a daily
+# extreme — beside a temperature word, beside today/tonight, or standing alone as the object of
+# the ask. This feeds BOTH the forecast test and the strong-keyword match below, so an ask that
+# carries no other weather word still reaches the capability and gets refused BY it, rather than
+# falling through to the general model to invent a number.
+_EXTREME = re.compile(r"\b(?:todays?|today'?s|tonights?|tonight'?s)\s+(?:high|low)s?\b"
+                      r"|\b(?:high|low)s?\s+(?:temp|temps|temperature|temperatures)\b"
+                      r"|\b(?:high|low)s?\s+(?:today|tonight|tomorrow|tmrw)\b"
+                      r"|\bthe\s+(?:high|low)s?\b(?![\s\w])", re.I)
 
 
 def wants_forecast(text):
     """True if the ask is about a FUTURE state we cannot source. Run on RAW text, same as
     wants_weather — the words live in parts sanitize would trim."""
-    return bool(_FORECAST.search(text or ""))
+    t = text or ""
+    return bool(_FORECAST.search(t) or _EXTREME.search(t))
 
 
 def explain_weather_match(text):
@@ -66,15 +91,25 @@ def explain_weather_match(text):
     disagree — that bug already happened once here, with the SAME parser (session 116).
     """
     t = text or ""
-    strong = sorted({m.group(0).lower() for m in _STRONG.finditer(t)})
+    # _EXTREME counts as a STRONG match: "whats the high today" carries no other weather word,
+    # and without this it never reaches the capability that knows to refuse it.
+    strong = sorted({m.group(0).lower() for m in _STRONG.finditer(t)}
+                    | {m.group(0).lower().strip() for m in _EXTREME.finditer(t)})
     weak = sorted({m.group(0).lower() for m in _WEAK.finditer(t)})
     q = "?" in t
+    fc = bool(_FORECAST.search(t))
     if strong:
         via = "strong"
     elif len(weak) >= 2:
         via = "two_weak"
     elif len(weak) >= 1 and q:
         via = "weak_plus_question"
+    elif len(weak) >= 1 and fc:
+        # A forecast phrase plus any weather word IS a weather question, question mark or not.
+        # "will it rain at sunset" carries one weak word and no '?', so it fell through the gate
+        # entirely and a different capability answered it. The capability that must refuse an ask
+        # has to claim it first — an unclaimed question is answered by whoever claims it next.
+        via = "weak_plus_forecast"
     else:
         via = None
     return {"strong": strong, "weak": weak, "question": q, "via": via}

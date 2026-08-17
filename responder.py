@@ -44,6 +44,8 @@ CLAUDE    = os.path.expanduser("~/.local/bin/claude")
 sys.path.insert(0, BASE)
 import weather                    # Level 3 Stage 1 capability (harness-fetched, injected)
 import calc                       # Level 3 COMPUTE doer (Python owns every digit)
+import sunmoon                    # COMPUTE doer: closed-form astronomy, offline-resilient
+from zoneinfo import ZoneInfo
 
 OUR_ID_FALLBACK = "!xxxxxxxx"   # Cal HT
 
@@ -85,6 +87,13 @@ DEFAULTS = {
     "WEATHER_MAX_OBS_AGE_S": "5400",  # stations report ~hourly; 90 min tolerates one late
                                       # cycle. Older than this = unusable, same as a failed
                                       # fetch — a stalled station must not read as "current".
+    # --- Sun / moon / twilight capability (COMPUTE doer, default OFF) ---
+    # Closed-form astronomy: no network, no curation, no model in the number path. It reuses
+    # WEATHER_POINT as its observer location and reports TIMES ONLY — a coordinate is an input
+    # here, never something the reply carries.
+    "SUNMOON_ENABLED": "false",
+    "SUNMOON_TZ": "America/Chicago",   # replies are wall-clock for someone under the same sky
+    "SUNMOON_MAX_CHARS": "120",
     # --- greeting acknowledgement for OFF-LIST senders (default OFF) ---
     # Silence on a broadcast channel is not neutral: a stranger who just watched Cal
     # answer someone else reads it as a snub. This acks a bare greeting with a FIXED,
@@ -394,6 +403,72 @@ def load_dm_context(cfg):
     return data[:cap].strip() or None
 
 
+def _sunmoon_point(cfg):
+    """(lat, lon) floats for the observer, or (None, None) if unset/unparseable.
+
+    Deliberately goes through weather.resolve_location with EMPTY text so the whitelist branch
+    cannot fire: sun times use the default reference point only. A named place in the message
+    must not move the observer, because the reply would then leak which of Dean's whitelisted
+    places the asker had named back onto a public channel. Same parser as weather so the two
+    cannot drift apart — that bug has already happened here once, with a SAME regex.
+    """
+    _, latlon = weather.resolve_location(cfg, "")
+    try:
+        lat, lon = (float(x) for x in latlon.split(",", 1))
+    except (ValueError, AttributeError):
+        return None, None
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None, None
+    return lat, lon
+
+
+def _int_cfg(cfg, key, default):
+    """An int from config, or the default. A malformed value used to raise out of plan_response,
+    which the daemon's per-record handler swallowed BEFORE record_decision ran — so the capability
+    went silent with nothing on the public dashboard and one line in a log. Fail-closed means
+    falling back to a safe bound, not vanishing."""
+    try:
+        return int(str(cfg.get(key, default)).strip())
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _sunmoon_tz(cfg):
+    """ZoneInfo for the observer, or None if unusable. None means REFUSE, never a UTC fallback."""
+    name = (cfg.get("SUNMOON_TZ", "") or "").strip()
+    if not name:
+        return None
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        return None
+
+
+def enabled_weather(cfg):
+    return cfg.get("WEATHER_ENABLED", "false").lower() == "true"
+
+
+def _calc_collision(cfg, clean, out):
+    """True if an unambiguous calculation is embedded in a message another capability wants.
+
+    Hoisted out of the weather branch so it applies to EVERY capability that sits above calc.
+    "temp 12*12" was fixed once, and then "sunset 12*12" reintroduced the identical bug one layer
+    up, because the rule lived inside the weather branch instead of beside the capabilities.
+    """
+    if cfg.get("CALC_ENABLED", "false").lower() != "true":
+        return False
+    reply, meta = calc.try_answer(clean, max_chars=_int_cfg(cfg, "CALC_MAX_CHARS", 160),
+                                 trigger=cfg.get("TRIGGER_WORD", "cal"), embedded=True)
+    if not reply:
+        return False
+    out["calc_meta"] = meta
+    out["capability"] = "calc"
+    out["mode"] = "fixed"
+    out["fixed_kind"] = "calc"
+    out["fixed_reply"] = reply
+    return True
+
+
 def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_context=None,
                   dm_authed=False):
     """PURE decision (no subprocess, no I/O beyond the injectable weather fetch): sanitize the
@@ -403,6 +478,7 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
     out = {"clean": clean, "flagged": flagged, "capability": None, "weather_ok": None,
            "weather_fact": None, "mode": "generate", "fixed_reply": None, "prompt": None,
            "weather_meta": {}, "forecast_asked": False, "match": None,
+           "sunmoon_match": None, "sunmoon_meta": None,
            "persona": None, "unlocked": False, "max_chars": None,
            "fixed_kind": None, "calc_meta": None}
     # P1: an authenticated DM from Dean gets the private persona and injected context. This is
@@ -427,6 +503,47 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
             out["fixed_reply"] = c_reply
             return out
 
+    # SUN/MOON — a compute doer, so it sits with calc ABOVE the fetch tier: it answers when the
+    # base is offline, which under the resilient-first ordering is the point. Runs on RAW text for
+    # the same reason weather does (a trailing '?' and multi-word wording must survive sanitize).
+    if cfg.get("SUNMOON_ENABLED", "false").lower() == "true":
+        sm_match = sunmoon.explain_match(raw_text)
+        out["sunmoon_match"] = sm_match
+        # A sun/moon word does NOT win over the capabilities below it. Two collisions were found
+        # live: "cal sunset 12*12" answered with a sunset time instead of 144, and "cal whats the
+        # temp at dusk" answered with a sunset time instead of weather. The calc rescue is the
+        # same rule already applied to weather (see _calc_collision) — hoisted here so every
+        # capability above weather inherits it rather than each one re-forgetting it.
+        if sm_match["via"] and not _calc_collision(cfg, clean, out) \
+                and not (enabled_weather(cfg) and weather.explain_weather_match(raw_text)["via"]):
+            lat, lon = _sunmoon_point(cfg)
+            if lat is None:                 # fail-closed, exactly like GREET_TEXT and the point
+                out["capability"] = "sunmoon"
+                out["mode"], out["fixed_reply"] = "fixed", "Sun times not configured here."
+                out["fixed_kind"] = "sunmoon"
+                return out
+            tz = _sunmoon_tz(cfg)
+            if tz is None:
+                # FAIL CLOSED. This used to fall back to UTC, which put a confidently wrong local
+                # time on air — a typo in one config line rendered 8:12 PM as 1:12 AM with no
+                # warning anywhere. A wrong time is worse than no time.
+                out["capability"] = "sunmoon"
+                out["mode"], out["fixed_reply"] = "fixed", "Sun times not configured here."
+                out["fixed_kind"] = "sunmoon"
+                return out
+            sm_reply, sm_meta = sunmoon.answer(
+                raw_text, lat, lon, tz, datetime.now(timezone.utc),
+                max_chars=_int_cfg(cfg, "SUNMOON_MAX_CHARS", 120))
+            out["sunmoon_meta"] = sm_meta
+            if sm_reply:
+                out["capability"] = "sunmoon"
+                out["mode"] = "fixed"
+                out["fixed_kind"] = "sunmoon"
+                out["fixed_reply"] = sm_reply
+                return out
+        elif sm_match["via"] and out.get("fixed_kind") == "calc":
+            return out                      # the calc rescue already produced the answer
+
     fact = None
     # intent/location on the RAW text: a trailing '?' (needed for weak-keyword intent) and a
     # whitelisted place name must survive; sanitize would strip them. Nothing from raw_text
@@ -435,6 +552,15 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
     match = weather.explain_weather_match(raw_text) if enabled else None
     out["match"] = match
     if enabled and match["via"]:
+        # COLLISION. "temp 12*12" carries a weather word AND a calculation, and on 2026-08-17 it
+        # was answered "70F, clear, north wind 5 mph" — an observation offered as the answer to a
+        # sum, twice, on the published DM path. calc refuses prose-with-an-expression on its own
+        # (correctly: "box 5 * 3" is a box), so nothing claimed the arithmetic and weather took
+        # it by default. The ambiguity that calc cannot resolve from the text alone IS resolved
+        # here: a message this capability is about to answer with a live observation, which also
+        # contains an unambiguous calculation, is a calculation. Python keeps the digits.
+        if _calc_collision(cfg, clean, out):
+            return out
         out["capability"] = "weather"
         # Forecast-shaped ask: we have current observations only. Answer honestly with a fixed
         # string and skip the fetch entirely — never dress a present-tense reading as a forecast.
@@ -779,6 +905,16 @@ def main():
                                                       "weak": m["weak"], "question": m["question"]}
                             if plan.get("calc_meta") and plan["calc_meta"].get("handler"):
                                 d["calc"] = plan["calc_meta"]
+                            # sunmoon's match/meta were computed and returned but never recorded,
+                            # so the module's "the shown reason IS the decision" claim was true
+                            # inside the module and unwired at the consumer.
+                            sm = plan.get("sunmoon_match") or {}
+                            if sm.get("via"):
+                                d["sunmoon_match"] = {"via": sm["via"], "sun": sm.get("sun"),
+                                                      "moon": sm.get("moon"),
+                                                      "moon_riseset": sm.get("moon_riseset")}
+                            if plan.get("sunmoon_meta"):
+                                d["sunmoon"] = plan["sunmoon_meta"]
                             if plan["capability"]:
                                 d["capability"] = plan["capability"]
                                 d["weather_ok"] = plan["weather_ok"]
@@ -797,9 +933,14 @@ def main():
                                 # fixed reply is still text going on air. Belt, not exploit.
                                 reply = clean_reply(plan["fixed_reply"])
                                 kind = plan.get("fixed_kind")
-                                why = ("fixed_calc" if kind == "calc" else
-                                       "fixed_forecast_refused" if kind == "forecast_refused"
-                                       else "fixed_weather_unavailable")
+                                # Every fixed_kind needs its own rung. A kind that is missing here
+                                # falls to the else and the public trace states a CAUSE THAT DID
+                                # NOT HAPPEN — every sun/moon reply was logged as a weather
+                                # failure until a review caught it.
+                                why = {"calc": "fixed_calc",
+                                       "forecast_refused": "fixed_forecast_refused",
+                                       "sunmoon": "fixed_sunmoon",
+                                       }.get(kind, "fixed_weather_unavailable")
                             else:
                                 reply, why = run_claude(cfg, plan["prompt"], plan.get("persona"))
                                 if reply and plan.get("max_chars"):

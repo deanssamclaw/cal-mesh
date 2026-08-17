@@ -78,6 +78,45 @@ Conservative by design; widen deliberately as trust grows.
 
 **Disarm instantly:** set `RESPONDER_ENABLED=false` (takes effect within ~1s, no restart).
 
+## Capabilities (doers)
+Each capability is `intent → deterministic doer → reply`. What varies is whether the **model is in
+the answer path** — that is the whole safety story. Taxonomy and specs in `docs/proposals/`.
+
+| Capability | Doer | Model in the number path? | State |
+|---|---|---|---|
+| Weather (current conditions, NWS) | fetch | narrates the fetched fact only | **ARMED** |
+| Arithmetic / units / RF pack | compute | **no — Python owns every digit** | **ARMED** |
+| Sun / moon / twilight | compute | **no — Python formats the whole reply** | built, **default OFF** |
+| Greeting ack (off-list senders) | fixed table | no | **ARMED** |
+| Wire gauge, fasteners (TABLE) | table | no — the harness returns the row | measured, not built |
+| Load and rigging | — | — | **refuted, will not ship** (see below) |
+
+Ordering matters and is enforced: **calc → sun/moon → weather**. A capability that sits above
+another inherits the duty not to steal from it — `cal sunset 12*12` must answer `144`, and
+`cal will it rain at sunset` must reach weather's forecast refusal rather than being answered with
+a sunset time. Both were live bugs; both are asserted in the evals now.
+
+**The governing discipline is refusal.** Every capability keeps an explicit edge where it says
+"I can't verify that" instead of guessing:
+- weather refuses forecast-shaped asks (it holds observations only) — including daily highs/lows
+  and time-of-day qualifiers like "at dusk", which are future states;
+- calc refuses ambiguous units, prose containing an expression, and anything past its cost bounds;
+- sun/moon refuses moonrise/moonset (not implemented — it is *recognised* so it can be refused,
+  because an unrecognised ask falls through to the model, which would invent a time), dates
+  outside 1901–2099, and any event that does not occur — reporting *which* one is missing rather
+  than a generic "no sunrise", since midnight sun and polar night are opposite conditions.
+
+Config failures **fail closed**, never open: an unset observer point or an unparseable timezone
+refuses rather than substituting a default that would put a confident wrong answer on air.
+
+### Why "load and rigging" is not here
+It was the highest-value pack on the field-reference slate and it is **not going to ship**. The
+mandatory safety conditions alone measure 211 characters with zero digits, against a 180-character
+budget — but the disqualifier is not length. OSHA *deleted* these tables from 1910.184 (2011) and
+1926.251 (2012) as obsolete and unsafe, replacing them with a duty to read the sling tag. Serving
+one over radio rebuilds the artifact the regulator retired, and it is most tempting exactly where
+it is most wrong. Full measurement in `docs/proposals/level3-table-doer-and-field-reference.md` §8.2.
+
 ## How to grow from here
 1. Widen `ALLOW_FROM` / trigger policy to serve other operators.
 2. Give autonomous Cal tools/context (move generation to the Anthropic API + a bigger model,

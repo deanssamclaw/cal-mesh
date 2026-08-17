@@ -36,6 +36,13 @@ def ans(text):
     return C.try_answer(text)[0]
 
 
+def _tail(s):
+    """The computed half of a handler reply, or None. Handlers that echo the number as typed
+    ('.915 GHz' vs '0.915 GHz') differ only before the colon. Returns None rather than raising
+    so a mutation that kills the answer FAILS the check instead of crashing the run."""
+    return s.split(":", 1)[1] if s and ":" in s else None
+
+
 _rs = importlib.util.spec_from_file_location("responder_defaults", os.path.join(HERE, "responder.py"))
 _RM = importlib.util.module_from_spec(_rs)
 _rs.loader.exec_module(_RM)
@@ -358,9 +365,22 @@ def run():
     # ---- 8g. ROUND-3 FINDINGS (assertions written before the fixes) --------------------------
     # (1) BLOCKER: _NUM had no LEFT boundary, so a leading decimal point silently dropped and the
     #     answer came out 10x-1000x wrong across five handlers. ".5" is ordinary usage.
-    for t in ("cal .5 mi in km", "cal .25 ft in m", "cal .5 w in dbm", "cal .12 v .5 a",
-              "cal .915 ghz antenna", "cal path loss at .915 ghz over .5 km"):
-        check(f"leading decimal not mis-read: {t[4:30]}", ans(t) is None)
+    #     SESSION 126: the round-3 fix achieved this by making the shape unmatchable, which is
+    #     why these asserted None. It is now PARSED — the wrong answer is still gone, and the
+    #     right one is present. Values pinned in 8h(1); what must hold here is only that none of
+    #     these ever produces the mis-read magnitude again.
+    #     The invariant that proves it across every handler at once: a leading decimal must
+    #     answer identically to its zero-prefixed form, which was always parsed correctly. (The
+    #     wavelength handler echoes the number as typed, so compare its computed half.)
+    for a, b in (("cal .5 mi in km", "cal 0.5 mi in km"),
+                 ("cal .25 ft in m", "cal 0.25 ft in m"),
+                 ("cal .5 w in dbm", "cal 0.5 w in dbm"),
+                 ("cal .12 v .5 a", "cal 0.12 v 0.5 a"),
+                 ("cal path loss at .915 ghz over .5 km",
+                  "cal path loss at 0.915 ghz over 0.5 km")):
+        check(f"leading decimal == 0-prefixed: {a[4:30]}", ans(a) is not None and ans(a) == ans(b))
+    check("leading decimal == 0-prefixed: wavelength", _tail(ans("cal .915 ghz antenna"))
+          == _tail(ans("cal 0.915 ghz antenna")) != None)
     # the '^' form is the same bug the 'e' refusal did not cover
     for t in ("cal 10^-3 w in dbm", "cal 10^3 w in dbm"):
         check(f"caret exponent not mis-read: {t[4:22]}", ans(t) is None)
@@ -403,6 +423,84 @@ def run():
     check("responder emits calc as a FIXED reply (no model)", _p["mode"] == "fixed"
           and _p.get("fixed_kind") == "calc")
 
+    # ---- 8h. SESSION 126 FINDINGS (assertions written before the fixes; both failed first) ---
+    # (1) Round 3 closed the leading-decimal bug by making ".5" UNMATCHABLE. That stopped the
+    #     10x wrong answer, but it also removed the shape from the module entirely and said so
+    #     nowhere: live traffic fell through to the general model, which produced the digits
+    #     itself. The premise is that Python owns every digit, so parse it instead of ducking it.
+    check("leading decimal PARSED, not refused", ans("cal .5 mi in km") == "0.5 mi = 0.8047 km")
+    check("leading decimal, no trigger word", ans(".5 mi in km") == "0.5 mi = 0.8047 km")
+    check("leading decimal matches its own 0-prefixed form",
+          ans("cal .25 ft in m") == ans("cal 0.25 ft in m"))
+    # the RF handlers take it too; only the echoed unit differs (".915 GHz" vs "915 MHz"), so
+    # compare the computed half rather than the whole string.
+    check("leading decimal reaches the RF handlers too",
+          _tail(ans("cal .915 ghz antenna")) == _tail(ans("cal 915 mhz antenna")) != None)
+    check("leading decimal through the dBm handler", ans("cal .5 w in dbm") == "0.5 W = 26.99 dBm")
+    check("leading decimal through the ohm handler",
+          ans("cal .12 v .5 a") == "0.12 V at 0.5 A = 0.24 ohms, 0.06 W")
+    check("two leading decimals in one ask (fspl)",
+          ans("cal path loss at .915 ghz over .5 km")
+          == "Path loss 85.7 dB at 915 MHz over 0.5 km (free space; real loss is higher)")
+    # the boundary the lookbehind exists for must still hold: a decimal INSIDE a number is not
+    # a new number, and the caret/exponent forms stay refused.
+    check("decimal inside a number is not re-matched", ans("cal 10.5 mi in km") == "10.5 mi = 16.8981 km")
+    check("version-like string still refused", ans("cal 1.5.2 mi in km") is None)
+    for t in ("cal 10^-3 w in dbm", "cal 10^3 w in dbm", "cal 1E5 ft in m"):
+        check(f"caret/exponent still refused: {t[4:22]}", ans(t) is None)
+
+    # (2) "temp 12*12" was answered by the WEATHER capability — calc returned None (prose), so
+    #     weather claimed it on the word "temp" and replied "70F, clear, north wind 5 mph". An
+    #     observation offered as the answer to a sum, twice, on the published DM path.
+    #
+    #     The fix is NOT to make calc claim prose: "box 5 * 3" is a box and "set gain 3 * 2" is
+    #     gain staging, and no property of the text separates those from "temp 12*12". The
+    #     default path is therefore UNCHANGED and still refuses all of them —
+    def emb(text):
+        return C.try_answer(text, embedded=True)[0]
+
+    for t in ("temp 12*12", "box 5 * 3", "set gain 3 * 2", "battery 12.6*2", "gain 2^8"):
+        check(f"default path still refuses prose: {t[:20]}", ans(t) is None)
+    #     — and the ambiguity is resolved by the CALLER, which opts in only for a message
+    #     another capability is about to answer. Verified end to end through the responder below.
+    check("embedded multiplication claimed on opt-in", emb("temp 12*12") == "12*12 = 144")
+    check("embedded multiplication with a cue word", emb("whats temp 12*12?") == "12*12 = 144")
+    check("embedded multiplication, unicode operator", emb("temp 12×12") == "12×12 = 144")
+    check("embedded caret claimed on opt-in", emb("gain 2^8") == "2^8 = 256")
+    # the cost bounds are not bypassed by the second look, and the reason survives for the trace
+    check("embedded expression still hits the exponent bound", emb("gain 2^10") is None)
+    check("embedded refusal recorded for the trace",
+          C.try_answer("gain 2^10", embedded=True)[1].get("embedded_refused")
+          == "exponent too large")
+    check("embedded result is marked as such for the trace",
+          C.try_answer("temp 12*12", embedded=True)[1].get("embedded") is True)
+    # the ambiguous shapes stay refused EVEN on opt-in: '-', 'x' and '/' are ranges, dimensions
+    # and dates far more often than arithmetic, and prose is exactly where they occur.
+    for t in ("temp 90-95", "gusts 20-30", "rssi -105+5", "noise -120+3", "freq 915/2",
+              "repeater 146.520-146.940", "coords 39.0,-95.0", "panel 8 x 10", "10-4 good buddy",
+              "meet 10/4", "temp 12*12 and 3*3"):
+        check(f"ambiguous shape refused even on opt-in: {t[:26]}", emb(t) is None)
+    # a refusal already reached by the direct parse is never overridden by the second look
+    check("opt-in does not override a refusal",
+          C.try_answer("cal 1E5 ft in m", embedded=True)[1]["refused"]
+          == "scientific notation not supported")
+    # and it must not open a hole in the weather guard
+    for t in ("cal what's the temperature?", "cal whats the heat index?", "cal hows the weather"):
+        check(f"weather question still not eaten: {t[4:28]}", ans(t) is None and emb(t) is None)
+
+    # end to end: the responder resolves the collision and Python keeps the digits
+    _wc = dict(_RCFG); _wc["CALC_ENABLED"] = "true"; _wc["WEATHER_ENABLED"] = "true"
+
+    class _NoFetch:
+        def __call__(self, *a, **k):
+            raise AssertionError("weather was fetched for a calculation")
+
+    _pc = _RM.plan_response(_wc, "!aaaaaaaa", "cal whats temp 12*12?", get=_NoFetch())
+    check("collision -> calc wins", _pc["capability"] == "calc" and _pc["mode"] == "fixed")
+    check("collision -> the arithmetic is the reply", _pc["fixed_reply"] == "12*12 = 144")
+    check("collision -> no weather fetch, no model", _pc["weather_fact"] is None
+          and _pc["prompt"] is None)
+
     # ---- 9. constants are the exact defined values ------------------------------------------
     check("foot exact", C.FT_M == Decimal("0.3048"))
     check("mile exact", C.MI_M == Decimal("1609.344"))
@@ -441,13 +539,31 @@ MUTATIONS = [
     ("foot constant wrong", lambda: setattr(C, "FT_M", Decimal("0.305"))),
     ("acre constant wrong", lambda: setattr(C, "ACRE_SQFT", Decimal("43000"))),
     ("money drops decimal places", lambda: setattr(C, "money", lambda v: str(v))),
+    # session 126 — each of these is the fix reverted, and must be caught
+    ("leading-decimal branch removed from _NUM",
+     lambda: setattr(C, "_NUM", r"(?<![\d.,^eE])(?<!\^[-+])"
+                                r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)")),
+    ("_NUM left boundary removed (the original 10x bug)",
+     lambda: setattr(C, "_NUM", r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?|\.\d+)")),
+    ("embedded operators widened to the ambiguous ones",
+     lambda: setattr(C, "_UNAMBIG", __import__("re").compile(r"[*×^/\-]"))),
+    ("embedded picks a candidate instead of refusing ambiguity",
+     lambda: setattr(C, "_embedded_expr",
+                     lambda s: next((m.group(0).strip(" ,.") for m in C._EMBED_RUN.finditer(s)
+                                     if C._UNAMBIG.search(m.group(0))), None))),
+    ("embedded look runs by default, not on opt-in",
+     lambda: setattr(C, "try_answer",
+                     lambda text, max_chars=160, trigger="cal", embedded=False:
+                     _ORIG_TRY(text, max_chars, trigger, True))),
 ]
+
+_ORIG_TRY = C.try_answer
 
 
 def self_test():
     originals = {n: getattr(C, n) for n in
                  ("_ALLOWED_NODES", "MAX_EXP", "MAX_ABS", "AMBIGUOUS", "FT_M", "ACRE_SQFT",
-                  "money")}
+                  "money", "_NUM", "_UNAMBIG", "_embedded_expr", "try_answer")}
     print("negative controls — each mutation MUST be caught:")
     all_caught = True
     for name, mutate in MUTATIONS:
