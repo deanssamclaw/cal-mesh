@@ -138,6 +138,20 @@ def explain_weather_match(text):
     return {"strong": strong, "weak": weak, "question": q, "via": via}
 
 
+def mention_positions(text):
+    """Character offsets of every weather word in the text, ascending.
+
+    Exposed so the responder can arbitrate between capabilities by POSITION rather than by
+    grammar. This module knows nothing about any other capability and does not import one.
+    """
+    t = text or ""
+    pos = set()
+    for rx in (_STRONG, _WEAK, _EXTREME):
+        for m in rx.finditer(t):
+            pos.add(m.start())
+    return sorted(pos)
+
+
 def wants_weather(text):
     """True if the (addressed-to-Cal) text is a weather query. Run on the RAW text so a
     trailing '?' survives (sanitize strips it)."""

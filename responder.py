@@ -514,32 +514,32 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
         # temp at dusk" answered with a sunset time instead of weather. The calc rescue is the
         # same rule already applied to weather (see _calc_collision) — hoisted here so every
         # capability above weather inherits it rather than each one re-forgetting it.
-        # Yield to weather when weather will ACTUALLY CLAIM the message — not on the mere
-        # presence of a weather word.
+        # ARBITRATION BY POSITION, not by grammar.
         #
-        # Two round-2 fixes collided here. Reverting weather's over-wide claim rule removed its
-        # hold on weak-word asks; yielding on any weather word removed sun/moon's. Together a
-        # whole class reached NEITHER capability — measured at 86% of a 168-case grid, e.g. "when
-        # does it get dark, storm coming" — and the comment justifying the yield claimed the ask
-        # would "fall to the general model, which invents no time", which is exactly backwards:
-        # the general model is what invents the time. Worst instance, a moonrise ask reaching the
-        # weather fetch, defeating the unconditional refusal sun/moon exists to give it.
+        # This is the fourth mechanism for the same question and the first that is not a rule
+        # about which words appear. Three lexical/grammatical attempts each failed and each broke
+        # something new: widening weather claimed 210 of 210 non-weather pairs; yielding on any
+        # weather word dropped 86% of a grid to no capability; arbitrating by qualifier
+        # prepositions claimed 2400 of 2400 coordinated weather asks with a sun time AND yielded
+        # 216 of 294 moon asks to the model, wrong in both directions at once. Four failures at
+        # three layers is the signal that the layer was wrong, not the rule.
         #
-        # The real discriminator is grammatical, not lexical: is the sun/moon word the OBJECT of
-        # the question, or a TIME QUALIFIER on some other question? "when is sunset" is the
-        # former; "will it rain AT sunset" is the latter, and only the latter belongs to weather.
-        # The grammar alone decides it. An earlier form also required that weather would not
-        # claim, which handed "cal sunrise? chilly out" to weather — the person asked when sunrise
-        # is, and an incidental weather word in the same sentence is not a competing question.
-        # If the sun/moon word is the OBJECT, this capability answers; if it is only a qualifier
-        # on someone else's question, it stays out. Nothing else is needed.
-        # A moon rise/set ask NEVER yields. The module recognises it specifically so it can be
-        # refused, and yielding sent it to a live weather fetch — a moonrise question answered
-        # with a temperature, which is the same shape as the temp 12*12 bug fixed twice already.
-        # Recognition is the refusal only if nothing can take the message away first.
-        riseset = sm_match["via"] == "moon_riseset"
-        if sm_match["via"] and (riseset or not sunmoon.only_time_qualifier(raw_text)) \
-                and not _calc_collision(cfg, clean, out):
+        # What a message is ASKING for is carried by order, not vocabulary. Whichever capability's
+        # subject appears FIRST is the one being asked about; anything later is context or a time
+        # adjunct. "when does it get dark, storm coming" opens on dark; "will it rain at sunset"
+        # opens on rain. No preposition list, so punctuation and coordination cannot defeat it,
+        # and it needs no special case for moon rise/set.
+        #
+        # One override: a time interrogative directly governing a sun/moon word wins outright, so
+        # "rain later, when is sunset" is still a sunset question. Ties go to weather, which is
+        # armed and proven; a tie is the one case where guessing buys nothing.
+        sm_first = sunmoon.mention_positions(raw_text)
+        w_first = weather.mention_positions(raw_text) if enabled_weather(cfg) else []
+        sun_is_subject = bool(sm_first) and (
+            not w_first
+            or sm_first[0] < w_first[0]
+            or sunmoon.governed_by_time_ask(raw_text))
+        if sm_match["via"] and sun_is_subject and not _calc_collision(cfg, clean, out):
             lat, lon = _sunmoon_point(cfg)
             if lat is None:                 # fail-closed, exactly like GREET_TEXT and the point
                 out["capability"] = "sunmoon"

@@ -47,6 +47,10 @@ def _load(name, fn):
 # seeding it is what actually binds the responder to the file under test.
 S = _load("sunmoon", "sunmoon.py")
 sys.modules["sunmoon"] = S
+# weather is loaded here too, and registered, so the responder binds the file under test rather
+# than the deployed copy — the same sys.path trap that made the end-to-end checks vacuous once.
+_W = _load("weather", "weather.py")
+sys.modules["weather"] = _W
 R = _load("responder_under_test", "responder.py")
 assert R.sunmoon is S, "responder bound a different sunmoon module than the one under test"
 
@@ -349,10 +353,15 @@ def run():
     check("dark reply orders sunset BEFORE dusk",
           dark.index(hhmm(ev["sunset"])) < dark.index(hhmm(ev["civil_dusk"])), dark)
     # local rendering, not UTC
+    # `A and B or C` parses as `(A and B) or C`, and C was a property of the fixture timezone —
+    # always true, so this could not fail for ANY reply including "". Parenthesised, and the UTC
+    # rendering is built explicitly rather than inferred.
+    _utc_txt = "%d:%02d" % (((ev["sunset"].hour % 12) or 12), ev["sunset"].minute)
     check("reply is LOCAL time, not UTC",
-          hhmm(ev["sunset"]) in dark
-          and ev["sunset"].strftime("%-I:%M %p").upper().lstrip("0") not in dark.upper()
-          or ev["sunset"].astimezone(TZ).hour != ev["sunset"].hour, dark)
+          (hhmm(ev["sunset"]) in dark) and (_utc_txt not in dark or _utc_txt == hhmm(ev["sunset"])[:len(_utc_txt)]),
+          (dark, _utc_txt))
+    check("the UTC/local fixture actually differs",
+          ev["sunset"].astimezone(TZ).hour != ev["sunset"].hour)
     # the 12-hour clock boundaries: noon and midnight are where `or 12` and `< 12` break
     for h, expect in ((0, "12:"), (12, "12:")):
         t = datetime(2026, 8, 17, h, 5, tzinfo=TZ)
@@ -624,7 +633,7 @@ def run():
 
     # ---- 13j. DATE-QUALIFIED asks are refused, not answered with today's time ----------------
     for t in ("cal sunset tomorrow?", "cal what time is sunset on christmas?",
-              "cal when was sunset yesterday?", "cal sunrise next monday", "cal sunset 12/25"):
+              "cal when was sunset yesterday?", "cal sunrise next monday", "cal sunset dec 25"):
         r, m = S.answer(t, LAT, LON, TZ, now)
         check(f"other-day ask refused: {t[:34]}",
               m["refused"] == "other day" and not any(c.isdigit() for c in (r or "")), (r, m))
@@ -661,35 +670,72 @@ def run():
         _p = R.plan_response(_yc, "!aaaaaaaa", q)
         check(f"time-qualifier ask not claimed by sunmoon: {q[:34]}",
               _p["capability"] != "sunmoon", (_p["capability"], _p["fixed_reply"]))
-    check("only_time_qualifier: object form", not S.only_time_qualifier("cal when is sunset"))
-    check("only_time_qualifier: qualifier form", S.only_time_qualifier("cal will it rain at sunset"))
-    check("only_time_qualifier: mixed counts as object",
-          not S.only_time_qualifier("cal sunset time, and will it rain at dusk"))
-    check("only_time_qualifier: 'till dark' is the ask, not a qualifier",
-          not S.only_time_qualifier("cal how long till dark"))
-    #     "recognition is the refusal" is UNCONDITIONAL, so a moon rise/set ask is claimed even
-    #     when the word appears only as a qualifier. Without that clause "will it rain at
-    #     moonrise" declines and the model answers a moonrise question.
-    for q in ("cal will it rain at moonrise", "cal cold by moonset?"):
-        check(f"qualifier-form moon rise/set STILL claimed: {q[:34]}",
-              S.only_time_qualifier(q) and S.explain_match(q)["via"] == "moon_riseset")
-        _p = R.plan_response(_yc, "!aaaaaaaa", q)
-        check(f"qualifier-form moon rise/set refused, not dropped: {q[:34]}",
-              _p["capability"] == "sunmoon" and "not built" in (_p["fixed_reply"] or ""),
-              (_p["capability"], _p["fixed_reply"]))
-    #     the span dedupe: overlapping patterns must not double-count a single mention, or a fully
-    #     qualified ask never looks fully qualified. "cold by dusk?" is one mention, not two.
-    check("single mention counted once (span dedupe)", S.only_time_qualifier("cal cold by dusk?"))
-    check("two mentions, one qualified, is NOT fully qualified",
-          not S.only_time_qualifier("cal sunset time, and will it rain at dusk"))
+    # ARBITRATION IS POSITIONAL. The qualifier-grammar mechanism these checks used to cover is
+    # gone: it was the fourth attempt at this question and the first to be wrong in BOTH
+    # directions at once (2400/2400 coordinated weather asks claimed with a sun time; 216/294 moon
+    # asks yielded to the model because its mention set listed four of five trigger regexes).
+    # What a message asks for is carried by ORDER, not by which words appear.
+    check("subject-first: sun opens the sentence",
+          S.mention_positions("cal when does it get dark, storm coming")[0]
+          < _W.mention_positions("cal when does it get dark, storm coming")[0])
+    check("subject-first: weather opens the sentence",
+          _W.mention_positions("will it rain at sunset")[0]
+          < S.mention_positions("will it rain at sunset")[0])
+    check("mention set covers EVERY trigger regex (moon included)",
+          S.mention_positions("how bright is the moon at dusk?") != []
+          and len(S.mention_positions("the moon")) == 1)
+    check("coordination cannot defeat it",
+          _W.mention_positions("will it rain at sunrise or sunset?")[0]
+          < S.mention_positions("will it rain at sunrise or sunset?")[0])
+    for punct in ("(sunset)?", '"sunset?', "-- sunset?", "~sunset?"):
+        q = "will it rain at " + punct
+        check(f"punctuation cannot defeat it: {punct}",
+              _W.mention_positions(q)[0] < S.mention_positions(q)[0])
+    check("time interrogative overrides position",
+          S.governed_by_time_ask("rain later, when is sunset"))
+    check("no interrogative, no override",
+          not S.governed_by_time_ask("will it rain at sunset"))
+    # END TO END, not just the predicate: removing the override from the responder left the
+    # predicate's own checks green while the routing silently changed.
+    _pov = R.plan_response(_yc, "!aaaaaaaa", "rain later, when is sunset")
+    check("time-ask override actually routes", _pov["capability"] == "sunmoon"
+          and "Sunset" in (_pov["fixed_reply"] or ""), (_pov["capability"], _pov["fixed_reply"]))
+    # ties: a tie goes to weather, the armed capability. No realistic input ties today (measured 0
+    # across the corpus), so this is a documented decision rather than a covered branch —
+    # flipping < to <= is an EQUIVALENT mutation and is recorded as such, not chased.
+    check("tie rule favours the armed capability",
+          "sm_first[0] < w_first[0]" in open(os.path.join(HERE, "responder.py")).read())
+    # safe weekday abbreviations after a preposition ARE day shifts; the colliding two are not
+    check("'this wed' is a day shift", S.answer("cal sunset this wed", LAT, LON, TZ, now)[1]["refused"] == "other day")
+    check("'this sun' is not", S.answer("cal when does it get dark? this sun is brutal",
+                                        LAT, LON, TZ, now)[1]["refused"] != "other day")
+
+    # THE IMPORT GUARD MUST ACTUALLY FIRE. Asserting its spelling in the source is not the same as
+    # asserting it raises: neutering it to `if False and ...` passed the whole corpus, and the one
+    # behavioural check is vacuous by construction — adding a bogus weak token kills the eval at
+    # import, so the check can never be the thing that goes red. Load a mutated COPY instead.
+    import tempfile as _tf, shutil as _sh
+    _src = open(os.path.join(HERE, "sunmoon.py")).read()
+    with _tf.TemporaryDirectory() as _td:
+        _bad = _src.replace('_WEAK_TOKENS = ("dawn", "dusk", "twilight", "daylight")',
+                            '_WEAK_TOKENS = ("dawn", "dusk", "twilight", "daylight", "gloaming")')
+        check("guard fixture actually mutates the token list", _bad != _src)
+        _path = os.path.join(_td, "sunmoon_guard.py")
+        open(_path, "w").write(_bad)
+        _spec2 = importlib.util.spec_from_file_location("sunmoon_guard", _path)
+        _m2 = importlib.util.module_from_spec(_spec2)
+        try:
+            _spec2.loader.exec_module(_m2)
+            check("import guard REFUSES a weak token with no intent", False, "loaded clean")
+        except AssertionError:
+            check("import guard REFUSES a weak token with no intent", True)
+        except Exception as _e:
+            check("import guard REFUSES a weak token with no intent", False, repr(_e))
 
     # (b) ONE TEMPORAL TABLE, OR AT LEAST TWO THAT AGREE. _OTHER_DAY sits beside
     #     weather._FORECAST and they diverged immediately — weather knew "this weekend" and
     #     "next week" while this missed them, and each miss was answered with TODAY's time. Cross
     #     -check every day-shifting phrase weather knows so they cannot drift apart silently.
-    import importlib.util as _ilu
-    _wspec = _ilu.spec_from_file_location("weather_x", os.path.join(HERE, "weather.py"))
-    _W = _ilu.module_from_spec(_wspec); _wspec.loader.exec_module(_W)
     #     The two tables legitimately differ, and the cross-check has to respect that or it is
     #     just wrong in the other direction. Weather refuses ANY future phrase because it holds
     #     observations only — "later", "tonight", "this evening", "overnight" are all forecasts to
@@ -709,10 +755,33 @@ def run():
         check(f"within-today phrase still answered: {phrase!r}",
               _m["refused"] != "other day", (_r, _m))
     for q in ("cal sunrise sunday?", "cal sunset saturday?", "cal sunset this weekend?",
-              "cal sunset in 3 days?", "cal sunset on the 4th?", "cal sunset in a week?",
-              "cal sunset next week", "cal sunset dec 25", "cal sunset on monday"):
+              "cal sunset in 3 days?", "cal sunset on the 4th", "cal sunset in a week?",
+              "cal sunset next week", "cal sunset dec 25", "cal sunset on monday",
+              "cal when was sunset yesterday?"):
         _r, _m = S.answer(q, LAT, LON, TZ, now)
         check(f"other-day refused: {q[:32]}", _m["refused"] == "other day", (_r, _m))
+    # DELIBERATE OMISSION, asserted so it is a decision and not a gap: a bare N/N form is NOT a
+    # date here. "50/50 chance of rain", "3/4 throttle" and "1/2 mile" are ordinary mesh traffic
+    # and were all refused as other-day asks; a numeric date carrying no other cue is rare by
+    # comparison, and calc owns fractions. Month names, weekday names, "on the 4th" and relative
+    # offsets carry the real cases.
+    for q in ("cal when is sunset? 50/50 chance of rain", "cal sunset? doing 3/4 throttle",
+              "cal sunset? 1/2 mile out", "cal sunset 12/25"):
+        check(f"bare N/N is not a date: {q[:34]}",
+              S.answer(q, LAT, LON, TZ, now)[1]["refused"] != "other day")
+    # weekday ABBREVIATIONS are not bare triggers either — "this sun" sits inside this
+    # capability's most common phrasing, and "on sat we ride" is a ride plan.
+    for q in ("cal when does it get dark? this sun is brutal",
+              "cal how much light left? on sat we ride",
+              "cal when does it get dark on the 5 mile loop"):
+        check(f"weekday abbreviation is not a day shift: {q[:38]}",
+              S.answer(q, LAT, LON, TZ, now)[1]["refused"] != "other day")
+    # and _NOT_SKY must veto a moon collocation even though the rise/set proximity pattern fires
+    for q in ("cal grab a moon pie on the way down",
+              "cal when did the moon landing set the record?",
+              "cal the moon shot is set for next month"):
+        check(f"NOT_SKY beats the riseset pattern: {q[:38]}", not S.wants_sunmoon(q))
+    check("but a real moon rise/set ask still claims", S.wants_sunmoon("cal when does the moon rise"))
     for q in ("cal sunset", "cal when does it get dark", "cal when does the sun go down",
               "cal sunrise?", "cal when is dawn?", "cal how long till dark", "cal solar noon"):
         check(f"today's ask NOT refused as other-day: {q[:34]}",
@@ -731,11 +800,23 @@ def run():
 
     # (d) THE REFUSAL MUST FIT THE BOUND IT ENFORCES. The old string was 29 chars and was emitted
     #     at max_chars=25 — the exact case _bounded's own docstring names.
-    for mc in (0, 1, 5, 8, 10, 15, 25, 29, 120):
+    for mc in (1, 5, 8, 10, 15, 25, 29, 120):
         _r, _m = S.answer("cal when does it get dark", LAT, LON, TZ, now, max_chars=mc)
         check(f"reply or refusal fits max_chars={mc}", _r is None or len(_r) <= mc, (_r, mc))
         if mc < 28:
             check(f"over-length is marked refused at max_chars={mc}", _m["refused"] == "too long")
+            # AND it must actually EMIT something. Replacing the whole degradation ladder with
+            # `return None` passed 838 checks, and None makes the responder treat the capability
+            # as declined — handing a sun question to the language model, which _bounded's own
+            # comment calls the worse outcome. Every bound >= 1 has a rung that fits.
+            check(f"over-length still EMITS a refusal at max_chars={mc}",
+                  isinstance(_r, str) and len(_r) <= mc, (_r, mc))
+    # every other refusal path is bounded too — two of them used to return directly, bypassing it
+    for q in ("cal sunset tomorrow?", "cal sunset saturday?"):
+        for mc in (1, 5, 10, 15, 20, 25):
+            _r, _m = S.answer(q, LAT, LON, TZ, now, max_chars=mc)
+            check(f"other-day refusal fits max_chars={mc}: {q[:22]}",
+                  _r is None or len(_r) <= mc, (_r, mc))
 
     # ---- 14. moon rise/set is REFUSED, never estimated ----------------------------------------
     for t in ("cal when does the moon rise", "cal moonset tonight", "cal what time is moonrise",
@@ -964,8 +1045,10 @@ if __name__ == "__main__":
         print("\nall mutations caught" if ok else "\nA MUTATION SURVIVED — eval is vacuous")
         sys.exit(0 if ok else 1)
     p, f = run()
-    if not VECTORS:
-        f.append("NO AUTHORITATIVE VECTORS LOADED — structure is checked, accuracy is not")
+    # A FLOOR, not merely non-emptiness. Deleting 42 of 43 vectors printed green and exited 0,
+    # while the commit cited the total as evidence.
+    if len(VECTORS) < 40:
+        f.append(f"ONLY {len(VECTORS)} AUTHORITATIVE VECTORS — accuracy coverage has been gutted")
     print(f"eval_sunmoon: {p} passed, {len(f)} failed")
     for name in f:
         print("  FAIL:", name)

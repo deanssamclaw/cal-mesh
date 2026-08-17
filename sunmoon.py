@@ -316,13 +316,18 @@ _MOON_RISESET = re.compile(r"\b(moon\s*rise|moonrise|moon\s*set|moonset|moon\s*o
 # ("sunset saturday") and relative offsets ("in 3 days"), each of which was answered with today's
 # time. The eval now cross-checks this against every day-shifting phrase weather knows, so the two
 # cannot drift apart silently again — the divergence, not the individual misses, is the defect.
-_DAYNAME = r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun"
+_DAYNAME_FULL = r"monday|tuesday|wednesday|thursday|friday|saturday|sunday"
+_DAYNAME = _DAYNAME_FULL + r"|mon|tue|tues|wed|thu|thur|thurs|fri"   # 'sat'/'sun' never bare
 _MONTH = (r"january|february|march|april|may|june|july|august|september|october|november|december|"
           r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec")
 _OTHER_DAY = re.compile(
     r"\b(?:tomorrow|tmrw|tmw|yesterday|"
-    r"(?:next|last|this)\s+(?:day|week|month|year|weekend|" + _DAYNAME + r")|"
+    r"(?:next|last|this)\s+(?:day|week|month|year|weekend|" + _DAYNAME_FULL + r")|"
     r"last\s+night|"
+    # _DAYNAME here, which is full names PLUS the abbreviations that do not collide. The
+    # dangerous two are already absent from it: "this sun is brutal" and "on sat we ride" were
+    # both refused as other-day asks, and "this sun" sits inside the most common phrasing this
+    # capability has. "this wed" is a genuine day shift and stays covered.
     r"(?:on|this|next|last)\s+(?:" + _DAYNAME + r")|"
     # A bare weekday name anywhere is a day shift ("sunset saturday?"). FULL names only: the
     # abbreviations collide badly on this of all paths — "sun" is inside no word boundary of
@@ -332,10 +337,14 @@ _OTHER_DAY = re.compile(
     r"in\s+\d+\s+(?:day|days|week|weeks|month|months)|"
     r"in\s+a\s+(?:day|week|month)|"
     r"\d+\s+days?\s+(?:from\s+now|out|ahead)|"
-    r"on\s+(?:christmas|new\s*years?|thanksgiving|halloween|easter|the\s+\d{1,2}(?:st|nd|rd|th)?)|"
+    r"on\s+(?:christmas|new\s*years?|thanksgiving|halloween|easter|the\s+\d{1,2}(?:st|nd|rd|th))|"
     r"in\s+(?:" + _MONTH + r")|"
-    r"(?:" + _MONTH + r")\s+\d{1,2}|"
-    r"\d{1,2}/\d{1,2})\b",
+    r"(?:" + _MONTH + r")\s+\d{1,2}"
+    # A bare N/N date form is deliberately ABSENT. "50/50 chance of rain", "3/4 throttle" and
+    # "1/2 mile" are ordinary mesh traffic and were all refused as other-day asks; a numeric date
+    # with no other cue is rare by comparison, and calc owns fractions. Month names, weekday
+    # names, "on the 4th" and relative offsets carry the real cases.
+    r")\b",
     re.I)
 
 
@@ -373,6 +382,12 @@ def explain_match(text):
     # though each carries a strong token — defeating the very purpose of recognising an ask so it
     # can be answered or refused. An exclusion should suppress ambiguity, never override certainty.
     excluded = bool(_NOT_SKY.search(t))
+    if excluded and riseset and not (sun_s or moon_s):
+        # _MOON_RISESET's proximity alternative fires on any rise/set/up/down/out word within 20
+        # chars of "moon", which every _NOT_SKY moon collocation can satisfy — "grab a moon pie on
+        # the way down" was refused as a moon rise/set ask. An exclusion that the pattern it
+        # excludes can bypass is not an exclusion.
+        riseset = False
     if excluded and not (sun_s or moon_s or riseset):
         return {"sun": [], "moon": [], "via": None, "moon_riseset": False, "excluded": True}
     if riseset:
@@ -395,45 +410,36 @@ def explain_match(text):
             "excluded": excluded}
 
 
-# A sun/moon word can be the OBJECT of the question ("when is sunset") or a TIME QUALIFIER on a
-# different question ("will it rain AT sunset", "cold BY dusk"). Only the first belongs to this
-# capability. Detecting the difference grammatically is what lets sun/moon yield precisely, instead
-# of yielding on the mere presence of a weather word — which dropped 86% of a measured grid to no
-# capability at all, including moonrise asks this module recognises specifically in order to refuse.
-# 'til/till/until' are deliberately NOT qualifiers: "how long till dark" is the ask itself, and
-# _INTENTS already lists "till dark"/"until dark" as dark-intent phrases. Treating them as
-# qualifiers made the module decline the exact question it exists to answer.
-_QUALIFIER = re.compile(r"\b(?:at|by|before|after|around|during)\s+"
-                        r"(?:the\s+)?(?:sunset|sunrise|sundown|dusk|dawn|dark|nightfall|"
-                        r"twilight|daylight|first\s*light|last\s*light|moonrise|moonset)\b", re.I)
+def mention_positions(text):
+    """Character offsets of every sun/moon word in the text, ascending.
 
-
-def only_time_qualifier(text):
-    """True if EVERY sun/moon word in the text is preceded by a qualifier preposition.
-
-    'will it rain at sunset' -> True (the ask is about rain). 'when is sunset' -> False.
-    'sunset time, and will it rain at dusk' -> False, because one mention is unqualified.
+    Counterpart to weather.mention_positions. Deduped by span because the trigger regexes overlap
+    by design ("dusk" is both a derived strong token and a weak one) — and it enumerates EVERY
+    regex explain_match consults, which the previous mechanism did not: it listed four of five and
+    silently dropped `moon`, so 216 of 294 genuine moon asks were judged to have no mentions at
+    all and were handed away.
     """
     t = text or ""
-    m = explain_match(t)
-    if not m["via"]:
+    pos = set()
+    for rx in (_SUN_STRONG, _SUN_WEAK, _MOON_STRONG, _MOON_WEAK, _MOON_RISESET):
+        for m in rx.finditer(t):
+            pos.add(m.start())
+    return sorted(pos)
+
+
+# A time interrogative directly governing a sun/moon word settles it outright, regardless of what
+# else the sentence mentions first: "rain later, when is sunset" is a sunset question with a
+# weather clause in front of it.
+_TIME_ASK = re.compile(r"\b(?:when|what\s+time|how\s+long|what's\s+the\s+time|whens?)\b", re.I)
+
+
+def governed_by_time_ask(text, window=28):
+    """True if a sun/moon word follows a time interrogative closely enough to be its object."""
+    t = text or ""
+    asks = [m.end() for m in _TIME_ASK.finditer(t)]
+    if not asks:
         return False
-    # Count DISTINCT mentions by span. The regexes overlap by design — "dusk" is both a derived
-    # strong token and a weak one — so summing findall() counts it twice and the message never
-    # looks fully qualified. ("cold by dusk?" scored 1 qualifier against 2 mentions and was
-    # claimed.) Spans dedupe it without caring which pattern matched.
-    spans = set()
-    for rx in (_SUN_STRONG, _SUN_WEAK, _MOON_STRONG, _MOON_RISESET):
-        for mm in rx.finditer(t):
-            spans.add(mm.span())
-    # drop spans wholly contained in a larger one, so a single phrase counts once
-    mentions = [sp for sp in spans
-                if not any(o != sp and o[0] <= sp[0] and sp[1] <= o[1] for o in spans)]
-    if not mentions:
-        return False
-    qual = [mm.span() for mm in _QUALIFIER.finditer(t)]
-    covered = sum(1 for sp in mentions if any(q[0] <= sp[0] and sp[1] <= q[1] for q in qual))
-    return covered == len(mentions)
+    return any(0 <= p - a <= window for a in asks for p in mention_positions(t))
 
 
 def wants_sunmoon(text):
@@ -457,7 +463,7 @@ def _bounded(reply, meta, max_chars):
         # emitted at max_chars=5, 10 and 25 — including 25, the exact setting this function's own
         # docstring names as the motivating case. A bound that its own violation message breaks is
         # not a bound. Below any plausible floor it degrades rather than lying.
-        for cand in ("Answer too long for this link", "Answer too long", "Too long"):
+        for cand in ("Answer too long for this link", "Answer too long", "Too long", "long", "-"):
             if len(cand) <= max_chars:
                 return cand, meta
         return None, meta
@@ -577,11 +583,11 @@ def answer(text, lat, lon, tz, now, max_chars=160):
     # was never consulted here.
     if _OTHER_DAY.search(text):
         meta["intent"], meta["refused"] = "other_day", "other day"
-        return "I only have today's times", meta
+        return _bounded("I only have today's times", meta, max_chars)
 
     if not (1901 <= now.year <= 2099):
         meta["refused"] = "out of epoch"
-        return "Date outside my accurate range", meta
+        return _bounded("Date outside my accurate range", meta, max_chars)
 
     if m["via"] == "moon_riseset":
         # Recognised so it can be refused HONESTLY. Left unrecognised it would fall through to the
