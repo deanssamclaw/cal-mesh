@@ -561,7 +561,170 @@ def _h_arith(t, trig=None):
     return "%s = %s" % (expr.strip(), fmt(val, 6))
 
 
-HANDLERS = (_h_wavelength, _h_fspl, _h_dbm, _h_ohm, _h_acres, _h_convert,
+# ---------------------------------------------------------------------------------------------
+# Tier 2b — NAVIGATION. Closed-form, offline, and it takes its coordinates from the MESSAGE.
+#
+# It never reads the observer point. Every other capability here that touches a location gets it
+# from config; this one must not, because a nav answer derived from Cal's own position would put
+# that position on a public channel by arithmetic. Coordinates are an input the asker supplies.
+# ---------------------------------------------------------------------------------------------
+# IUGG mean radius R1 = (2a+b)/3, the value published spherical references use. The rounded
+# 6371.0088 form is NOT a quoted figure anywhere — a research pass looked for it in the source and
+# found zero occurrences; it is a rounding that gets repeated. Immaterial numerically (1.8 cm over
+# a transcontinental path) and corrected anyway, because a constant should be the value someone
+# published rather than the value everyone repeats.
+R_EARTH_KM = Decimal("6371.0087714")
+
+_FIELD = "ABCDEFGHIJKLMNOPQR"
+_SUB = "abcdefghijklmnopqrstuvwx"
+_GRID_RE = re.compile(r"\b([A-R]{2})([0-9]{2})(?:([A-X]{2})([0-9]{2})?)?\b", re.I)
+# A coordinate pair as a human types it. calc REFUSES "39.0,-95.0" as arithmetic (it is a
+# coordinate, not a subtraction) — this is the handler that gives that shape a real meaning.
+# At least one side must carry a decimal point or a minus sign. Two bare integers ("20 30") are
+# dimensions, a score, or a range far more often than a position, and this module refuses those
+# shapes everywhere else — it would be inconsistent to read them as a fix here.
+_LATLON = re.compile(r"(?<![\d.])(-\d{1,2}(?:\.\d+)?|\d{1,2}\.\d+)\s*[, ]\s*"
+                     r"(-\d{1,3}(?:\.\d+)?|\d{1,3}\.\d+)(?![\d.])")
+
+
+def grid_to_latlon(loc):
+    """Centre of a Maidenhead locator. 4- or 6-character; anything else is refused.
+
+    The centre, not the south-west corner: a locator names an AREA, and reporting its corner as
+    'the' coordinate is off by half a square — 1 degree of latitude for a 4-character grid, which
+    is about 60 nautical miles and would look entirely plausible.
+    """
+    loc = loc.strip()
+    # 2/4/6/8 only. The 8-character extended square (30" x 15") was ratified by IARU Region 1 in
+    # 1993; beyond 8 no common definition exists, so longer locators are refused rather than
+    # guessed at. 2-character fields are accepted but are 20x10 degrees — barely a location.
+    if len(loc) not in (4, 6, 8):
+        raise CalcError("grid must be 4, 6 or 8 characters")
+    f1, f2 = loc[0].upper(), loc[1].upper()
+    if f1 not in _FIELD or f2 not in _FIELD or not loc[2:4].isdigit():
+        raise CalcError("not a valid grid square")
+    lon = -180.0 + _FIELD.index(f1) * 20.0 + int(loc[2]) * 2.0
+    lat = -90.0 + _FIELD.index(f2) * 10.0 + int(loc[3]) * 1.0
+    if len(loc) >= 6:
+        s1, s2 = loc[4].lower(), loc[5].lower()
+        if s1 not in _SUB or s2 not in _SUB:
+            raise CalcError("not a valid subsquare")
+        lon += _SUB.index(s1) * (2.0 / 24.0)
+        lat += _SUB.index(s2) * (1.0 / 24.0)
+        if len(loc) == 8:
+            if not loc[6:8].isdigit():
+                raise CalcError("not a valid extended square")
+            lon += int(loc[6]) * (2.0 / 240.0) + (2.0 / 480.0)
+            lat += int(loc[7]) * (1.0 / 240.0) + (1.0 / 480.0)
+        else:
+            lon += 2.0 / 48.0
+            lat += 1.0 / 48.0
+    else:
+        lon += 1.0
+        lat += 0.5
+    return lat, lon
+
+
+def latlon_to_grid(lat, lon):
+    """6-character Maidenhead locator containing a point."""
+    if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
+        raise CalcError("coordinates out of range")
+    lat = min(lat, 89.99999)
+    lon = min(lon, 179.99999)
+    alon, alat = lon + 180.0, lat + 90.0
+    f1, f2 = int(alon // 20), int(alat // 10)
+    n1, n2 = int((alon % 20) // 2), int((alat % 10) // 1)
+    s1 = int((alon % 2) / (2.0 / 24.0))
+    s2 = int((alat % 1) / (1.0 / 24.0))
+    return "%s%s%d%d%s%s" % (_FIELD[f1], _FIELD[f2], n1, n2, _SUB[s1], _SUB[s2])
+
+
+def great_circle(lat1, lon1, lat2, lon2):
+    """(distance_km, initial_bearing_deg) on a sphere, or raise if undefined.
+
+    Haversine rather than the law of cosines: the cosine form loses precision on short baselines,
+    where a mesh operator actually is. Bearing is undefined for identical points and for exact
+    antipodes, and both refuse rather than returning the 0 that the arithmetic would hand back.
+    """
+    # POSITIVE assertion, deliberately. Written as `if abs(v) > lim: raise`, NaN slips through —
+    # every comparison against NaN is False, so the guard never fires and NaN poisons the distance
+    # and the bearing silently. Written this way, `-90 <= nan <= 90` is False and NaN is refused
+    # for free. Verified: the negative form returned NaN km on a NaN latitude.
+    for v, lim in ((lat1, 90.0), (lat2, 90.0), (lon1, 180.0), (lon2, 180.0)):
+        if not (-lim <= v <= lim):
+            raise CalcError("coordinates out of range")
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1 - a)))
+    dist = Decimal(str(c)) * R_EARTH_KM
+    if c < 1e-12:
+        raise CalcError("same point")
+    # NEAR-ANTIPODAL BEARINGS ARE NOT REPORTABLE, even though the spherical arithmetic is stable.
+    # At 179.8 degrees of separation the spherical initial bearing differs from the WGS84 geodesic
+    # by 42 degrees (measured against Karney's published antipodal vector). The number would be
+    # internally correct for a sphere and useless for navigating on the Earth, which is the
+    # confidently-wrong shape this module exists to avoid. Distance still holds to ~0.5%.
+    if c > math.radians(179.0):
+        raise CalcError("near-antipodal, bearing not reliable")
+    y = math.sin(dl) * math.cos(p2)
+    x = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl)
+    brg = (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+    return dist, Decimal(str(brg))
+
+
+def _points(t):
+    """[(lat, lon, from_grid)] for every point in the text, in the order it appears."""
+    pts = []
+    for m in _GRID_RE.finditer(t):
+        la, lo = grid_to_latlon(m.group(0))
+        pts.append((m.start(), (la, lo, len(m.group(0).strip()))))
+    for m in _LATLON.finditer(t):
+        pts.append((m.start(), (float(m.group(1)), float(m.group(2)), 0)))
+    return [p for _, p in sorted(pts)]
+
+
+def _h_grid(t, trig=None):
+    # 'square' alone is NOT a trigger: "20 30 ft square in acres" would read the dimensions as a
+    # coordinate pair. "grid square" still matches on 'grid'.
+    if not re.search(r"\b(grid|maidenhead|locator)\b", t):
+        return None
+    ll = _LATLON.search(t)
+    if ll:
+        lat, lon = float(ll.group(1)), float(ll.group(2))
+        return "%s,%s is grid %s" % (fmt(Decimal(ll.group(1)), 4), fmt(Decimal(ll.group(2)), 4),
+                                     latlon_to_grid(lat, lon))
+    g = _GRID_RE.search(t)
+    if not g:
+        return None
+    lat, lon = grid_to_latlon(g.group(0))
+    return "%s is %s, %s (square centre)" % (g.group(0).upper()[:4] + g.group(0)[4:].lower(),
+                                             fmt(Decimal(str(round(lat, 4))), 4),
+                                             fmt(Decimal(str(round(lon, 4))), 4))
+
+
+def _h_distance(t, trig=None):
+    if not re.search(r"\b(distance|how far|bearing|heading|azimuth)\b", t):
+        return None
+    pts = _points(t)
+    if len(pts) < 2:
+        return None
+    (la1, lo1, g1), (la2, lo2, g2) = pts[0], pts[1]
+    d, b = great_circle(la1, lo1, la2, lo2)
+    mi = d / MI_M * 1000
+    # DO NOT PRINT PRECISION THAT WAS NOT SUPPLIED. A 6-character locator is a cell up to 10.4 km
+    # across, so decoding to its centre carries up to ~5 km of positional error per endpoint —
+    # which swamps the model's own 0.5% entirely on any path a mesh operator cares about. When
+    # either endpoint came from a coarse grid the distance is rounded to whole km and the reply
+    # says why, rather than printing a tenth of a kilometre nobody earned.
+    coarse = (0 < g1 <= 6) or (0 < g2 <= 6)
+    places = 0 if coarse else 1
+    note = "from grid centres, +/-5 km" if coarse else "great circle"
+    return "%s km / %s mi, bearing %s deg (%s)" % (
+        fmt(d, places), fmt(mi, places), fmt(b, 0), note)
+
+
+HANDLERS = (_h_grid, _h_distance, _h_wavelength, _h_fspl, _h_dbm, _h_ohm, _h_acres, _h_convert,
             _h_fraction, _h_percent, _h_arith)
 
 

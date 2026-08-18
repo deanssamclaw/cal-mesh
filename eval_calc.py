@@ -523,6 +523,114 @@ def run():
     check("collision -> no weather fetch, no model", _pc["weather_fact"] is None
           and _pc["prompt"] is None)
 
+    # ---- 8i. NAVIGATION, pinned to PUBLISHED SPHERICAL vectors ------------------------------
+    #      Pinned to values published for the SAME earth model this code uses. A haversine on a
+    #      sphere and a geodesic on WGS84 disagree by up to ~0.5% in distance and by tens of
+    #      degrees in bearing near antipodes, so an ellipsoidal reference would be the wrong
+    #      oracle — it would look like a bug in the code and is a difference in the model.
+    #      Sources: Veness geodesy latlon-spherical.js docblock (R=6371000);
+    #      Wikipedia great-circle worked example, revision oldid=365244124 (R=6371.01).
+    d, b = C.great_circle(52.205, 0.119, 48.857, 2.351)
+    check("Veness spherical: distance 404.3 km", abs(float(d) - 404.3) < 0.3)
+    check("Veness spherical: initial bearing 156.2 deg", abs(float(b) - 156.2) < 0.1)
+    d, b = C.great_circle(36.12, -86.67, 33.94, -118.40)
+    check("BNA->LAX spherical: 2886.45 km", abs(float(d) - 2886.45) < 0.05)
+    # the radius is the PUBLISHED IUGG mean, not the rounding that gets repeated
+    check("earth radius is the published IUGG mean",
+          str(C.R_EARTH_KM) == "6371.0087714")
+    # identical points and near-antipodal bearings REFUSE rather than returning arithmetic
+    check("identical points refused", _raises(lambda: C.great_circle(39.0, -95.0, 39.0, -95.0)))
+    check("near-antipodal bearing refused",
+          _raises(lambda: C.great_circle(-30.0, 0.0, 29.9, 179.8)))
+    check("179.8 deg apart is genuinely near-antipodal (fixture is valid)",
+          abs(C.great_circle(-30.0, 0.0, 29.0, 179.8)[0]) > 0)
+    for bad in ((91.0, 0.0, 0.0, 0.0), (0.0, 181.0, 0.0, 0.0), (0.0, 0.0, -91.0, 0.0)):
+        check(f"out-of-range coordinates refused {bad}", _raises(lambda: C.great_circle(*bad)))
+    # a short baseline — where a mesh operator actually is — must stay precise
+    d, _ = C.great_circle(39.0000, -95.0000, 39.0100, -95.0000)
+    check("short baseline ~1.111 km (1/100 degree of latitude)", abs(float(d) - 1.1119) < 0.002)
+
+    # nav must not steal from the other handlers, nor fire on ordinary dimensions
+    for t in ("cal 20 30 ft square in acres", "cal 100 200 square", "cal 8 x 10 square feet",
+              "cal 2+2", "cal 39.0,-95.0", "cal 5 mi in km"):
+        r = ans(t)
+        check(f"nav does not fire on: {t[4:30]}", r is None or "grid" not in r and "bearing" not in r)
+    check("bare coordinate pair still refused as arithmetic", ans("cal 39.0,-95.0") is None)
+    check("grid needs its keyword", ans("cal EM28pv") is None)
+
+    # ---- 8j. MAIDENHEAD, pinned to the IARU spec and published worked examples --------------
+    #      Decode is to the squaroid CENTRE. That is not folklore — it is IARU R1 recommendation
+    #      LA17_C5_Rec_23 (adopted 53-0-0), which also records that "some software is believed to
+    #      use the lower left corner". For a 4-character grid the corner is a full degree of
+    #      latitude out, about 60 nautical miles, and looks entirely plausible.
+    for loc, la, lo in (("FN31PR", 41.729167, -72.708333),      # W1AW / ARRL HQ square
+                        ("IO91XL", 51.479167, -0.041667),       # Royal Observatory Greenwich
+                        ("JO01AL", 51.479167, 0.041667),        # 100 m east — the field FLIPS
+                        ("QF56OD", -33.854167, 151.208333),     # S+E
+                        ("RE78JR", -41.270833, 174.791667),     # S+E near the antimeridian
+                        ("GF05TJ", -34.604167, -58.375000),     # S+W
+                        ("KI88JR", -1.270833, 36.791667),       # just south of the equator
+                        ("FI09RS", -0.229167, -78.541667),      # just south, western hemisphere
+                        ("JJ00AA", 0.020833, 0.041667),         # equator x prime meridian cell
+                        ("AA00AA", -89.979167, -179.958333),    # extreme SW, field boundary
+                        ("RR99XX", 89.979167, 179.958333),      # extreme NE, field boundary
+                        ("FN31PR21", 41.714583, -72.729167),    # 8-char extended square
+                        ("IO91XL94", 51.477083, -0.004167),
+                        ("JJ00AA00", 0.002083, 0.004167),
+                        ("AA00AA00", -89.997917, -179.995833),
+                        ("RR99XX99", 89.997917, 179.995833)):
+        g = C.grid_to_latlon(loc)
+        check(f"grid centre {loc}", abs(g[0] - la) < 1e-5 and abs(g[1] - lo) < 1e-5, )
+    # IARU's own published worked examples, quoted as SW CORNERS — the only figures the spec
+    # actually prints, so they pin the corner arithmetic the centre is derived from.
+    for loc, swla, swlo, span_la, span_lo in (("IO90", 50.0, -2.0, 1.0, 2.0),
+                                              ("IO90IV", 50.875, -1.3333333, 1 / 24.0, 2 / 24.0)):
+        g = C.grid_to_latlon(loc)
+        check(f"IARU worked example SW corner {loc}",
+              abs((g[0] - span_la / 2) - swla) < 1e-5 and abs((g[1] - span_lo / 2) - swlo) < 1e-5)
+    # THE DECOY: IO91WM is central London, widely mis-cited as Greenwich. The Observatory is
+    # IO91XL. If these ever collapse to the same value the decoder has lost a subsquare.
+    check("IO91WM is London, NOT Greenwich",
+          C.grid_to_latlon("IO91WM") != C.grid_to_latlon("IO91XL"))
+    check("IO91WM centre is Westminster",
+          abs(C.grid_to_latlon("IO91WM")[0] - 51.520833) < 1e-5)
+    # ENCODE floors, never rounds. A widely-used PyPI package adds 0.5 before truncating and puts
+    # a point 11 m WEST of the prime meridian into the EASTERN field (0.57% containment failures).
+    check("encode floors at the prime meridian", C.latlon_to_grid(51.0, -0.0001).upper() == "IO91XA")
+    check("encode east of it flips the field", C.latlon_to_grid(51.0, 0.0001).upper() == "JO01AA")
+    # containment: every landmark must encode into the square the sources place it in
+    for la, lo, loc in ((41.71479, -72.72721, "FN31PR"),      # W1AW
+                        (51.477806, -0.001472, "IO91XL"),     # Airy Transit Circle
+                        (-33.85681, 151.21514, "QF56OD"),     # Sydney Opera House
+                        (-77.846323, 166.668235, "RB32ID"),   # McMurdo Station
+                        (-0.220000, -78.512500, "FI09RS"),    # Quito
+                        (21.300000, -157.850000, "BL11BH")):  # Honolulu (coarse, ~1 km)
+        check(f"landmark encodes into {loc}", C.latlon_to_grid(la, lo).upper()[:6] == loc)
+    # REFUSALS. Field is A-R (18) and subsquare A-X (24) — Y and Z are the classic bug, and an
+    # ord()-based decoder with a 26-letter assumption accepts them and produces a point outside
+    # the cell. Length must be 4, 6 or 8; beyond 8 no common definition exists.
+    for bad in ("SN31PR", "FN3APR", "FN31YR", "FN31PZ", "ZZ99ZZ", "FN3", "FN31P",
+                "FN31PRA", "FN31PR21A", "", "FN31PR2"):
+        check(f"invalid locator refused: {bad!r}", _raises(lambda b=bad: C.grid_to_latlon(b)))
+    check("case-insensitive", C.grid_to_latlon("fn31pr") == C.grid_to_latlon("FN31PR"))
+    for bad in ((91.0, 0.0), (-90.1, 0.0), (0.0, 181.0)):
+        check(f"encode refuses out-of-range {bad}", _raises(lambda b=bad: C.latlon_to_grid(*b)))
+    # NaN must be refused by the POSITIVE range assertion, in BOTH functions. Written as
+    # `if abs(v) > lim: raise`, every NaN comparison is False, the guard never fires, and NaN
+    # poisons distance and bearing silently. That was a live bug here.
+    _nan = float("nan")
+    check("encode refuses NaN", _raises(lambda: C.latlon_to_grid(_nan, 0.0)))
+    check("great_circle refuses NaN lat", _raises(lambda: C.great_circle(_nan, 0.0, 10.0, 10.0)))
+    check("great_circle refuses NaN lon", _raises(lambda: C.great_circle(0.0, _nan, 10.0, 10.0)))
+    # precision honesty: a 6-char grid is a cell up to 10.4 km across, so a distance between two
+    # grid centres has ~5 km of error per endpoint and must not print tenths of a kilometre
+    r_grid = ans("cal distance from EM28pv to FN31pr")
+    r_coord = ans("cal how far from 39.0,-95.0 to 40.0,-96.0")
+    check("grid distance is rounded and says why",
+          "grid centres" in r_grid and "." not in r_grid.split("km")[0])
+    check("coordinate distance keeps its precision",
+          "great circle" in r_coord and "." in r_coord.split("km")[0])
+
     # ---- 9. constants are the exact defined values ------------------------------------------
     check("foot exact", C.FT_M == Decimal("0.3048"))
     check("mile exact", C.MI_M == Decimal("1609.344"))
