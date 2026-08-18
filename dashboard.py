@@ -222,7 +222,8 @@ def correlate(inbox, sent, decisions):
                         ("gates", "sanitize", "prompt_kind", "model", "injected_fact",
                          "weather_ok", "gen_status", "injection_flagged", "dest",
                          "obs_station", "obs_age_s", "forecast_asked", "trigger_match",
-                         "greeting_gates", "greeting_reason", "calc")
+                         "greeting_gates", "greeting_reason", "calc",
+                         "sunmoon_match", "sunmoon")
                         if dec.get(k) is not None}
 
     replied = [d for d in decisions if d.get("matched") and d.get("reply")]
@@ -2251,6 +2252,35 @@ function flowHtml(x,t){
   // would say "what Cal looked up" and, with no injected_fact, "the lookup failed — the weather
   // service could not be reached" — for a reply that never touched the network. Nothing is
   // fetched here and no model runs: Python parsed the question and computed every digit.
+  if(x.capability==='sunmoon'){
+    const sm=t.sunmoon||{}, smm=t.sunmoon_match||{};
+    const intent=sm.intent?String(sm.intent):'', ev=sm.event?String(sm.event):'';
+    const refused=sm.refused?String(sm.refused):'';
+    const words=[].concat(smm.sun||[],smm.moon||[]).join(', ');
+    const s1=`<div class="fb b1"><div class="fk">1 &middot; the question</div><div class="fv">${inTxt}</div>`
+      +`<div class="fn"><span class="onair">&#10003; received on air</span> — the wording `
+      +`${words?('matched <b>'+esc(words)+'</b>, which'):'matched sun/moon wording, which'} `
+      +`selected this path</div></div>`;
+    const s2=`<div class="fb bx"><div class="fk">2 &middot; what the software recognised</div>`
+      +`<div class="fv">${esc(intent||'a sun/moon question')}</div>`
+      +`<div class="fn">the wording is classified only to <b>choose which fact to compute</b>, `
+      +`never to shape the sentence</div></div>`;
+    const s3=`<div class="fb bx"><div class="fk">3 &middot; what Cal computed</div>`
+      +`<div class="fv">${refused?esc('refused: '+refused):esc(ev||'closed-form astronomy')}</div>`
+      +`<div class="fn"><b>nothing was fetched and no model ran.</b> Sun and moon positions are `
+      +`computed from closed-form astronomy — no network, so this answer works when the base is `
+      +`offline. Measured against 43 U.S. Naval Observatory times: worst error 43 seconds. `
+      +`No coordinate appears in the reply; the observing point is an input, never an output.`
+      +`</div></div>`;
+    const s4=`<div class="fb b3"><div class="fk">4 &middot; what Cal sent</div><div class="fv">${outTxt}</div>`
+      +`<div class="fn"><span class="onair">&#10003; sent on air to ${esc(t.dest||'')}</span></div></div>`;
+    return `<div class="flow gen">${s1}${arrow('')}${s2}${arrow('')}${s3}${arrow('')}${s4}</div>`
+      +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
+      +`Python computes the time and formats the sentence. Where the event does not occur at all `
+      +`— a polar day, or a twilight the sun never reaches — Cal says which one is missing rather `
+      +`than reporting the nearest thing it could calculate. Moonrise and moonset are not built `
+      +`yet, and are refused rather than estimated.</div>`;
+  }
   if(x.capability==='calc'){
     const handler=(t.calc&&t.calc.handler)?String(t.calc.handler):'';
     const c1=`<div class="fb b1"><div class="fk">1 · the question</div><div class="fv">${inTxt}</div>`

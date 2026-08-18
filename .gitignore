@@ -23,3 +23,9 @@ __pycache__/
 weather-cache.json
 .claude-sandbox/
 battery-history.jsonl
+
+# machine-specific config BACKUPS — same secrets as /config, which is already ignored.
+# A backup named config.bak-* leaked the live point, allow-list and greeting text to this PUBLIC
+# repo on 2026-08-17 because /config matches only the exact name.
+/config.bak*
+/config.*.bak
