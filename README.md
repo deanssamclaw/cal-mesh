@@ -1,6 +1,18 @@
 # cal-mesh — Cal on the Meshtastic mesh
 
 Cal's presence on LoRa radio, via node **Cal HT** (`!xxxxxxxx`, LilyGO T-Deck, US/LONG_FAST).
+
+**What it is for.** A radio you can ask things — and, increasingly, a field reference that answers
+when nothing else can: *a Pocket Ref over the air*. Sun and moon times, RF and unit maths, current
+conditions, and eventually curated lookup tables (wire gauge first). The ordering is deliberate and
+is called **resilient-first**: capabilities that need no network rank above ones that do, because
+the moment this earns its place is the moment the base is offline too, and every fetch capability
+goes dark together. Direction and specs live in `docs/proposals/`.
+
+**What it will not do is as much of the design as what it will.** Every capability keeps an
+explicit edge where it says *"I can't verify that"* rather than guessing, and each one ships
+switched off until an offline eval and an independent adversarial review say otherwise.
+
 Three independent layers, each its own always-on launchd agent:
 
 ```
@@ -86,15 +98,23 @@ the answer path** — that is the whole safety story. Taxonomy and specs in `doc
 |---|---|---|---|
 | Weather (current conditions, NWS) | fetch | narrates the fetched fact only | **ARMED** |
 | Arithmetic / units / RF pack | compute | **no — Python owns every digit** | **ARMED** |
-| Sun / moon / twilight | compute | **no — Python formats the whole reply** | built, **default OFF** |
+| Sun / moon / twilight | compute | **no — Python formats the whole reply** | **ARMED** — works offline |
 | Greeting ack (off-list senders) | fixed table | no | **ARMED** |
 | Wire gauge, fasteners (TABLE) | table | no — the harness returns the row | measured, not built |
 | Load and rigging | — | — | **refuted, will not ship** (see below) |
 
-Ordering matters and is enforced: **calc → sun/moon → weather**. A capability that sits above
-another inherits the duty not to steal from it — `cal sunset 12*12` must answer `144`, and
-`cal will it rain at sunset` must reach weather's forecast refusal rather than being answered with
-a sunset time. Both were live bugs; both are asserted in the evals now.
+**Which capability owns a message is decided by position, not vocabulary.** Whichever one's
+subject appears *first* is the one being asked about; anything later is context or a time adjunct.
+"when does it get dark, storm coming" opens on dark; "will it rain at sunset" opens on rain. A time
+interrogative directly governing a sun/moon word overrides that, so "rain later, when is sunset" is
+still a sunset question, and ties go to weather.
+
+That rule replaced three earlier ones, each of which decided by *which words appear* and each of
+which failed: widening weather claimed 210 of 210 synthetic non-weather messages; yielding on any
+weather word dropped 86% of a test grid to no capability at all; arbitrating by prepositions was
+wrong in both directions simultaneously. Calc is separate and wins outright — `cal sunset 12*12`
+answers `144` — because a calculation embedded in a message another capability would claim is
+still a calculation.
 
 **The governing discipline is refusal.** Every capability keeps an explicit edge where it says
 "I can't verify that" instead of guessing:
@@ -103,8 +123,9 @@ a sunset time. Both were live bugs; both are asserted in the evals now.
 - calc refuses ambiguous units, prose containing an expression, and anything past its cost bounds;
 - sun/moon refuses moonrise/moonset (not implemented — it is *recognised* so it can be refused,
   because an unrecognised ask falls through to the model, which would invent a time), dates
-  outside 1901–2099, and any event that does not occur — reporting *which* one is missing rather
-  than a generic "no sunrise", since midnight sun and polar night are opposite conditions.
+  outside 1901–2099, asks about another day ("sunset saturday" — it computes for *now*, not for a
+  date), and any event that does not occur — reporting *which* one is missing rather than a
+  generic "no sunrise", since midnight sun and polar night are opposite conditions.
 
 Config failures **fail closed**, never open: an unset observer point or an unparseable timezone
 refuses rather than substituting a default that would put a confident wrong answer on air.
@@ -116,6 +137,60 @@ budget — but the disqualifier is not length. OSHA *deleted* these tables from 
 1926.251 (2012) as obsolete and unsafe, replacing them with a duty to read the sling tag. Serving
 one over radio rebuilds the artifact the regulator retired, and it is most tempting exactly where
 it is most wrong. Full measurement in `docs/proposals/level3-table-doer-and-field-reference.md` §8.2.
+
+## How a capability ships
+Nothing goes on air because it looked right. The gate is the same for every tier:
+
+**default OFF → offline eval → independent adversarial review → arm.**
+
+- **The eval runs with no radio and no network.** Current corpus: calc 273 checks, sun/moon 873,
+  greeting 91, DM 71 + 45, render 74, routing 21, plus a page parser. Numbers only mean something
+  where they are pinned to an outside source — sun/moon is measured against **43 U.S. Naval
+  Observatory times, worst error 43 seconds**; the RF pack against published worked values.
+- **Mutation decides whether a check is real.** Break the code deliberately and the eval must go
+  red. A check that survives its own bug is decoration, and several here were: an invariant that
+  claimed to cover "every handler at once" and was instantiated only on the ones already correct;
+  an assertion sitting after a `continue` that skipped the only case it could fail on; one that was
+  constant-true by operator precedence. All found by mutation, none by reading.
+- **The review is adversarial and must execute.** A reviewer told to *refute* and to *run it* finds
+  what a reviewer told to *check* does not. Five rounds on the sun/moon tier found real defects
+  every time — including three live bugs in already-armed capabilities that had nothing to do with
+  the new one.
+- **Refusals are shipped deliberately**, and the eval asserts them as hard as it asserts answers.
+
+Reviews are recorded in commit messages rather than summarised away, including the ones that
+refuted the design being reviewed.
+
+## Direct messages
+A DM is a different room, not a louder one.
+
+- **Length.** Broadcast replies are 5–7 words because every one costs shared airtime in the whole
+  radio's range. An authenticated DM lands on one screen, so the budget relaxes to ~180 characters.
+  Airtime is still shared — this is not a chat window.
+- **Authentication is real but is not a security boundary.** Meshtastic PKC gives a `pki_encrypted`
+  flag and a public-key fingerprint, and both are captured and pinned. Node IDs remain spoofable,
+  so the DM tier is **forge-tolerant by construction**: the worst case if sender auth is forged is
+  that a forger reads a reply meant for Dean — never that tools unlock.
+- **Content only.** A private-context unlock exists, is disabled, and changes exactly one argument
+  to the model: the system prompt. Tool lockdown is byte-identical to the public channel, asserted
+  by eval.
+- **DMs are published on the dashboard, deliberately.** The DM path is a test bench so experiments
+  do not spend open-channel airtime, and showing it is the point. The consequence is stated plainly:
+  whatever goes in the DM context file becomes public the first time Cal references it.
+
+## The decision trace
+The dashboard is not a log viewer. For **every** reply it publishes *why that reply exists*: the
+gate ladder and which gate failed, what the wording matched and why that selected a capability,
+what was fetched and how old it was, which single fact crossed to the model, the model and
+latency — and, for compute answers, that **no model ran at all**.
+
+It shows machinery, never introspection. Generation is `--output-format text`; there is no
+reasoning to display, and inventing one would publish narrative as if it were mechanism.
+
+Two things this has already caught that testing did not: a diagram that read to a stranger as
+*"your message failed to send"* when the message had arrived fine and was what caused the reply,
+and a trace asserting one cause for a blank that had several. If the page cannot explain a reply
+honestly, that is a defect in the reply.
 
 ## How to grow from here
 1. Widen `ALLOW_FROM` / trigger policy to serve other operators.
