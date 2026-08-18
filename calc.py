@@ -574,10 +574,45 @@ def _h_arith(t, trig=None):
 # a transcontinental path) and corrected anyway, because a constant should be the value someone
 # published rather than the value everyone repeats.
 R_EARTH_KM = Decimal("6371.0087714")
+# Worst-case distance from a squaroid centre to its own corner, by locator length. Measured, not
+# assumed: the single "+/-5 km" figure that was here applied to every grid length and was 25x
+# optimistic for the 4-character case.
+_GRID_ERR_KM = {4: 124.0, 6: 5.2, 8: 0.5}
 
 _FIELD = "ABCDEFGHIJKLMNOPQR"
 _SUB = "abcdefghijklmnopqrstuvwx"
-_GRID_RE = re.compile(r"\b([A-R]{2})([0-9]{2})(?:([A-X]{2})([0-9]{2})?)?\b", re.I)
+# A 4-character locator is SHAPE-IDENTICAL to a component designator: RG58, LM35, DC12, EL84, OP07
+# all match [A-R]{2}[0-9]{2}. With "grid" as a trigger — and "off grid", "power grid", "grid down"
+# being everyday field vocabulary — 30 of 68 real ham/electronics part numbers were decoded and
+# aired as coordinates: "off grid solar with RG58 feedline" answered "RG58 is -21.5, 171", putting
+# the most common coax in ham radio in the Indian Ocean as a Python-authored fixed string.
+#
+# So a BARE token must carry a subsquare (6 or 8 characters) to be read as a locator. The 4-char
+# form is accepted only when a grid keyword sits immediately before it, which is how anyone
+# actually writes one.
+_GRID_RE = re.compile(r"\b([A-R]{2})([0-9]{2})(([A-X]{2})([0-9]{2})?)\b", re.I)
+# A 4-character token counts as a locator only where the surrounding word says it is one. The
+# grid words always qualify; the distance handler additionally accepts the prepositions people
+# actually use ("distance EM28 to FN20"), because that handler's own trigger is already specific.
+# Residual and accepted: "bearing from RG58 to LM35" would still decode two part numbers. It is a
+# contrived sentence, and the alternative — refusing every bare 4-char pair — breaks the ordinary
+# ask. Documented rather than silently traded.
+_GRID_4 = re.compile(r"\b(?:grid|maidenhead|locator)\s+([A-R]{2}[0-9]{2})\b", re.I)
+_GRID_4_NAV = re.compile(r"\b(?:grid|maidenhead|locator|distance|bearing|from|to|between|and)"
+                         r"\s+([A-R]{2}[0-9]{2})\b", re.I)
+
+
+def _grid_tokens(t, nav=False):
+    """(start, locator) for every token that is genuinely a locator, not a part number."""
+    out = [(m.start(), m.group(0)) for m in _GRID_RE.finditer(t)]
+    rx = _GRID_4_NAV if nav else _GRID_4
+    out += [(m.start(1), m.group(1)) for m in rx.finditer(t)]
+    seen, uniq = set(), []
+    for pos, tok in sorted(out):
+        if pos not in seen:
+            seen.add(pos)
+            uniq.append((pos, tok))
+    return uniq
 # A coordinate pair as a human types it. calc REFUSES "39.0,-95.0" as arithmetic (it is a
 # coordinate, not a subtraction) — this is the handler that gives that shape a real meaning.
 # At least one side must carry a decimal point or a minus sign. Two bare integers ("20 30") are
@@ -676,9 +711,9 @@ def great_circle(lat1, lon1, lat2, lon2):
 def _points(t):
     """[(lat, lon, from_grid)] for every point in the text, in the order it appears."""
     pts = []
-    for m in _GRID_RE.finditer(t):
-        la, lo = grid_to_latlon(m.group(0))
-        pts.append((m.start(), (la, lo, len(m.group(0).strip()))))
+    for pos, tok in _grid_tokens(t, nav=True):
+        la, lo = grid_to_latlon(tok)
+        pts.append((pos, (la, lo, len(tok.strip()))))
     for m in _LATLON.finditer(t):
         pts.append((m.start(), (float(m.group(1)), float(m.group(2)), 0)))
     return [p for _, p in sorted(pts)]
@@ -694,13 +729,18 @@ def _h_grid(t, trig=None):
         lat, lon = float(ll.group(1)), float(ll.group(2))
         return "%s,%s is grid %s" % (fmt(Decimal(ll.group(1)), 4), fmt(Decimal(ll.group(2)), 4),
                                      latlon_to_grid(lat, lon))
-    g = _GRID_RE.search(t)
-    if not g:
+    toks = _grid_tokens(t)
+    if not toks:
         return None
-    lat, lon = grid_to_latlon(g.group(0))
-    return "%s is %s, %s (square centre)" % (g.group(0).upper()[:4] + g.group(0)[4:].lower(),
-                                             fmt(Decimal(str(round(lat, 4))), 4),
-                                             fmt(Decimal(str(round(lon, 4))), 4))
+    tok = toks[0][1]
+    lat, lon = grid_to_latlon(tok)
+    # A locator names an AREA, and the coarser it is the more misleading a bare point looks. A
+    # 4-character square is ~130 km x 111 km; saying "is 38.5, -95" without that is a point
+    # presented where a box was supplied.
+    span = {4: "~130 km box", 6: "~10 km box", 8: "~1 km box"}[len(tok)]
+    return "%s is %s, %s (centre of a %s)" % (tok.upper()[:4] + tok[4:].lower(),
+                                              fmt(Decimal(str(round(lat, 4))), 4),
+                                              fmt(Decimal(str(round(lon, 4))), 4), span)
 
 
 def _h_distance(t, trig=None):
@@ -717,15 +757,25 @@ def _h_distance(t, trig=None):
     # which swamps the model's own 0.5% entirely on any path a mesh operator cares about. When
     # either endpoint came from a coarse grid the distance is rounded to whole km and the reply
     # says why, rather than printing a tenth of a kilometre nobody earned.
-    coarse = (0 < g1 <= 6) or (0 < g2 <= 6)
-    places = 0 if coarse else 1
-    note = "from grid centres, +/-5 km" if coarse else "great circle"
+    # Worst-case centre error by locator length, measured across latitudes: 4-char 124 km,
+    # 6-char 5.2 km, 8-char 0.5 km. The old note said "+/-5 km" for ALL grid inputs — wrong by
+    # 25x on a 4-character grid, which the code fully accepts — and excluded 8-char entirely, so
+    # an 8-char pair printed tenths of a km and disclosed nothing.
+    err = max(_GRID_ERR_KM.get(g1, 0.0), _GRID_ERR_KM.get(g2, 0.0))
+    places = 0 if err >= 1.0 else 1
+    note = ("from grid centres, +/-%s km" % (int(err) if err >= 1 else err)) if err else "great circle"
     return "%s km / %s mi, bearing %s deg (%s)" % (
         fmt(d, places), fmt(mi, places), fmt(b, 0), note)
 
 
-HANDLERS = (_h_grid, _h_distance, _h_wavelength, _h_fspl, _h_dbm, _h_ohm, _h_acres, _h_convert,
-            _h_fraction, _h_percent, _h_arith)
+# Order is precedence. Navigation sits LAST of the keyword handlers, immediately above bare
+# arithmetic: its triggers ("grid", "distance", "bearing") are the loosest here, and placing it
+# first let it take "grid antenna wavelength for RG58 at 146.52 mhz" from the wavelength handler.
+# The commit that added it claimed navigation "adds ZERO new arbitration surface" — the opposite
+# was true, and worse for being invisible: BECAUSE calc wins outright over the other capabilities,
+# a loose handler inside calc silently outranks everything, with no arbitration to inspect.
+HANDLERS = (_h_wavelength, _h_fspl, _h_dbm, _h_ohm, _h_acres, _h_convert,
+            _h_fraction, _h_percent, _h_grid, _h_distance, _h_arith)
 
 
 def try_answer(text, max_chars=160, trigger="cal", embedded=False):

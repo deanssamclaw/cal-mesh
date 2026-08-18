@@ -41,7 +41,13 @@ DECISIONS = os.path.join(BASE, "decisions.jsonl")
 LOCK      = os.path.join(BASE, "responder.lock")
 CLAUDE    = os.path.expanduser("~/.local/bin/claude")
 
-sys.path.insert(0, BASE)
+# Sibling imports resolve relative to THIS FILE, not to a hardcoded ~/cal-mesh. With the hardcoded
+# path, any eval that loads responder.py from a scratch copy still imported the DEPLOYED calc,
+# weather and sunmoon — so a sabotaged scratch calc.py left eval_sunmoon, eval_weather, eval_dm,
+# eval_dm_longer and eval_routing all green. Every end-to-end check in those files was testing
+# production code. eval_sunmoon seeds sys.modules for two of the three and its own header
+# documents the trap; this fixes it at the source for all of them at once.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import weather                    # Level 3 Stage 1 capability (harness-fetched, injected)
 import calc                       # Level 3 COMPUTE doer (Python owns every digit)
 import sunmoon                    # COMPUTE doer: closed-form astronomy, offline-resilient
@@ -459,7 +465,12 @@ def _calc_collision(cfg, clean, out):
         return False
     reply, meta = calc.try_answer(clean, max_chars=_int_cfg(cfg, "CALC_MAX_CHARS", 160),
                                  trigger=cfg.get("TRIGGER_WORD", "cal"), embedded=True)
-    if not reply:
+    # ONLY an EMBEDDED result. try_answer(embedded=True) runs the ordinary dispatch first, so
+    # this was re-claiming anything the normal path would have answered — including a grid decode
+    # that the caller had just deliberately set aside. "sunrise at grid EM28" was handed back to
+    # calc here after the nav yield had already stepped it down, which made the yield look broken
+    # when it had worked. This helper exists for a calculation buried in prose; nothing else.
+    if not reply or not meta.get("embedded"):
         return False
     out["calc_meta"] = meta
     out["capability"] = "calc"
@@ -496,6 +507,15 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
         c_reply, c_meta = calc.try_answer(clean, max_chars=_int_cfg(cfg, "CALC_MAX_CHARS", DEFAULTS["CALC_MAX_CHARS"]),
                                           trigger=cfg.get("TRIGGER_WORD", "cal"))
         out["calc_meta"] = c_meta
+        # NAVIGATION YIELDS TO A SUN/MOON ASK. calc wins outright over the capabilities below it,
+        # which is right for arithmetic — a sum is a sum — and wrong for navigation, whose
+        # triggers ("grid", "distance", "bearing") are the loosest in the module. "sunrise at grid
+        # EM28" was answered with a grid decode because calc ran first and never looked down.
+        # Only the two nav handlers step aside; arithmetic still beats everything.
+        if c_reply and c_meta.get("handler") in ("grid", "distance") \
+                and cfg.get("SUNMOON_ENABLED", "false").lower() == "true" \
+                and sunmoon.wants_sunmoon(raw_text):
+            c_reply = None
         if c_reply:
             out["capability"] = "calc"
             out["mode"] = "fixed"
@@ -535,6 +555,21 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
         # armed and proven; a tie is the one case where guessing buys nothing.
         sm_first = sunmoon.mention_positions(raw_text)
         w_first = weather.mention_positions(raw_text) if enabled_weather(cfg) else []
+        # A moon rise/set ask outranks POSITION, but never outranks CERTAINTY. As first restored it
+        # was the leading disjunct and short-circuited both, so "whats the temperature? the moon is
+        # out" answered with the moonrise refusal — an exclusion overriding an unambiguous weather
+        # ask, which is the exact failure the sun/moon exclusion was fixed for in round 4.
+        # The clause exists for ONE purpose: stop a moonrise question falling through to the
+        # language model, which would invent a time for something this module does not compute.
+        # So it applies only where nothing else would claim the message. If weather claims it, the
+        # model is not answering — an armed capability is — and overriding that is the exclusion
+        # beating certainty, which is the failure round 4 fixed on the sun/moon side.
+        #
+        # Accepted residual, stated rather than traded silently: "the heat is on, moonrise?" goes
+        # to weather and gets current conditions. A non-sequitur from an honest capability, which
+        # is the better of the two wrong answers available.
+        _wm = weather.explain_weather_match(raw_text) if enabled_weather(cfg) else None
+        riseset = sm_match["via"] == "moon_riseset" and not (_wm and _wm["via"])
         # A moon rise/set ask never loses on position. The module recognises that shape
         # specifically SO IT CAN REFUSE it — moonrise is not implemented and must never be
         # estimated — and recognition is only a refusal if nothing can take the message away
@@ -542,7 +577,7 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
         # moonrise question is answered with a temperature. This clause existed in round 3, was
         # lost in the round-4 rewrite, and is restored with its reason attached.
         sun_is_subject = bool(sm_first) and (
-            sm_match["via"] == "moon_riseset"
+            riseset
             or not w_first
             or sm_first[0] < w_first[0]
             or sunmoon.governed_by_time_ask(raw_text))

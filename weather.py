@@ -99,15 +99,27 @@ _PRESENT = re.compile(r"\b(right\s*now|just\s*now|currently|at\s+the\s+moment|"
 # This suppresses the WEAK layer only. A strong word in the same message still wins outright:
 # "the heat sink is warm, whats the temp?" is a weather question. An exclusion should remove
 # ambiguity, never override certainty — the sun/moon exclusion shipped with that backwards.
+# NARROWED after review. The first version excluded compounds that are EXACTLY how a field
+# operator asks about the weather — "do I need rain gear today?", "do i need snow chains?",
+# "whats the freezing point tonight?" — and 29 of 33 realistic asks stopped reaching the
+# capability. Worse than a missed answer: an unclaimed message builds the bare general prompt with
+# no weather fact and no "you cannot know" instruction, so the model answers from nothing. An
+# honest forecast refusal became an invented one, which is precisely what this module exists to
+# prevent. Removed for that reason: rain gear/fly/cover, snow chains/tires/plow, storm door/window,
+# freezing point, cold start, hot spot, wind up/down.
+#
+# What remains is only where the weather word modifies a piece of EQUIPMENT and no plausible
+# weather reading exists. Plurals are matched too — the first version was evaded by a single "s"
+# on 13 of 15 pairs. This is an allowlist against an open vocabulary and will never be complete;
+# it is deliberately biased toward letting a weather ask through, because a missed exclusion costs
+# a non-sequitur while an over-broad one costs an invented forecast.
 _NOT_WEATHER = re.compile(
-    r"\bheat\s*(?:sink|shrink|gun|wrap|tape|exchanger|shield)\b"
-    r"|\bcold\s*(?:solder|joint|start|boot|call|weld)\b"
-    r"|\bhot\s*(?:swap|glue|shoe|spot|wire|melt|key|plug)\b|\bhotspot\b"
-    r"|\bwind\s*(?:load|loading|turbine)\b|\bwind\s+(?:the|up|it|down)\b"
-    r"|\bstorm\s*(?:door|window|drain)\b"
-    r"|\bsnow\s*(?:chain|chains|tire|tires|plow)\b"
-    r"|\brain\s*(?:gear|fly|cover|barrel)\b"
-    r"|\bfreezing\s+point\b|\bdegrees\s+of\s+freedom\b",
+    r"\bheat\s*(?:sinks?|shrink|guns?|wraps?|tapes?|exchangers?|shields?)\b"
+    r"|\bcold\s*(?:solder|joints?|welds?)\b"
+    r"|\bhot\s*(?:swaps?|glue|shoes?|melt|keys?|plugs?)\b"
+    r"|\bwind\s*(?:loads?|loading|turbines?)\b"
+    r"|\bstorm\s*(?:cases?|drains?)\b"
+    r"|\bdegrees\s+of\s+freedom\b",
     re.I)
 
 

@@ -631,6 +631,20 @@ def run():
     check("sun wins over a bare moon mention",
           S.explain_match("cal sunset, and is the moon nice?")["via"] == "sun")
 
+    # ---- 13i2. A NAMED LOCATION IS REFUSED, not silently ignored ----------------------------
+    #      This capability computes only for its configured point and never takes a position from
+    #      the message. Answering "sunrise at grid EM28" with the local sunrise is a confidently
+    #      wrong answer about somewhere else — the asker named a place because they meant it.
+    for t in ("cal sunrise at grid EM28", "cal sunset for grid EM28ph", "cal moonrise grid FN31",
+              "cal when does it get dark at 39.5,-95.5", "cal sunset at EM28pv"):
+        _r, _m = S.answer(t, LAT, LON, TZ, now)
+        check(f"named location refused: {t[4:40]}",
+              _m["refused"] == "other location" and not any(c.isdigit() for c in (_r or "")),
+              (_r, _m))
+    for t in ("cal when does it get dark", "cal sunset", "cal moon phase", "cal sunrise?"):
+        check(f"no location named, still answered: {t[4:30]}",
+              S.answer(t, LAT, LON, TZ, now)[1]["refused"] != "other location")
+
     # ---- 13j. DATE-QUALIFIED asks are refused, not answered with today's time ----------------
     for t in ("cal sunset tomorrow?", "cal what time is sunset on christmas?",
               "cal when was sunset yesterday?", "cal sunrise next monday", "cal sunset dec 25"):
@@ -785,12 +799,24 @@ def run():
     # A moon rise/set ask never loses on POSITION either. Recognition is only a refusal if nothing
     # can take the message away first; this clause was lost in a rewrite and let a moonrise
     # question reach a live weather fetch.
-    for q in ("cal the heat is on, moonrise?", "cal its cold out, moonset?",
-              "cal rain earlier, when is moonrise"):
+    # NARROWED. The clause exists to stop a moonrise question reaching the LANGUAGE MODEL, which
+    # would invent a time. It therefore applies only where nothing else would claim the message —
+    # if weather claims it, an armed capability is answering, and overriding that is an exclusion
+    # beating certainty. As an absolute rule it sent "whats the temperature? the moon is out" to
+    # the moonrise refusal.
+    for q in ("cal when does the moon rise", "cal moonrise? sunny day", "cal when is moonrise",
+              "cal moonset tonight", "cal what time is moonrise"):
         _pm = R.plan_response(_yc, "!aaaaaaaa", q)
-        check(f"moon rise/set never loses on position: {q[:34]}",
+        check(f"moon rise/set never falls to the model: {q[:34]}",
               _pm["capability"] == "sunmoon" and "not built" in (_pm["fixed_reply"] or ""),
               (_pm["capability"], _pm["fixed_reply"]))
+    # and it does NOT override a message weather will claim — accepted residual, asserted so the
+    # trade is recorded rather than rediscovered
+    for q in ("cal whats the temperature? the moon is out", "cal is it raining? moon is out",
+              "cal the heat is on, moonrise?"):
+        _pm = R.plan_response(_yc, "!aaaaaaaa", q)
+        check(f"moon clause yields to an armed claim: {q[:36]}",
+              _pm["capability"] == "weather", (_pm["capability"], _pm["fixed_reply"]))
     for q in ("cal sunset", "cal when does it get dark", "cal when does the sun go down",
               "cal sunrise?", "cal when is dawn?", "cal how long till dark", "cal solar noon"):
         check(f"today's ask NOT refused as other-day: {q[:34]}",

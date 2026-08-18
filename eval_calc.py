@@ -535,9 +535,17 @@ def run():
     check("Veness spherical: initial bearing 156.2 deg", abs(float(b) - 156.2) < 0.1)
     d, b = C.great_circle(36.12, -86.67, 33.94, -118.40)
     check("BNA->LAX spherical: 2886.45 km", abs(float(d) - 2886.45) < 0.05)
-    # the radius is the PUBLISHED IUGG mean, not the rounding that gets repeated
-    check("earth radius is the published IUGG mean",
-          str(C.R_EARTH_KM) == "6371.0087714")
+    # THE RADIUS IS MEASURED, not asserted against its own literal. The old check compared
+    # str(R_EARTH_KM) to the very string it was set from, so deleting it and setting 6371.09
+    # passed the whole corpus — the constant asserted itself, and "validated against published
+    # values" overstated what the eval did. Wikipedia's worked example publishes BOTH the angular
+    # separation and the distance, so R falls straight out of them and a wrong constant fails.
+    _sigma = 0.45306                      # radians, published for BNA->LAX
+    _derived = 2886.45 / _sigma           # km
+    check("earth radius derived from the published pair",
+          abs(float(C.R_EARTH_KM) - _derived) < 0.6)
+    d, _ = C.great_circle(36.12, -86.67, 33.94, -118.40)
+    check("BNA->LAX pins R tightly (0.01 km => R to ~0.02 km)", abs(float(d) - 2886.45) < 0.01)
     # identical points and near-antipodal bearings REFUSE rather than returning arithmetic
     check("identical points refused", _raises(lambda: C.great_circle(39.0, -95.0, 39.0, -95.0)))
     check("near-antipodal bearing refused",
@@ -546,15 +554,68 @@ def run():
           abs(C.great_circle(-30.0, 0.0, 29.0, 179.8)[0]) > 0)
     for bad in ((91.0, 0.0, 0.0, 0.0), (0.0, 181.0, 0.0, 0.0), (0.0, 0.0, -91.0, 0.0)):
         check(f"out-of-range coordinates refused {bad}", _raises(lambda: C.great_circle(*bad)))
+    # DIRECTION. great_circle is pinned to Veness, but the HANDLER's use of it was not — swapping
+    # the endpoints inside _h_distance survived all 342 checks, and a reciprocal bearing is the
+    # worst navigation error available.
+    _r = ans("cal bearing from 39.0,-95.0 to 40.5,-75.0")
+    check("handler bearing is forward, not reciprocal", "bearing 78 deg" in _r)
+    _rev = ans("cal bearing from 40.5,-75.0 to 39.0,-95.0")
+    check("reversing the ask reverses the bearing", "bearing 78 deg" not in _rev)
+    check("the two differ by roughly 180 deg",
+          abs(int(_r.split("bearing ")[1].split(" ")[0])
+              - int(_rev.split("bearing ")[1].split(" ")[0])) > 90)
     # a short baseline — where a mesh operator actually is — must stay precise
     d, _ = C.great_circle(39.0000, -95.0000, 39.0100, -95.0000)
     check("short baseline ~1.111 km (1/100 degree of latitude)", abs(float(d) - 1.1119) < 0.002)
 
     # nav must not steal from the other handlers, nor fire on ordinary dimensions
+    # ASSERT ON THE HANDLER, not on substrings of the reply. The old form checked that "grid" and
+    # "bearing" were absent — but the decode reply is "EM28 is 38.5, -95 (...)", which contains
+    # neither, so the check returned True ("nav did not fire") while nav had fired. The single
+    # most likely false fire — a part number read as a locator — was invisible to it by
+    # construction.
     for t in ("cal 20 30 ft square in acres", "cal 100 200 square", "cal 8 x 10 square feet",
-              "cal 2+2", "cal 39.0,-95.0", "cal 5 mi in km"):
-        r = ans(t)
-        check(f"nav does not fire on: {t[4:30]}", r is None or "grid" not in r and "bearing" not in r)
+              "cal 2+2", "cal 39.0,-95.0", "cal 5 mi in km", "cal off grid solar with RG58 feedline",
+              "cal grid down, running the LM35", "cal off grid at the DC12 site",
+              "cal grid antenna wavelength for RG58 at 146.52 mhz",
+              "cal grid, 5 w in dbm on the AL80", "cal off grid, 100 ft in m of RG58"):
+        check(f"nav handler does not fire on: {t[4:40]}",
+              C.try_answer(t)[1]["handler"] not in ("grid", "distance"))
+    # a 4-character token is shape-identical to a part number, so it needs an adjacent grid word
+    check("bare 4-char token is not a locator", C.try_answer("cal RG58")[1]["handler"] is None)
+    # ORDER. Navigation has the loosest triggers in the module and must sit BELOW the
+    # keyword-specific handlers. With a real locator present, nav placed first takes a message
+    # that names another handler's subject outright.
+    check("a keyword handler beats nav when both match",
+          C.try_answer("cal grid EM28pv wavelength at 915 mhz")[1]["handler"] == "wavelength")
+    check("nav sits below the keyword handlers in HANDLERS",
+          C.HANDLERS.index(C._h_grid) > C.HANDLERS.index(C._h_wavelength)
+          and C.HANDLERS.index(C._h_distance) < C.HANDLERS.index(C._h_arith))
+    # THE ERROR LABEL SCALES WITH THE LOCATOR. A single "+/-5 km" note was applied to every grid
+    # length and is 25x optimistic for a 4-character square, whose centre can be 124 km from its
+    # own corner — and it excluded 8-char entirely, so those printed tenths and disclosed nothing.
+    check("4-char pair declares its real error", "+/-124 km" in (ans("cal distance EM28 to FN20") or ""))
+    check("6-char pair declares 5 km", "+/-5 km" in (ans("cal distance EM28pv to FN31pr") or ""))
+    check("8-char pair still discloses grid centres",
+          "grid centres" in (ans("cal distance EM28ph12 to FN31pr21") or ""))
+    check("coordinates are not labelled as grid centres",
+          "grid centres" not in (ans("cal how far from 39.0,-95.0 to 40.0,-96.0") or ""))
+    # X1: sibling imports must resolve relative to responder.py itself. With a hardcoded path,
+    # every eval that loads it from a scratch copy silently tests the DEPLOYED calc/weather/
+    # sunmoon — verified by sabotage: eval_sunmoon, eval_dm, eval_dm_longer and eval_routing all
+    # stayed green against a calc that returned a fixed string for every message.
+    _rsrc = open(os.path.join(HERE, "responder.py")).read()
+    check("responder imports siblings relative to its own file",
+          "sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))" in _rsrc)
+    check("responder does not hardcode the tree for imports",
+          "sys.path.insert(0, BASE)" not in _rsrc)
+    check("named 4-char grid still decodes", "EM28 is" in (ans("cal grid EM28") or ""))
+    # DELIBERATE: even an unambiguous 6-character locator needs a grid keyword to decode. A
+    # subsquare cannot collide with a part number, so this is stricter than necessary — and after
+    # a day in which loose triggers aired coax as coordinates, the conservative side is the right
+    # one. Asserted so it reads as a decision rather than an oversight.
+    check("bare 6-char still needs the keyword", C.try_answer("cal EM28pv")[1]["handler"] is None)
+    check("with the keyword it decodes", "EM28pv is" in (ans("cal grid EM28pv") or ""))
     check("bare coordinate pair still refused as arithmetic", ans("cal 39.0,-95.0") is None)
     check("grid needs its keyword", ans("cal EM28pv") is None)
 
@@ -630,6 +691,51 @@ def run():
           "grid centres" in r_grid and "." not in r_grid.split("km")[0])
     check("coordinate distance keeps its precision",
           "great circle" in r_coord and "." in r_coord.split("km")[0])
+
+    # ---- 8k. ARMED PRECEDENCE — the live shape, with every capability enabled ----------------
+    #      No eval exercised this. calc defaults to OFF, and eval_weather/eval_dm never turn it
+    #      on, so navigation silently taking messages from weather and sun/moon was invisible to
+    #      the whole corpus. This runs plan_response in the configuration that is actually on air.
+    import importlib.util as _iu
+    _sm_spec = _iu.spec_from_file_location("sunmoon", os.path.join(HERE, "sunmoon.py"))
+    _SM = _iu.module_from_spec(_sm_spec); _sm_spec.loader.exec_module(_SM)
+    sys.modules["sunmoon"] = _SM
+    _w_spec = _iu.spec_from_file_location("weather", os.path.join(HERE, "weather.py"))
+    _W = _iu.module_from_spec(_w_spec); _w_spec.loader.exec_module(_W)
+    sys.modules["weather"] = _W
+    _r_spec = _iu.spec_from_file_location("responder_armed", os.path.join(HERE, "responder.py"))
+    _R = _iu.module_from_spec(_r_spec); _r_spec.loader.exec_module(_R)
+    _live = dict(_R.DEFAULTS)
+    _live.update({"CALC_ENABLED": "true", "WEATHER_ENABLED": "true", "SUNMOON_ENABLED": "true",
+                  "GREETING_ENABLED": "true", "WEATHER_POINT": "39.0,-95.0"})
+
+    class _NoFetch:
+        def __call__(self, *a, **k):
+            raise AssertionError("weather fetched on a message that should not reach it")
+
+    # navigation must not take messages belonging to sun/moon
+    for q, want in (("cal sunrise at grid EM28", "sunmoon"),
+                    ("cal sunset for grid EM28ph", "sunmoon"),
+                    ("cal moonrise grid FN31", "sunmoon")):
+        _p = _R.plan_response(_live, "!aaaaaaaa", q)
+        check(f"nav does not steal from sun/moon: {q[4:34]}", _p["capability"] == want)
+    # nor from weather
+    _p = _R.plan_response(_live, "!aaaaaaaa", "cal temp off grid at the DC12 site")
+    check("nav does not steal from weather", _p["capability"] == "weather")
+    # nor from its own siblings — nav has the loosest trigger and must sit BELOW the keyword
+    # handlers, not above them
+    for q, frag in (("cal grid antenna wavelength for RG58 at 146.52 mhz", "quarter-wave"),
+                    ("cal off grid, path loss 5 km at 915 mhz on RG58", "Path loss"),
+                    ("cal grid, 5 w in dbm on the AL80", "dBm"),
+                    ("cal off grid, 100 ft in m of RG58", "30.48 m")):
+        _p = _R.plan_response(_live, "!aaaaaaaa", q)
+        check(f"nav does not steal from a sibling: {q[4:38]}",
+              frag in (_p["fixed_reply"] or ""))
+    # and it still wins its own
+    for q in ("cal grid EM28pv", "cal distance EM28pv to FN31pr"):
+        _p = _R.plan_response(_live, "!aaaaaaaa", q)
+        check(f"nav still answers its own: {q[4:32]}",
+              _p["capability"] == "calc" and _p["fixed_reply"])
 
     # ---- 9. constants are the exact defined values ------------------------------------------
     check("foot exact", C.FT_M == Decimal("0.3048"))

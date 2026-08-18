@@ -320,6 +320,9 @@ _DAYNAME_FULL = r"monday|tuesday|wednesday|thursday|friday|saturday|sunday"
 _DAYNAME = _DAYNAME_FULL + r"|mon|tue|tues|wed|thu|thur|thurs|fri"   # 'sat'/'sun' never bare
 _MONTH = (r"january|february|march|april|may|june|july|august|september|october|november|december|"
           r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec")
+# A Maidenhead locator (4/6/8) or a decimal coordinate pair anywhere in the message.
+_NAMED_PLACE = re.compile(r"\b[A-R]{2}[0-9]{2}(?:[A-X]{2}(?:[0-9]{2})?)?\b"
+                          r"|(?<![\d.])-?\d{1,2}\.\d+\s*[, ]\s*-?\d{1,3}\.\d+", re.I)
 _OTHER_DAY = re.compile(
     r"\b(?:tomorrow|tmrw|tmw|yesterday|"
     r"(?:next|last|this)\s+(?:day|week|month|year|weekend|" + _DAYNAME_FULL + r")|"
@@ -572,6 +575,15 @@ def answer(text, lat, lon, tz, now, max_chars=160):
     m = explain_match(text)
     if not m["via"]:
         return None, meta
+
+    # A NAMED LOCATION IS REFUSED, not silently ignored. This capability computes for the
+    # operator's own configured point and deliberately never takes a position from the message
+    # (see the module header). So "sunrise at grid EM28" answered with the local sunrise would be
+    # a confidently wrong answer to a question about somewhere else — the asker supplied a
+    # location precisely because they meant it.
+    if _NAMED_PLACE.search(text):
+        meta["intent"], meta["refused"] = "elsewhere", "other location"
+        return _bounded("I only compute for my own location", meta, max_chars)
 
     # Epoch bound. The solar model is accurate to about a minute for two centuries either side of
     # J2000, and the lunar series is stated valid 1900-2100. Outside that it does not fail — it

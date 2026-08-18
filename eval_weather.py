@@ -96,10 +96,16 @@ check("NFKC fold -> flagged", f)
 # rounds of capability arbitration were compensating for, and it gets WORSE as the field-reference
 # direction grows — heat sinks and cold solder joints are the subject matter.
 print("\n== unit: weak triggers must not fire inside field/ham compounds ==")
-for t in ["cal the heat sink is warm", "cal cold solder joint on pin 3", "cal hot swap the module",
-          "cal wind loading on the mast", "cal the storm door is shut", "cal snow chains are on",
-          "cal rain gear is packed", "cal heat shrink tubing", "cal cold boot the node",
-          "cal hot glue the mount", "cal the heat gun is out", "cal storm window rattling"]:
+# NARROWED after review. The first list excluded compounds that are exactly how a field operator
+# asks about the weather, and 29 of 33 realistic asks stopped reaching the capability — an
+# unclaimed message gets the bare general prompt with no fact and no "you cannot know"
+# instruction, so an honest forecast refusal became an invented forecast. Only equipment compounds
+# with no plausible weather reading remain. Plurals included: the first version was evaded by a
+# single "s" on 13 of 15 pairs.
+for t in ["cal the heat sink is warm", "cal heat sinks are warm", "cal cold solder joint on pin 3",
+          "cal cold solder joints", "cal hot swap the module", "cal hot swaps done",
+          "cal wind loading on the mast", "cal wind loads on the mast", "cal heat shrink tubing",
+          "cal hot glue the mount", "cal the heat gun is out", "cal the storm case is closed"]:
     check(f"compound is NOT a weather ask: {t[4:34]!r}", not weather.wants_weather(t), t)
     check(f"compound contributes no mention: {t[4:34]!r}", weather.mention_positions(t) == [], t)
     # The plain forms above decline on the weak+no-question rule whether or not the exclusion
@@ -108,8 +114,8 @@ for t in ["cal the heat sink is warm", "cal cold solder joint on pin 3", "cal ho
     # and a pair of compounds satisfies two_weak. A mutation proved the plain forms were blind.
     check(f"compound + '?' still not a weather ask: {t[4:30]!r}",
           not weather.wants_weather(t + "?"), t)
-for pair in ["cal heat sink and cold solder", "cal hot swap the storm door",
-             "cal snow chains and rain gear", "cal wind loading on the heat sink"]:
+for pair in ["cal heat sink and cold solder", "cal hot swap the heat gun",
+             "cal heat shrink and hot glue", "cal wind loading on the heat sink"]:
     check(f"two compounds do not make a weather ask: {pair[4:38]!r}",
           not weather.wants_weather(pair), pair)
     check(f"two compounds contribute no mentions: {pair[4:38]!r}",
@@ -117,6 +123,15 @@ for pair in ["cal heat sink and cold solder", "cal hot swap the storm door",
 # and the genuine two-weak / weak-plus-question forms still work
 for t in ["cal is it hot?", "cal hot and humid", "cal rain or snow?", "cal windy and cold"]:
     check(f"genuine weak form still claims: {t[4:26]!r}", weather.wants_weather(t), t)
+# THE OVER-EXCLUSION DIRECTION, which is the more dangerous one and had no assertion at all: these
+# are how a field operator actually asks about the weather. Suppressing them does not merely lose
+# an answer — the message reaches no capability, so the model answers with no fact and no
+# "you cannot know" instruction, turning an honest refusal into an invented forecast.
+for t in ["cal do I need rain gear today?", "cal do i need snow chains?",
+          "cal whats the freezing point tonight?", "cal is it a cold start morning?",
+          "cal hows the storm door holding, windy?", "cal any hot spots in the forecast?",
+          "cal should I wind up the antenna, storms coming?"]:
+    check(f"field weather ask NOT suppressed: {t[4:44]!r}", weather.wants_weather(t), t)
 # an unambiguous weather ask in the SAME message still wins — the exclusion suppresses the weak
 # layer only, it never overrides certainty. (The sun/moon exclusion had this bug in reverse.)
 for t in ["cal the heat sink is warm, whats the temp?", "cal cold solder joint, hows the weather",
