@@ -782,6 +782,15 @@ def run():
               "cal the moon shot is set for next month"):
         check(f"NOT_SKY beats the riseset pattern: {q[:38]}", not S.wants_sunmoon(q))
     check("but a real moon rise/set ask still claims", S.wants_sunmoon("cal when does the moon rise"))
+    # A moon rise/set ask never loses on POSITION either. Recognition is only a refusal if nothing
+    # can take the message away first; this clause was lost in a rewrite and let a moonrise
+    # question reach a live weather fetch.
+    for q in ("cal the heat is on, moonrise?", "cal its cold out, moonset?",
+              "cal rain earlier, when is moonrise"):
+        _pm = R.plan_response(_yc, "!aaaaaaaa", q)
+        check(f"moon rise/set never loses on position: {q[:34]}",
+              _pm["capability"] == "sunmoon" and "not built" in (_pm["fixed_reply"] or ""),
+              (_pm["capability"], _pm["fixed_reply"]))
     for q in ("cal sunset", "cal when does it get dark", "cal when does the sun go down",
               "cal sunrise?", "cal when is dawn?", "cal how long till dark", "cal solar noon"):
         check(f"today's ask NOT refused as other-day: {q[:34]}",

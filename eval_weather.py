@@ -91,6 +91,42 @@ check("zero-width defeat -> flagged+redacted", f and "ignore" not in c.lower().r
 c, f = responder.sanitize_inbound("ｉｇｎｏｒｅ everything")                        # fullwidth
 check("NFKC fold -> flagged", f)
 
+# session 126 round 5 root finding: weather's WEAK triggers fire inside ordinary field and ham
+# compounds, where the weather word is a modifier of a technical noun. This is the defect five
+# rounds of capability arbitration were compensating for, and it gets WORSE as the field-reference
+# direction grows — heat sinks and cold solder joints are the subject matter.
+print("\n== unit: weak triggers must not fire inside field/ham compounds ==")
+for t in ["cal the heat sink is warm", "cal cold solder joint on pin 3", "cal hot swap the module",
+          "cal wind loading on the mast", "cal the storm door is shut", "cal snow chains are on",
+          "cal rain gear is packed", "cal heat shrink tubing", "cal cold boot the node",
+          "cal hot glue the mount", "cal the heat gun is out", "cal storm window rattling"]:
+    check(f"compound is NOT a weather ask: {t[4:34]!r}", not weather.wants_weather(t), t)
+    check(f"compound contributes no mention: {t[4:34]!r}", weather.mention_positions(t) == [], t)
+    # The plain forms above decline on the weak+no-question rule whether or not the exclusion
+    # exists, so on their own they pass for the wrong reason. These two shapes reach the claim
+    # rule and can ONLY be declined by the exclusion: a question mark satisfies weak+question,
+    # and a pair of compounds satisfies two_weak. A mutation proved the plain forms were blind.
+    check(f"compound + '?' still not a weather ask: {t[4:30]!r}",
+          not weather.wants_weather(t + "?"), t)
+for pair in ["cal heat sink and cold solder", "cal hot swap the storm door",
+             "cal snow chains and rain gear", "cal wind loading on the heat sink"]:
+    check(f"two compounds do not make a weather ask: {pair[4:38]!r}",
+          not weather.wants_weather(pair), pair)
+    check(f"two compounds contribute no mentions: {pair[4:38]!r}",
+          weather.mention_positions(pair) == [], pair)
+# and the genuine two-weak / weak-plus-question forms still work
+for t in ["cal is it hot?", "cal hot and humid", "cal rain or snow?", "cal windy and cold"]:
+    check(f"genuine weak form still claims: {t[4:26]!r}", weather.wants_weather(t), t)
+# an unambiguous weather ask in the SAME message still wins — the exclusion suppresses the weak
+# layer only, it never overrides certainty. (The sun/moon exclusion had this bug in reverse.)
+for t in ["cal the heat sink is warm, whats the temp?", "cal cold solder joint, hows the weather",
+          "cal wind loading on the mast, whats the temperature"]:
+    check(f"strong ask still reaches weather: {t[4:40]!r}", weather.wants_weather(t), t)
+# and ordinary weather asks are untouched
+for t in ["cal is it raining or windy", "cal is it hot?", "cal hot and humid today",
+          "cal whats the temp", "cal hows the weather", "cal any storms?"]:
+    check(f"ordinary weather ask unaffected: {t[4:34]!r}", weather.wants_weather(t), t)
+
 print("\n== unit: location whitelist ==")
 check("whitelisted place used", weather.resolve_location(cfg(), "weather in townx") == ("townx", "40.0,-96.0"))
 check("unlisted place -> default", weather.resolve_location(cfg(), "weather in eviltown")[0] == "default")

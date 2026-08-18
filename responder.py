@@ -535,8 +535,15 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
         # armed and proven; a tie is the one case where guessing buys nothing.
         sm_first = sunmoon.mention_positions(raw_text)
         w_first = weather.mention_positions(raw_text) if enabled_weather(cfg) else []
+        # A moon rise/set ask never loses on position. The module recognises that shape
+        # specifically SO IT CAN REFUSE it — moonrise is not implemented and must never be
+        # estimated — and recognition is only a refusal if nothing can take the message away
+        # first. Without this, "the heat is on, moonrise?" reaches a live weather fetch and a
+        # moonrise question is answered with a temperature. This clause existed in round 3, was
+        # lost in the round-4 rewrite, and is restored with its reason attached.
         sun_is_subject = bool(sm_first) and (
-            not w_first
+            sm_match["via"] == "moon_riseset"
+            or not w_first
             or sm_first[0] < w_first[0]
             or sunmoon.governed_by_time_ask(raw_text))
         if sm_match["via"] and sun_is_subject and not _calc_collision(cfg, clean, out):

@@ -90,6 +90,34 @@ _PRESENT = re.compile(r"\b(right\s*now|just\s*now|currently|at\s+the\s+moment|"
                       r"at\s+present|out\s+there\s+now|this\s+(?:second|minute))\b", re.I)
 
 
+# FIELD AND HAM COMPOUNDS, where a weak weather word is a modifier of a technical noun rather than
+# a description of the sky. On this radio "heat sink", "cold solder" and "wind loading" are
+# everyday vocabulary, and the weak trigger fired inside every one of them — which is what five
+# rounds of capability arbitration were actually compensating for. It gets worse as the
+# field-reference direction grows, because those compounds ARE the subject matter.
+#
+# This suppresses the WEAK layer only. A strong word in the same message still wins outright:
+# "the heat sink is warm, whats the temp?" is a weather question. An exclusion should remove
+# ambiguity, never override certainty — the sun/moon exclusion shipped with that backwards.
+_NOT_WEATHER = re.compile(
+    r"\bheat\s*(?:sink|shrink|gun|wrap|tape|exchanger|shield)\b"
+    r"|\bcold\s*(?:solder|joint|start|boot|call|weld)\b"
+    r"|\bhot\s*(?:swap|glue|shoe|spot|wire|melt|key|plug)\b|\bhotspot\b"
+    r"|\bwind\s*(?:load|loading|turbine)\b|\bwind\s+(?:the|up|it|down)\b"
+    r"|\bstorm\s*(?:door|window|drain)\b"
+    r"|\bsnow\s*(?:chain|chains|tire|tires|plow)\b"
+    r"|\brain\s*(?:gear|fly|cover|barrel)\b"
+    r"|\bfreezing\s+point\b|\bdegrees\s+of\s+freedom\b",
+    re.I)
+
+
+def _weak_spans(t):
+    """Weak-trigger matches, minus any that fall inside a known non-weather compound."""
+    skip = [m.span() for m in _NOT_WEATHER.finditer(t)]
+    return [m for m in _WEAK.finditer(t)
+            if not any(a <= m.start() and m.end() <= b for a, b in skip)]
+
+
 def wants_forecast(text):
     """True if the ask is about a FUTURE state we cannot source. Run on RAW text, same as
     wants_weather — the words live in parts sanitize would trim."""
@@ -116,7 +144,7 @@ def explain_weather_match(text):
     # and without this it never reaches the capability that knows to refuse it.
     strong = sorted({m.group(0).lower() for m in _STRONG.finditer(t)}
                     | {m.group(0).lower().strip() for m in _EXTREME.finditer(t)})
-    weak = sorted({m.group(0).lower() for m in _WEAK.finditer(t)})
+    weak = sorted({m.group(0).lower() for m in _weak_spans(t)})
     q = "?" in t
     if strong:
         via = "strong"
@@ -146,9 +174,11 @@ def mention_positions(text):
     """
     t = text or ""
     pos = set()
-    for rx in (_STRONG, _WEAK, _EXTREME):
+    for rx in (_STRONG, _EXTREME):
         for m in rx.finditer(t):
             pos.add(m.start())
+    for m in _weak_spans(t):        # weak layer, compounds removed — see _NOT_WEATHER
+        pos.add(m.start())
     return sorted(pos)
 
 
