@@ -29,3 +29,8 @@ battery-history.jsonl
 # repo on 2026-08-17 because /config matches only the exact name.
 /config.bak*
 /config.*.bak
+
+# --- learn.py distiller artifacts (contain DM text; source learn.py is tracked) ---
+gap-ledger.json
+gap-ledger.md
+learn-state.json
