@@ -51,6 +51,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import weather                    # Level 3 Stage 1 capability (harness-fetched, injected)
 import calc                       # Level 3 COMPUTE doer (Python owns every digit)
 import sunmoon                    # COMPUTE doer: closed-form astronomy, offline-resilient
+import capabilities               # FIXED doer: what is armed, composed from the flags
 from zoneinfo import ZoneInfo
 
 OUR_ID_FALLBACK = "!xxxxxxxx"   # Cal HT
@@ -135,6 +136,7 @@ DEFAULTS = {
     # COMPUTE doer. No model runs on this path at all — Python computes AND formats,
     # so the reply is emitted as a fixed string exactly like a refusal.
     "CALC_ENABLED": "false",
+    "CAPS_ENABLED": "false",
     "CALC_MAX_CHARS": "160",
 }
 
@@ -491,7 +493,7 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
            "weather_meta": {}, "forecast_asked": False, "match": None,
            "sunmoon_match": None, "sunmoon_meta": None,
            "persona": None, "unlocked": False, "max_chars": None,
-           "fixed_kind": None, "calc_meta": None}
+           "fixed_kind": None, "calc_meta": None, "caps_match": None}
     # P1: an authenticated DM from Dean gets the private persona and injected context. This is
     # decided by the CALLER (dm_unlock) and passed in — plan_response never re-derives trust.
     if unlocked:
@@ -647,6 +649,27 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
         if fact is None:                       # fail-safe: NEVER invent weather from the text
             out["mode"], out["fixed_reply"] = "fixed", "Can't reach weather right now."
             return out
+    # CAPABILITIES — a fixed, config-derived reply to "what can you do". LAST in the ladder,
+    # below every real capability, and that placement is most of the correctness: a menu that
+    # outranked weather would answer "cal whats the temperature?" with a list of topics, which
+    # is a worse bug than the one it fixes. Because it sits here it can only claim a message
+    # that nothing else would — i.e. exactly the messages that used to reach the model.
+    #
+    # Fixes the 2026-08-18 07:12 defect: "List for me the categories or topics of information
+    # you know." reached the model and was answered "coding, technical questions, writing,
+    # research, analysis, and general knowledge" — a chat assistant describing itself over
+    # LoRa. The model is not in this path; the flags compose the sentence, so the list cannot
+    # drift from what is actually armed.
+    if cfg.get("CAPS_ENABLED", "false").lower() == "true":
+        cap_match = capabilities.explain_match(clean, cfg.get("TRIGGER_WORD", "cal"))
+        out["caps_match"] = cap_match
+        if cap_match["via"]:
+            out["capability"] = "capabilities"
+            out["mode"] = "fixed"
+            out["fixed_kind"] = "capabilities"
+            out["fixed_reply"] = capabilities.answer(cfg)
+            return out
+
     out["prompt"] = build_prompt(sender_short, clean, fact)
     # Length-only relaxation on an authenticated DM. GENERAL path only: the weather prompt
     # carries its own measured 5-7 word budget, hardened across three reviews and verified 8/8
