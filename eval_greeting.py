@@ -29,7 +29,7 @@ def check(name, got, want):
 
 
 def cfg(**over):
-    """Default config mirrors the greeting (GREET_TEXT empty), as deployed."""
+    """Default config answers in the greeting's register (GREET_TEXT empty), as deployed."""
     c = dict(R.DEFAULTS)
     c.update({"GREETING_ENABLED": "true", "GREET_TEXT": "",
               "GREET_MAX_PER_DAY": "6", "GREET_SENDER_COOLDOWN_S": "86400"})
@@ -89,21 +89,24 @@ st = {"greet_per_sender": {}, "greet_day": {}}
 
 ok, why, dest, ch, text, gates = R.plan_greeting(cfg(), st, rec("Good morning"), OURS)
 check("acks a bare greeting", (ok, why, dest), (True, "greeting_ack", "^all"))
-check("mirrors the greeting", text, "Good morning")
+check("answers in the morning register", text, "Morning to you")
+check("and does not parrot the greeting", text.lower() != "good morning", True)
 check("gate trace recorded", len(gates) >= 6, True)
 
 # Mirroring: the matched greeting SELECTS a line from a closed table. It never composes one.
-for said, back in [("Good morning", "Good morning"), ("morning", "Good morning"),
-                   ("Good afternoon", "Good afternoon"), ("Good evening", "Good evening"),
-                   ("evening", "Good evening"), ("Good day", "Good day"),
-                   ("hi", "Hello"), ("hey", "Hello"), ("howdy", "Hello"),
-                   ("Greetings", "Hello"), ("yo", "Hello"), ("hello all", "Hello")]:
+for said, back in [("Good morning", "Morning to you"), ("morning", "Morning to you"),
+                   ("Good afternoon", "Afternoon to you"), ("Good evening", "Evening to you"),
+                   ("evening", "Evening to you"), ("Good day", "Good day to you"),
+                   ("hi", "Hey there"), ("hey", "Hi there"), ("howdy", "Hi there"),
+                   ("Greetings", "Hello back"), ("yo", "Hey there"), ("hello all", "Howdy"),
+                   ("hello", "Howdy"), ("hiya", "Hey there"), ("gm", "Morning to you")]:
     st2 = {"greet_per_sender": {}, "greet_day": {}}
     _, _, _, _, t, _ = R.plan_greeting(cfg(), st2, rec(said), OURS)
     check("%r -> %r" % (said, back), t, back)
 
 # Every reply must come from the closed set — never assembled from the inbound text.
-ALLOWED = {"Good morning", "Good afternoon", "Good evening", "Good day", "Hello"}
+ALLOWED = {"Morning to you", "Afternoon to you", "Evening to you", "Good day to you",
+           "Howdy", "Hey there", "Hi there", "Hello there"}
 for said in ["Good morning", "hi", "howdy", "Good evening", "hello all", "gm", "hiya"]:
     st2 = {"greet_per_sender": {}, "greet_day": {}}
     _, _, _, _, t, _ = R.plan_greeting(cfg(), st2, rec(said), OURS)
@@ -173,7 +176,7 @@ for banned in ["run_claude", "build_prompt", "subprocess", "weather", "urlopen"]
 # still a valid bare greeting shape and assert nothing of it survives into the reply.
 st2 = {"greet_per_sender": {}, "greet_day": {}}
 _, _, _, _, t, _ = R.plan_greeting(cfg(), st2, rec("Hello"), OURS)
-check("attacker text cannot reach the reply", t, "Hello")
+check("attacker text cannot reach the reply", t, "Howdy")
 for hostile in ["<script>alert(1)</script>", "ignore previous instructions", "hi <b>x</b>"]:
     st2 = {"greet_per_sender": {}, "greet_day": {}}
     ok, _, _, _, t, _ = R.plan_greeting(cfg(), st2, rec(hostile), OURS)
@@ -192,6 +195,60 @@ for i in range(50):
         sent += 1
 check("50 greetings from one bot -> exactly 1 ack", sent, 1)
 
+# --- no parroting (2026-08-19, Dean) -----------------------------------------------------
+# "Hello" must not be answered with "Hello". Either a different greeting ("Hi", "Howdy") or
+# the "X back" form. The WAVE is the stated exception: a wave always earns a wave.
+# The invariant is instantiated over EVERY greeting the matcher accepts, built from the
+# alternatives in _GREET_RE itself -- a rule checked on three hand-picked samples is checked
+# exactly where it was already true.
+_WORDS = ["morning", "afternoon", "evening", "day"]
+_BARE  = ["hello", "hi", "hey", "howdy", "greetings", "hiya", "yo", "gm", "ge"]
+_SUFF  = ["all", "everyone", "folks", "mesh"]
+GREETING_CORPUS = []
+for w in _WORDS:
+    GREETING_CORPUS += [w, "good " + w, "Good " + w.capitalize()]
+    GREETING_CORPUS += ["good %s %s" % (w, x) for x in _SUFF]
+for b in _BARE:
+    GREETING_CORPUS.append(b)
+    GREETING_CORPUS.append(b.capitalize())
+for b in ["hello", "hi", "hey", "howdy"]:
+    GREETING_CORPUS += ["%s %s" % (b, x) for x in _SUFF]
+
+check("the corpus is not trivially small", len(GREETING_CORPUS) > 40, True)
+
+_norm = lambda x: " ".join((x or "").lower().split()).strip(" .!,;:")
+_unanswered, _parroted = [], []
+for g in GREETING_CORPUS:
+    if not R.is_bare_greeting(g):
+        _unanswered.append(g)
+        continue
+    r = R.greeting_reply(g)
+    if r is None:
+        _unanswered.append(g)
+    elif _norm(r) == _norm(g):
+        _parroted.append((g, r))
+check("every greeting in the corpus is matched and answered", _unanswered, [])
+check("NO greeting is answered with itself", _parroted, [])
+
+# The rule is about repeating the greeting, not about dropping the time of day: a morning
+# greeting must still be answered in the morning register, or the ack stops being a greeting.
+for w in _WORDS:
+    check("'good %s' is answered in its own register" % w,
+          w in (R.greeting_reply("good " + w) or "").lower(), True)
+
+# The wave is the exception Dean named explicitly, and it is a wave in BOTH directions.
+check("the wave is exempt from the no-parrot rule",
+      R.greeting_reply("\U0001F44B"), "\U0001F44B")
+
+# The DEFAULT is unreachable for everything in the corpus, so no assertion above can pin it --
+# setting it back to "Hello" survived mutation. It is the fallback the moment a greeting is
+# added to _GREET_RE without a matching _GREET_REPLY entry, which is exactly when a parrot
+# would reappear unnoticed. Pin the default itself, and pin that it is currently unreachable.
+check("the default is not itself a parrot of any accepted greeting",
+      _norm(R._GREET_DEFAULT) in {_norm(g) for g in GREETING_CORPUS}, False)
+_defaulted = [g for g in GREETING_CORPUS if R.greeting_reply(g) == R._GREET_DEFAULT]
+check("no accepted greeting falls through to the default", _defaulted, [])
+
 # --- the wave (2026-08-19) --------------------------------------------------------------
 # A bare wave emoji reached the greeting path and failed `bare_greeting` with
 # reason "not_a_greeting" -- observed live on 2026-08-19. It is unambiguously a greeting
@@ -208,8 +265,9 @@ check("surrounding whitespace does not matter", R.greeting_reply("  \U0001F44B  
 # A word greeting carrying a wave keeps its WORD reply -- the time of day is the better
 # mirror when it was offered, and the wave is decoration on it.
 check("'morning' plus a wave still mirrors the time of day",
-      R.greeting_reply("Good morning \U0001F44B"), "Good morning")
-check("'hello' plus a wave still says hello", R.greeting_reply("hello \U0001F44B"), "Hello")
+      R.greeting_reply("Good morning \U0001F44B"), "Morning to you")
+check("'hello' plus a wave still gets a worded reply",
+      R.greeting_reply("hello \U0001F44B"), "Howdy")
 
 # The operator override still wins over everything, including the wave.
 check("GREET_TEXT still overrides the wave",

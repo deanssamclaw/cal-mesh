@@ -843,16 +843,41 @@ _GREET_RE = re.compile(
     r"|^(?:hello|hi|hey|howdy)\s+(?:all|everyone|folks|mesh)$", re.I)
 
 
-# What Cal says back. The matched greeting SELECTS the line; it never shapes it. Mirroring
-# the time of day is what a person does, and the point of the ack is the other node, not us:
-# no identity, no location, no explanation. Just the greeting returned.
+# What Cal says back. The matched greeting SELECTS the line; it never shapes it. The point of
+# the ack is the other node, not us: no identity, no location, no explanation.
+#
+# NEVER THE SAME WORDS BACK (Dean, 2026-08-19). "Hello" answered with "Hello" is a parrot, not
+# a greeting. Each entry answers in the same REGISTER — a morning greeting still gets a morning
+# reply, or the ack stops being a greeting — but never with the phrase it received. The
+# invariant is enforced across the whole accepted-greeting corpus in eval_greeting, not on a
+# few samples. The WAVE is the one deliberate exception, handled below: a wave earns a wave.
+#
+# Deterministic, not random: this is a public log and a fixed map is what makes the eval able
+# to assert anything at all. Repetition is barely visible anyway — GREET_SENDER_COOLDOWN_S is
+# one ack per sender per day.
+#
+# Order matters. Time of day first, so "good morning" answers as morning rather than falling
+# through to a generic hello; "hiya" before "hi" so the word boundary cannot split it.
 _GREET_REPLY = [
-    (re.compile(r"\bmorning\b", re.I),   "Good morning"),
-    (re.compile(r"\bafternoon\b", re.I), "Good afternoon"),
-    (re.compile(r"\bevening\b", re.I),   "Good evening"),
-    (re.compile(r"\bday\b", re.I),       "Good day"),
+    (re.compile(r"\bmorning\b", re.I),   "Morning to you"),
+    (re.compile(r"\bafternoon\b", re.I), "Afternoon to you"),
+    (re.compile(r"\bevening\b", re.I),   "Evening to you"),
+    (re.compile(r"\bday\b", re.I),       "Good day to you"),
+    (re.compile(r"\bgm\b", re.I),        "Morning to you"),
+    (re.compile(r"\bge\b", re.I),        "Evening to you"),
+    (re.compile(r"\bhiya\b", re.I),      "Hey there"),
+    (re.compile(r"\bhello\b", re.I),     "Howdy"),
+    (re.compile(r"\bhowdy\b", re.I),     "Hi there"),
+    (re.compile(r"\bhey\b", re.I),       "Hi there"),
+    (re.compile(r"\bhi\b", re.I),        "Hey there"),
+    (re.compile(r"\byo\b", re.I),        "Hey there"),
+    (re.compile(r"\bgreetings\b", re.I), "Hello back"),
 ]
-_GREET_DEFAULT = "Hello"
+# Deliberately a string NO pattern above produces. That is what lets the eval assert the
+# default is unreachable: while "Hello there" was also howdy's reply, "matched a pattern"
+# and "fell through to the default" were the same observation, and the check could not
+# tell a future unmapped greeting from a mapped one.
+_GREET_DEFAULT = "Hello there"
 
 # The wave, and ONLY the wave. A bare \U0001F44B failed `bare_greeting` live on 2026-08-19 and
 # went unanswered; it is unambiguously a greeting and the cheapest reply that exists on shared
