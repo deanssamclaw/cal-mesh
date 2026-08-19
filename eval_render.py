@@ -284,9 +284,9 @@ def render_all(script):
         return None, f"could not parse render output: {e}"
 
 
-script = page_script("PAGE_V3")
+script = page_script("PAGE_V4")
 if script is None:
-    print("FAIL: PAGE_V3 not found")
+    print("FAIL: PAGE_V4 not found")
     sys.exit(1)
 
 rendered, err = render_all(script)

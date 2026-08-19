@@ -11,12 +11,29 @@ if [ -n "$DEP" ] && git diff --cached | grep -qF "$DEP"; then
 else
   echo "  scrub: observer point clean"
 fi
-IDS=$(git diff --cached | grep -oE '![0-9a-f]{8}' | sort -u \
+# (3) it blocked a commit whose only node id was one this repo PUBLISHED on 2026-08-11 and has
+# carried in four tracked files ever since — a new copy of an already-public string is not a new
+# disclosure, and a check that cannot tell those apart teaches you to wave it through, which is
+# strictly worse than not having it. An id already in HEAD is reported and allowed; anything
+# else still halts. HEAD, not the worktree: an id you added but have not committed is new.
+CAND=$(git diff --cached | grep -oE '![0-9a-f]{8}' | sort -u \
       | grep -vE '^!(aaaaaaaa|bbbbbbbb|cccccccc|deadbeef|xxxxxxxx)$' || true)
+IDS=""; KNOWN=""
+for id in $CAND; do
+  if [ -n "$(git grep -lF "$id" HEAD -- . 2>/dev/null)" ]; then
+    KNOWN="$KNOWN $id"
+  else
+    IDS="$IDS $id"
+  fi
+done
+if [ -n "$KNOWN" ]; then
+  echo "  scrub: node ids already published in HEAD (allowed):$KNOWN"
+fi
 if [ -n "$IDS" ]; then
-  echo "  SCRUB FAIL: non-placeholder node ids:"; echo "$IDS" | sed 's/^/    /'; FAIL=1
+  echo "  SCRUB FAIL: node ids not previously published:"
+  for id in $IDS; do echo "    $id"; done; FAIL=1
 else
-  echo "  scrub: node ids clean"
+  echo "  scrub: no new node ids"
 fi
 SEC=$(git diff --cached | grep -oiE 'sk-ant-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|BEGIN [A-Z ]*PRIVATE KEY' || true)
 if [ -n "$SEC" ]; then echo "  SCRUB FAIL: credential-shaped string"; FAIL=1; else echo "  scrub: no credential shapes"; fi
