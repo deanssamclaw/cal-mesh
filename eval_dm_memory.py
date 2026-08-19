@@ -2,10 +2,14 @@
 """eval_dm_memory — the offline gate eval. Most of it is the security boundary.
 
 This is a LIVE path: it stores private words and replays them into a prompt. So the cases that
-matter most are the ones that prove memory NEVER stores or recalls anything but the pinned,
-key-verified identity — a node-id spoofer, a non-PKI packet, a wrong fingerprint, the feature
-off, the unlock unconfigured all get NOTHING. The functional cases (it remembers, it bounds,
-it combines) come after, because a memory that leaks is worse than one that forgets.
+matter most prove memory stores/recalls ONLY the pinned identity, and — after the session-128
+adversarial review — that it models the RIGHT adversary. The first version of this eval only ever
+flipped the fingerprint to a WRONG value; it never modelled the realistic forger, who supplies
+Dean's *public* fingerprint (broadcast in NodeInfo, so trivially known) with a forged `pki` flag.
+That forger is the actual threat, and the honest truth is that this layer cannot distinguish him
+from Dean — the fingerprint is not a possession proof (see dm_memory's HONEST LIMIT). What this
+layer CAN guarantee is pinned-node + pinned-fp binding done in-module, a fully double-gated enable,
+and a bounded store. Those are what the cases below pin.
 
 Runs against a throwaway store (dm_memory.STORE is repointed) so it never touches the real one.
 """
@@ -13,7 +17,9 @@ import os, sys, tempfile
 import dm_memory
 
 FAIL = []
-PIN = "a1b2c3d4e5f60718"          # synthetic 16-hex fingerprint; never a real node's identifier
+PIN  = "a1b2c3d4e5f60718"          # synthetic fingerprint = sha256(pubkey)[:16]; PUBLIC, not secret
+NODE = "!5e9de701"                 # synthetic pinned node id
+ATTACKER = "!aa000001"             # a different node the forger actually controls
 
 
 def check(name, got, want=True):
@@ -32,48 +38,59 @@ def fresh_store():
 
 
 def cfg(**over):
-    c = {"DM_MEMORY_ENABLED": "true", "DM_UNLOCK_PUBKEY_FP": PIN,
+    c = {"DM_MEMORY_ENABLED": "true", "DM_UNLOCK_ENABLED": "true",
+         "DM_UNLOCK_PUBKEY_FP": PIN, "DM_UNLOCK_NODE": NODE,
          "DM_MEMORY_MAX_TURNS": "8", "DM_MEMORY_MAX_CHARS": "1200"}
     c.update(over)
     return c
 
 
-def rec(fp=PIN, pki=True, node="!5e9de701"):          # synthetic sender id; memory keys on fp, not node
+def rec(fp=PIN, pki=True, node=NODE):
     return {"from": node, "to": "!ca100001", "pki": pki, "pubkey_fp": fp}
 
 
-# ---------------------------------------------------------------- security boundary
-print("SECURITY — memory stores/recalls the pinned identity and NOTHING else")
+# ---------------------------------------------------------------- gating (fails closed, double)
+print("GATING — inert unless the whole unlock is configured (review #5)")
 fresh_store()
-
-# feature off -> inert
 check("disabled: no store", dm_memory.remember(cfg(DM_MEMORY_ENABLED="false"), rec(), "q", "a"), False)
 check("disabled: no recall", dm_memory.recall(cfg(DM_MEMORY_ENABLED="false"), rec()), None)
+check("unlock switch off: not enabled", dm_memory.enabled(cfg(DM_UNLOCK_ENABLED="false")), False)
+check("unlock switch off: no store", dm_memory.remember(cfg(DM_UNLOCK_ENABLED="false"), rec(), "q", "a"), False)
+check("no pinned fp: not enabled", dm_memory.enabled(cfg(DM_UNLOCK_PUBKEY_FP="")), False)
+check("no pinned node: not enabled", dm_memory.enabled(cfg(DM_UNLOCK_NODE="")), False)
+check("fully configured: enabled", dm_memory.enabled(cfg()), True)
 
-# unlock unconfigured (no pinned fp) -> fails closed even if feature on
-check("no pin: not enabled", dm_memory.enabled(cfg(DM_UNLOCK_PUBKEY_FP="")), False)
-check("no pin: no store", dm_memory.remember(cfg(DM_UNLOCK_PUBKEY_FP=""), rec(), "q", "a"), False)
-
-# forger: right node id, WRONG fingerprint -> nothing
+# ---------------------------------------------------------------- identity binding
+print("\nIDENTITY — pinned node AND fingerprint, bound in-module (review #2)")
 fresh_store()
-check("wrong fp: no store", dm_memory.remember(cfg(), rec(fp="deadbeefdeadbeef"), "secret", "reply"), False)
-check("wrong fp: no recall", dm_memory.recall(cfg(), rec(fp="deadbeefdeadbeef")), None)
 
-# forger: right node id, NO fingerprint field -> nothing
-check("absent fp: no store", dm_memory.remember(cfg(), rec(fp=""), "secret", "reply"), False)
+# The FIX: an attacker on his OWN node, presenting Dean's (public) fingerprint and a forged pki
+# flag, is rejected — the node id must also match the pin, and that check now lives inside
+# _identity, not only at the dm_unlock call site.
+check("attacker node + Dean's fp: no store", dm_memory.remember(cfg(), rec(node=ATTACKER), "poison", "x"), False)
+check("attacker node + Dean's fp: no recall", dm_memory.recall(cfg(), rec(node=ATTACKER)), None)
 
-# non-PKI packet (spoofable plaintext) -> nothing even with a matching fp string
-check("non-pki: no store", dm_memory.remember(cfg(), rec(pki=False), "q", "a"), False)
-check("non-pki: no recall", dm_memory.recall(cfg(), rec(pki=False)), None)
+# wrong / absent fingerprint, non-pki: all rejected (these were always covered)
+check("wrong fp: no store", dm_memory.remember(cfg(), rec(fp="deadbeefdeadbeef"), "s", "r"), False)
+check("absent fp: no store", dm_memory.remember(cfg(), rec(fp=""), "s", "r"), False)
+check("non-pki packet: no store", dm_memory.remember(cfg(), rec(pki=False), "q", "a"), False)
+check("non-pki packet: no recall", dm_memory.recall(cfg(), rec(pki=False)), None)
 
-# CROSS-IDENTITY: after storing Dean's turn, a different fp must never read it back
+# HONEST LIMIT (review #1): a forger who supplies the pinned NODE + the pinned (public) FP + a
+# forged pki:True IS accepted here — this layer cannot tell him from Dean. We assert it so the
+# residual exposure is documented in the corpus, not hidden. The reply still goes only to Dean's
+# node and the stored text is sanitized, so the exposure is bounded factual poison, not exfil.
+fresh_store()
+check("KNOWN LIMIT: pinned-node+fp+forged-pki is accepted (not a possession proof)",
+      dm_memory.remember(cfg(), rec(), "legit-or-forged", "reply"), True)
+
+# CROSS-IDENTITY: a different fingerprint (even from the pinned node) cannot read the history
 fresh_store()
 dm_memory.remember(cfg(), rec(), "which box are you on", "rflab")
-check("stored for pinned id", dm_memory.recall(cfg(), rec()) is not None)
-check("other fp cannot read pinned history", dm_memory.recall(cfg(), rec(fp="0000111122223333")), None)
+check("pinned id can read its own history", dm_memory.recall(cfg(), rec()) is not None)
+check("different fp cannot read pinned history", dm_memory.recall(cfg(), rec(fp="0000111122223333")), None)
 check("store holds exactly one identity", list(dm_memory._load().keys()) == [PIN])
-# case-insensitive fingerprint match (fp may arrive upper/lower)
-check("fp match is case-insensitive", dm_memory.recall(cfg(), rec(fp=PIN.upper())) is not None)
+check("fingerprint match is case-insensitive", dm_memory.recall(cfg(), rec(fp=PIN.upper())) is not None)
 
 # ---------------------------------------------------------------- functional
 print("\nFUNCTIONAL — remembers, bounds, combines")
@@ -105,6 +122,14 @@ block = dm_memory.recall(c, rec())
 check("block respects char cap", len(block) <= 200)
 check("cap keeps the header", block.startswith("Earlier in this conversation"))
 check("cap keeps a recent turn over an old one", ("q39" in block) and ("q0" not in block))
+
+# review #4: a cap SMALLER than the header must still hold, not blow out to the whole body
+fresh_store()
+c = cfg(DM_MEMORY_MAX_CHARS="30", DM_MEMORY_MAX_TURNS="50")
+for i in range(40):
+    dm_memory.remember(c, rec(), f"q{i} " + "x" * 20, f"a{i} " + "y" * 20)
+block = dm_memory.recall(c, rec())
+check("degenerate cap (< header) still respected", len(block) <= 30)
 
 # empty-history and empty-turn handling
 fresh_store()

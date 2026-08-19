@@ -7,13 +7,26 @@ identity — Dean — so an authenticated exchange builds on the last one instea
 
 WHY IT RIDES THE STRONG TIER, NOT dm_longer. Memory stores private words and replays them into
 a later prompt. That is exactly the disclosure the weak `dm_longer` path refuses by design (its
-docstring: "no context is injected on this path"), because Meshtastic node ids are spoofable and
-PKC has a documented downgrade attack. So memory keys on the ONE thing a spoofer cannot supply —
-the sender's pinned public-key fingerprint — and only ever on the `dm_unlock` path, which already
-requires pinned node + pinned fingerprint + PKI. The store is therefore SINGLE-IDENTITY BY
-CONSTRUCTION: `_identity()` returns a key only when the record's fingerprint equals the configured
-pin, so there is no code path that writes or reads another node's content even if a caller is
-buggy. A forger who presents Dean's node id but not his key gets nothing — not a read, not a write.
+docstring: "no context is injected on this path"). So memory sits ONLY on the `dm_unlock` tier,
+which requires pinned node + pinned fingerprint + PKI, and `_identity()` re-checks BOTH the pinned
+node id AND the pinned public-key fingerprint itself — the node binding lives inside this module,
+not only at the call site, so a second caller or a refactor cannot open a cross-identity read.
+
+HONEST LIMIT — read this before arming (adversarial review, session 128). The fingerprint is NOT
+a possession proof. `pubkey_fp` is `sha256(publicKey)[:16]` (bridge.py) and the public key is
+broadcast in NodeInfo, so anyone who heard Dean's node can reproduce his fingerprint. And `pki`
+is `packet.get("pkiEncrypted") is True` — the firmware's flag, copied verbatim, NOT verified by
+any crypto in cal-mesh. So the real trust anchor is that one flag, which Meshtastic's documented
+downgrade attack can forge. This is the SAME anchor `dm_unlock` already rides. What memory ADDS
+over dm_unlock is PERSISTENCE: dm_unlock's worst forged case is "a forger reads one reply meant
+for Dean"; memory's is "an active on-air forger writes poison that replays into Dean's later
+prompts." That poison is heavily bounded — the stored question is the sanitized `plan["clean"]`
+(first sentence, 120 chars, injection/exfil tokens redacted), so it is factual/context poisoning,
+never tool execution or key exfil — and reads still go only to Dean's node (the reply is a DM
+encrypted to Dean). But it is a real, persistent delta over the tier's stated forge-tolerance,
+which is why ARMING IS A DELIBERATE DECISION recorded in status, not a consequence of the flags.
+Do not arm without either accepting that bounded-poison exposure explicitly or adding an
+out-of-band factor (a per-session challenge Dean's node answers).
 
 WHAT STILL HOLDS from the rest of the harness, unchanged:
   * Recalled text is DATA, not instructions. Both sides were sanitized before they were stored
@@ -54,24 +67,39 @@ def _int(cfg, key, default):
 
 
 def enabled(cfg):
-    """True only if the feature is on AND the unlock is configured. Fails closed: no pin, no
-    memory, because without a pinned fingerprint there is no unspoofable key to file under."""
+    """True only if the feature is on AND the whole unlock is configured. Fails closed and is
+    fully double-gated: memory rides dm_unlock, so it stays inert unless the unlock SWITCH is on
+    (not just its pins) and BOTH the pinned node id and fingerprint are set. Checking the pins
+    without the switch was a defense-in-depth gap (review #5)."""
     cfg = cfg or {}
     if str(cfg.get("DM_MEMORY_ENABLED", "false")).lower() != "true":
         return False
-    return bool((cfg.get("DM_UNLOCK_PUBKEY_FP") or "").strip())
+    if str(cfg.get("DM_UNLOCK_ENABLED", "false")).lower() != "true":
+        return False
+    return bool((cfg.get("DM_UNLOCK_PUBKEY_FP") or "").strip()) \
+        and bool((cfg.get("DM_UNLOCK_NODE") or "").strip())
 
 
 def _identity(cfg, rec):
     """The store key for this record, or None. A key is returned ONLY when the record is a
-    PKC-encrypted DM whose public-key fingerprint equals the configured pin. This is the entire
-    security boundary: the returned value is always the pinned fingerprint, never a node id, so
-    the store cannot hold anyone but the pinned identity."""
+    PKC-encrypted DM whose pinned NODE ID and public-key FINGERPRINT both match the configured
+    pins. Binding the node id here — not only at the dm_unlock call site — is what makes the
+    single-identity property hold BY CONSTRUCTION (review #2): recall/remember cannot read or
+    write another node's content even if a future caller forgets the from-check. The returned
+    value is the fingerprint (the stable store key), never a node id.
+
+    What this does NOT prove: possession of Dean's private key. Both fields are firmware-supplied
+    (see the HONEST LIMIT in the module docstring); the fingerprint is derived from a broadcast
+    public key and `pki` is an unverified flag. This gate confines the store to the pinned
+    identity as strongly as dm_unlock does — no stronger."""
     cfg, rec = cfg or {}, rec or {}
     pin = (cfg.get("DM_UNLOCK_PUBKEY_FP") or "").strip().lower()
-    if not pin:
+    node = (cfg.get("DM_UNLOCK_NODE") or "").strip()
+    if not pin or not node:
         return None
     if rec.get("pki") is not True:                       # proto3 drops false; require explicit True
+        return None
+    if (rec.get("from") or "") != node:                  # pinned node id must match (in-module bind)
         return None
     if (rec.get("pubkey_fp") or "").strip().lower() != pin:
         return None
@@ -119,11 +147,16 @@ def recall(cfg, rec):
         return None
     if len(block) > cap:
         # Trim from the FRONT (oldest), keeping the header and the most recent exchanges, which
-        # are the ones a follow-up refers to.
+        # are the ones a follow-up refers to. Guard the degenerate cap: when the cap is smaller
+        # than the header, `cap - len(head) - 1` goes negative and `body[-neg:]` returns almost
+        # the WHOLE body (review #4: cap=30 aired 2609 chars). Clamp both branches.
         head = lines[0]
-        body = block[len(head) + 1:]
-        body = body[-(cap - len(head) - 1):]
-        block = head + "\n" + body.lstrip("\n")
+        if cap <= len(head):
+            block = head[:cap]
+        else:
+            body = block[len(head) + 1:]
+            keep = cap - len(head) - 1               # guaranteed > 0 here
+            block = head + "\n" + body[-keep:].lstrip("\n")
     return block
 
 
