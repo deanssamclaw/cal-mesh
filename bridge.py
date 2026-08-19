@@ -53,7 +53,7 @@ def read_json_file(path, default=None):
 def write_json(path, obj):
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
-        json.dump(obj, f, ensure_ascii=False)
+        json.dump(obj, f, ensure_ascii=False, allow_nan=False)
     os.replace(tmp, path)
 
 
@@ -199,6 +199,24 @@ def _route_snrs(vals):
     return out
 
 
+def _num(v, default):
+    """A number from a config string or a JSON field, or the default. Never raises.
+
+    Both sources are unvalidated: config is a text file a human edits, and traceroute-state
+    is a file on disk. A bare float() on either escapes drain_traceroute into main()'s
+    connection loop, which closes the interface and reconnects -- forever, because nothing
+    ever repairs the file. Measured: a state file containing {"last_ts": "abc"} put the real
+    main() into a permanent 60 s reconnect cycle with no message RX and no outbox TX. A
+    traceroute limiter must never be able to take the radio down."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    if f != f or f in (float("inf"), float("-inf")):   # NaN and infinities
+        return default
+    return f
+
+
 def channel_util(iface):
     """Channel utilization percent as the radio measures it, or None if it cannot be read.
 
@@ -208,9 +226,70 @@ def channel_util(iface):
     try:
         me = iface.getMyNodeInfo() or {}
         v = (me.get("deviceMetrics") or {}).get("channelUtilization")
-        return float(v) if isinstance(v, (int, float)) else None
+        # bool is a subclass of int, so isinstance(v, (int, float)) accepts True and calls it
+        # 1.0% -- a quiet channel. And NaN passes every isinstance test while comparing False
+        # against everything, so a gate written as "hold if util >= limit" lets NaN straight
+        # through: the one float value that MEANS unknown was reading as permission.
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        f = float(v)
+        if f != f or f < 0 or f > 100:      # NaN fails both comparisons, which is the point
+            return None
+        return f
     except Exception:
         return None
+
+
+PROBE_RING = 8           # how many outstanding probes we remember
+PROBE_TTL_S = 900        # and for how long: a reply after 15 min is not this probe's reply
+
+
+def remember_probe(st, pkt, dest):
+    """Record the packet id of a probe we just sent, so its reply can be told from a forgery.
+
+    Without this, `witness: addressed` keyed on nothing but the packet being addressed to us,
+    and the dashboard filed anything with `requester == me` under "paths Cal measured". Any
+    node on the channel could transmit an unsolicited RouteDiscovery response carrying a
+    request_id Cal never issued and publish an invented path -- naming relays that carried
+    nothing -- on a public page, and overwrite a genuine measurement at will, because the
+    dashboard is last-one-wins. Demonstrated end to end by review.
+
+    HONEST LIMIT, recorded rather than implied away: this is not a possession proof. Our
+    request floods the channel in the clear, so an attacker who HEARS it learns the id and can
+    forge a matching reply. What it removes is the unsolicited forgery -- anyone, any time,
+    no timing. What remains needs an active on-air attacker who saw our probe and beat the
+    real node to the answer. Same shape as the dm_unlock anchor, and worth the same candour."""
+    pid = getattr(pkt, "id", None) if pkt is not None else None
+    if not isinstance(pid, int):
+        return
+    ring = [p for p in (st.get("probes") or []) if isinstance(p, dict)]
+    ring.append({"id": pid, "dest": dest, "ts": time.time()})
+    st["probes"] = ring[-PROBE_RING:]
+    write_json(TR_STATE, st)
+
+
+def probe_match(req_id, responder):
+    """True only if req_id belongs to a live probe WE sent, to THIS node.
+
+    Checking the id alone would let a forger replay a real id from a different node, which
+    reads as 'the path to X' while describing nothing."""
+    if not isinstance(req_id, int):
+        return False
+    st = read_json_file(TR_STATE, {})
+    if not isinstance(st, dict):
+        return False
+    now_s = time.time()
+    for p in (st.get("probes") or []):
+        if not isinstance(p, dict):
+            continue
+        if p.get("id") != req_id:
+            continue
+        if p.get("dest") != responder:
+            continue
+        if now_s - _num(p.get("ts"), 0) > PROBE_TTL_S:
+            continue
+        return True
+    return False
 
 
 _OURS = {"id": None, "warned": False}
@@ -282,11 +361,28 @@ def capture_route(packet, d, ours):
            "snr_back_complete": len(snr_b) == len(route_back) + 1 if is_response else False,
            # Cal spent no airtime on an overheard one. Worth keeping: it is the whole reason
            # this tier is free, and it is also the honest label for a path nobody asked us for.
-           "witness": "addressed" if (ours and to == ours) else "overheard",
+           # THREE states, not two. "addressed" now means "a reply to a probe we sent, from
+           # the node we sent it to" -- the only kind that may be published as a path Cal
+           # measured. A reply addressed to us that matches no outstanding probe is
+           # "unsolicited": recorded, because it is worth seeing, and never presented as ours.
+           # FOUR states, and each is a different relationship to the measurement:
+           #   addressed   -- a reply to a probe WE sent, to the node we sent it to. The only
+           #                  kind that may ever be published as a path Cal measured.
+           #   unsolicited -- a reply addressed to us matching no outstanding probe. Recorded
+           #                  because it is worth seeing, never presented as ours.
+           #   probed      -- somebody is tracing CAL. Ordinary mesh behaviour, and not a
+           #                  measurement of anything, but it is not "overheard" either.
+           #   overheard   -- traffic between other nodes. Real topology, says nothing about
+           #                  how Cal reaches anyone.
+           "witness": ("addressed" if (ours and to == ours and is_response
+                                       and probe_match(req_id, frm))
+                       else "unsolicited" if (ours and to == ours and is_response)
+                       else "probed" if (ours and to == ours)
+                       else "overheard"),
            "packet_id": packet.get("id"), "request_id": req_id,
            "rx_snr": packet.get("rxSnr"), "rx_rssi": packet.get("rxRssi")}
     with open(ROUTES, "a") as f:
-        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        f.write(json.dumps(rec, ensure_ascii=False, allow_nan=False) + "\n")
     COUNTS["routes"] = COUNTS.get("routes", 0) + 1
     if is_response:
         log(f"ROUTE {rec['witness']}: " + " -> ".join(h or "?" for h in path))
@@ -334,7 +430,7 @@ def on_receive(packet=None, interface=None):
                # fingerprint for display and comparison instead of the key itself.
                "pubkey_fp": pubkey_fp(pub)}
         with open(INBOX, "a") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            f.write(json.dumps(rec, ensure_ascii=False, allow_nan=False) + "\n")
         COUNTS["rx"] += 1
         log(f"RX {rec['from']} -> {rec['to']} ch{rec['channel']}: {rec['text']!r}")
     except Exception as e:
@@ -464,7 +560,7 @@ def drain_outbox(iface, transport):
                    "wantAck": ack, "transport": transport, "bytes": len(text.encode()),
                    "source": source}
             with open(SENT_LOG, "a") as f:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                f.write(json.dumps(rec, ensure_ascii=False, allow_nan=False) + "\n")
             log(f"TX -> {dest} ch{ch}: {text!r}")
             os.replace(p, os.path.join(SENT, f"{os.path.basename(p)}.{int(time.time())}"))
         except Exception as e:
@@ -473,6 +569,36 @@ def drain_outbox(iface, transport):
                 os.replace(p, os.path.join(SENT, f"{os.path.basename(p)}.err.{int(time.time())}"))
             except Exception:
                 pass
+
+
+_DEST_RE = __import__("re").compile(r"^!?[0-9a-fA-F]{8}$")
+
+
+def valid_dest(dest):
+    """A traceroute destination, normalised -- or None if it is not one we will send to.
+
+    This is an ALLOWLIST because the denylist it replaces was four characters wide. The old
+    test was `dest in ("^all", "!ffffffff")`, and `!FFFFFFFF`, `^ALL`, `'^all '` and the bare
+    integer 4294967295 all walked past it; the library then resolves every one of them to the
+    broadcast number. The firmware refuses a multi-hop broadcast traceroute so no airtime is
+    spent, but it becomes exactly the silent no-op the guard exists to prevent -- and it would
+    burn the interval and consume the queue entry for a transmission that never happened.
+
+    It also stops the library's own our_exit(): a destination under 8 characters that is not in
+    the node DB makes meshtastic call sys.exit(1). SystemExit is a BaseException, so it escapes
+    every `except Exception` here, the queue entry is never quarantined, launchd restarts the
+    bridge, and it dies on the same entry again. A typo becomes an unbounded crash loop."""
+    if isinstance(dest, bool) or dest is None:
+        return None
+    if isinstance(dest, int):
+        dest = f"!{dest:08x}"
+    dest = str(dest).strip()
+    if not _DEST_RE.match(dest):
+        return None
+    dest = "!" + dest.lstrip("!").lower()
+    if int(dest[1:], 16) == 0xFFFFFFFF:
+        return None
+    return dest
 
 
 def drain_traceroute(iface, cfg):
@@ -523,14 +649,16 @@ def drain_traceroute(iface, cfg):
         return
     if str(cfg.get("TRACEROUTE_ENABLED", "false")).lower() != "true":
         return
-    st = read_json_file(TR_STATE, {}) or {}
-    min_gap = float(cfg.get("TRACEROUTE_MIN_GAP_S", 60))
-    last = float(st.get("last_ts") or 0)
+    st = read_json_file(TR_STATE, {})
+    if not isinstance(st, dict):
+        st = {}
+    min_gap = _num(cfg.get("TRACEROUTE_MIN_GAP_S", 60), 60)
+    last = _num(st.get("last_ts"), 0)
     waited = time.time() - last
     if waited < min_gap:
         return
     util = channel_util(iface)
-    limit = float(cfg.get("TRACEROUTE_MAX_CH_UTIL", 25))
+    limit = _num(cfg.get("TRACEROUTE_MAX_CH_UTIL", 25), 25)
     if util is None:
         log("traceroute held: channel utilization unknown")
         return
@@ -540,25 +668,41 @@ def drain_traceroute(iface, cfg):
     path = pending[0]
     try:
         raw = open(path).read().strip()
-        dest = json.loads(raw).get("dest") if raw.startswith("{") else raw
-        hop_limit = int(cfg.get("TRACEROUTE_HOP_LIMIT", 3))
-        if not dest or dest in ("^all", "!ffffffff"):
-            raise ValueError(f"refusing a broadcast traceroute ({dest!r})")
-        from meshtastic.protobuf import mesh_pb2 as _m, portnums_pb2 as _pn
-        iface.sendData(_m.RouteDiscovery(), destinationId=dest,
-                       portNum=_pn.PortNum.TRACEROUTE_APP, wantResponse=True,
-                       hopLimit=hop_limit)
+        want = json.loads(raw).get("dest") if raw.startswith("{") else raw
+        dest = valid_dest(want)
+        if dest is None:
+            raise ValueError(f"refusing traceroute destination {want!r}")
+        hop_limit = int(_num(cfg.get("TRACEROUTE_HOP_LIMIT", 3), 3))
+        hop_limit = max(1, min(7, hop_limit))      # HOP_MAX is 7 (MeshTypes.h:38)
+        # RESERVE THE SLOT BEFORE SPENDING THE AIRTIME. This used to send first and stamp
+        # after, both inside one try: a state write that failed left the airtime already spent
+        # and the interval never stamped, so the next pass -- one second later -- sent again.
+        # Measured on a read-only state directory: ten probes in ten seconds, roughly 57 s of
+        # channel occupancy, reported only as a log line that reads like a refusal. Stamping
+        # first fails toward silence, which is the correct direction for a shared channel.
         st["last_ts"] = time.time()
-        st["sent"] = int(st.get("sent", 0)) + 1
+        st["sent"] = int(_num(st.get("sent"), 0)) + 1
         st["last_dest"] = dest
         st["last_ch_util"] = util
         write_json(TR_STATE, st)
+        from meshtastic.protobuf import mesh_pb2 as _m, portnums_pb2 as _pn
+        pkt = iface.sendData(_m.RouteDiscovery(), destinationId=dest,
+                             portNum=_pn.PortNum.TRACEROUTE_APP, wantResponse=True,
+                             hopLimit=hop_limit)
+        remember_probe(st, pkt, dest)
         COUNTS["tr_tx"] = COUNTS.get("tr_tx", 0) + 1
         gap = "first" if not last else f"waited {waited:.0f}s"
         log(f"TRACEROUTE -> {dest} hopLimit={hop_limit} "
             f"(chUtil {util:.1f}%, {gap}, total {st['sent']})")
         os.replace(path, os.path.join(SENT, f"tr.{os.path.basename(path)}.{int(time.time())}"))
-    except Exception as e:
+    except BaseException as e:                       # noqa: BLE001
+        # BaseException on purpose. The meshtastic library calls sys.exit(1) for an
+        # unresolvable destination, and SystemExit walks past `except Exception` -- past the
+        # quarantine below too, so the poison entry stayed in the queue and the bridge crash
+        # -looped on it through every launchd restart. valid_dest should now prevent that;
+        # this is the belt for the braces. KeyboardInterrupt is still allowed to stop us.
+        if isinstance(e, KeyboardInterrupt):
+            raise
         log(f"traceroute err {path}: {e!r}")
         try:
             os.replace(path, os.path.join(SENT, f"tr.{os.path.basename(path)}.err.{int(time.time())}"))
@@ -608,6 +752,13 @@ def main():
                     last_nodes = time.time()
                 if time.time() - last_trim > 300:
                     trim_file(SENT_LOG, 5000)   # inbox is NOT trimmed (responder offset)
+                    # routes.jsonl is written entirely by packets OTHER PEOPLE send, and
+                    # a RouteDiscovery fills a 237-byte payload: measured 6.4x
+                    # amplification, ~130 MB/day at 1 pkt/s, from a sender spending
+                    # nothing. Untrimmed it fills the disk (which is also what makes the
+                    # state write fail) and evicts every genuine path from the
+                    # dashboard's 256 KB tail.
+                    trim_file(ROUTES, 2000)
                     last_trim = time.time()
                 write_status(cfg, True, iface)
                 time.sleep(1)

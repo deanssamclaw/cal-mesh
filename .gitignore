@@ -16,6 +16,9 @@ responder-state.json
 # --- runtime dirs ---
 outbox/
 sent/
+# the traceroute queue: filenames AND contents are third-party node ids, and this repo is
+# public. Caught by the scrub on the day it was armed.
+traceroute/
 
 # --- python ---
 __pycache__/

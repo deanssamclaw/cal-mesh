@@ -74,22 +74,25 @@ def num(nid):
     return int(nid[1:], 16)
 
 
-def run(packet, ours=None):
-    """Call capture_route with ROUTES pointed at a scratch file, and return the record.
+def run(packet, ours=None, probes=None):
+    """Call capture_route with ROUTES and TR_STATE pointed at scratch files.
 
     `ours` defaults to None -- Cal's id unresolved -- so a test must state explicitly when it
-    means "this one was addressed to us"."""
+    means "this one was addressed to us". `probes` seeds the ring of probes Cal actually sent;
+    with none, a reply addressed to us is by definition unsolicited."""
     d = packet["decoded"]
-    with tempfile.NamedTemporaryFile("w+", suffix=".jsonl", delete=False) as f:
-        path = f.name
-    old = bridge.ROUTES
-    bridge.ROUTES = path
-    try:
-        rec = bridge.capture_route(packet, d, ours)
-        written = [json.loads(l) for l in open(path) if l.strip()]
-    finally:
-        bridge.ROUTES = old
-        os.unlink(path)
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "routes.jsonl")
+        stp = os.path.join(td, "traceroute-state.json")
+        if probes is not None:
+            json.dump({"probes": probes}, open(stp, "w"))
+        oldr, olds = bridge.ROUTES, bridge.TR_STATE
+        bridge.ROUTES, bridge.TR_STATE = path, stp
+        try:
+            rec = bridge.capture_route(packet, d, ours)
+            written = [json.loads(l) for l in open(path) if l.strip()]
+        finally:
+            bridge.ROUTES, bridge.TR_STATE = oldr, olds
     # what is RETURNED and what is WRITTEN must be the same thing — a dashboard reads the file,
     # not the return value, and an eval that only checks the return value would not notice.
     if len(written) != 1 or written[0] != rec:
@@ -177,14 +180,34 @@ check_true("an absent snrBack is not complete either", not r["snr_back_complete"
 # ---------------------------------------------------------------------------------------
 # 6. Addressed to us.
 # ---------------------------------------------------------------------------------------
-# A response addressed to us is, by definition, one we asked for.
-r = run(pkt(num(TRACED), num(REQ), {"snrTowards": [24]}, request_id=11), ours=REQ)
-check("a response addressed to Cal is labelled addressed", r["witness"], "addressed")
-r = run(pkt(num(TRACED), num(REQ), {"snrTowards": [24]}, request_id=11), ours=None)
-check("with our own id unresolved, a path is NOT claimed as addressed to us",
-      r["witness"], "overheard")
-r = run(pkt(num(TRACED), num(REQ), {"snrTowards": [24]}, request_id=11), ours=TRACED)
+# `witness` has THREE states. Only a reply to a probe Cal actually sent, from the node Cal
+# sent it to, may ever be published as a path Cal measured -- anything else on a public page
+# is an invented path naming relays that carried nothing.
+import time as _t
+GOOD = [{"id": 11, "dest": TRACED, "ts": _t.time()}]
+r = run(pkt(num(TRACED), num(REQ), {"snrTowards": [24]}, request_id=11), ours=REQ, probes=GOOD)
+check("a reply to a probe we really sent is addressed", r["witness"], "addressed")
+r = run(pkt(num(TRACED), num(REQ), {"snrTowards": [24]}, request_id=11), ours=REQ, probes=[])
+check("a reply addressed to us that we never asked for is UNSOLICITED, not addressed",
+      r["witness"], "unsolicited")
+r = run(pkt(num(TRACED), num(REQ), {"snrTowards": [24]}, request_id=99), ours=REQ, probes=GOOD)
+check("a forged request id does not match our outstanding probe", r["witness"], "unsolicited")
+r = run(pkt(num("!cccccccc"), num(REQ), {"snrTowards": [24]}, request_id=11), ours=REQ,
+        probes=GOOD)
+check("a real id REPLAYED BY A DIFFERENT NODE is not a path to the node we probed",
+      r["witness"], "unsolicited")
+r = run(pkt(num(TRACED), num(REQ), {"snrTowards": [24]}, request_id=11), ours=REQ,
+        probes=[{"id": 11, "dest": TRACED, "ts": _t.time() - 99999}])
+check("a reply long after the probe expired is not that probe's reply", r["witness"],
+      "unsolicited")
+r = run(pkt(num(TRACED), num(REQ), {"snrTowards": [24]}, request_id=11), ours=None, probes=GOOD)
+check("with our own id unresolved, nothing is claimed as ours", r["witness"], "overheard")
+r = run(pkt(num(TRACED), num(REQ), {"snrTowards": [24]}, request_id=11), ours=TRACED,
+        probes=GOOD)
 check("a path merely passing our way is not ours", r["witness"], "overheard")
+r = run(pkt(num(REQ), num(TRACED), {"route": [R1]}), ours=TRACED, probes=GOOD)
+check("a REQUEST addressed to us is somebody tracing CAL, which is neither a measurement "
+      "nor something we overheard", r["witness"], "probed")
 
 # ---------------------------------------------------------------------------------------
 # 7. A real -32.0 dB encodes to -128 as well. The firmware cannot tell them apart, so this
@@ -366,6 +389,130 @@ check_true("gate: the default threshold is the firmware's polite value, 25",
 check_true("gate: the interval default is one channel-utilization measurement window, 60 s",
            'cfg.get("TRACEROUTE_MIN_GAP_S", 60)' in _src)
 
+# --- gaps an adversarial review found: five mutations that each make the bridge TRANSMIT
+#     MORE all survived a green 57-check suite. Every one of these replaces a check that was
+#     standing in for behaviour with the behaviour itself.
+
+# M6, the sharpest: the interval's VALUE was pinned only by a source-string match, so a `/2`,
+# a min(), or a seconds/millis error left the literal intact and passed. The old behavioural
+# tests used states at -10 s and -999 s against a 180 s gap -- a gap wide enough to swallow
+# any factor-of-two error. Bracket it instead, at two different values.
+for gap in (60, 180):
+    cfg = {**ON, "TRACEROUTE_MIN_GAP_S": gap}
+    sent, _ = drain(cfg, [TRACED], state={"last_ts": _t.time() - (gap - 2)})
+    check(f"interval {gap}s: two seconds short is HELD", sent, [])
+    sent, _ = drain(cfg, [TRACED], state={"last_ts": _t.time() - (gap + 2)})
+    check(f"interval {gap}s: two seconds past is allowed", len(sent), 1)
+    sent, _ = drain(cfg, [TRACED], state={"last_ts": _t.time() - (gap / 2)})
+    check(f"interval {gap}s: HALF the interval is not the interval", sent, [])
+
+# M5: a backlog must not buy an exemption. drain_twice queued two, so a bypass keyed on a
+# deeper backlog was invisible.
+sent = drain_twice(ON, [TRACED, REQ, "!cccccccc", "!deadbeef", TRACED])
+check("a five-deep backlog still sends only one", len(sent), 1)
+
+# M4: no test varied the hop limit and the channel together, so a gate skipped for cheap
+# probes survived. A cheap probe is still a probe.
+sent, _ = drain({**ON, "TRACEROUTE_HOP_LIMIT": 1}, [TRACED], util=30.0)
+check("a 1-hop probe is still held by a busy channel", sent, [])
+sent, _ = drain({**ON, "TRACEROUTE_HOP_LIMIT": 9}, [TRACED])
+check("the hop limit is clamped to the firmware's HOP_MAX of 7", first(sent, "hopLimit"), 7)
+sent, _ = drain({**ON, "TRACEROUTE_HOP_LIMIT": 0}, [TRACED])
+check("...and to at least 1, since 0 would probe nothing", first(sent, "hopLimit"), 1)
+
+# M2 / F1: a failed state write left the airtime spent and the interval unstamped, so the
+# next pass -- one second later -- sent again. Measured at ten probes in ten seconds.
+_realwj = bridge.write_json
+def _boom(*a, **k):
+    raise PermissionError("read-only state")
+bridge.write_json = _boom
+try:
+    sent, _ = drain(ON, [TRACED])
+    check("a state write that FAILS must cost no airtime, not spend it and forget",
+          sent, [])
+finally:
+    bridge.write_json = _realwj
+
+# M8 / F5: channel_util accepted anything float() would take. NaN is the float that MEANS
+# unknown, and `nan >= 25` is False, so it read as permission.
+class _FakeUtil:
+    def __init__(self, v): self.v = v
+    def getMyNodeInfo(self): return {"deviceMetrics": {"channelUtilization": self.v}}
+for bad, why in ((float("nan"), "NaN"), (float("inf"), "infinity"),
+                 (float("-inf"), "negative infinity"), (True, "a bool"),
+                 (-50, "a negative percentage"), (250, "an impossible percentage"),
+                 ("12", "a string")):
+    check(f"channel state: {why} is unknown, not a quiet channel",
+          bridge.channel_util(_FakeUtil(bad)), None)
+check("channel state: a real reading still reads", bridge.channel_util(_FakeUtil(11.5)), 11.5)
+
+# F3: a corrupt state file or a config typo escaped into main()'s connection loop and put the
+# bridge into a permanent reconnect cycle -- no message RX, no outbox TX. A traceroute limiter
+# must never be able to take the radio down.
+for bad in ([1, 2, 3], "hello", {"last_ts": "abc"}, {"last_ts": [1]}, {"last_ts": {"a": 1}},
+            {"last_ts": None}, {"sent": "many"}):
+    try:
+        drain(ON, [TRACED], state=bad)
+        checked += 1
+    except Exception as e:                                    # noqa: BLE001
+        failures.append((f"a corrupt state file {bad!r} must not raise out of drain_traceroute",
+                         repr(e), "no exception"))
+        checked += 1
+for bad in ("abc", "", None, float("nan")):
+    try:
+        drain({**ON, "TRACEROUTE_MIN_GAP_S": bad}, [TRACED])
+        drain({**ON, "TRACEROUTE_MAX_CH_UTIL": bad}, [TRACED])
+        checked += 2
+    except Exception as e:                                    # noqa: BLE001
+        failures.append((f"a config typo {bad!r} must not raise", repr(e), "no exception"))
+        checked += 2
+sent, _ = drain({**ON, "TRACEROUTE_MAX_CH_UTIL": "abc"}, [TRACED], util=95.0)
+check("a malformed threshold falls back to the firmware's 25, and does NOT fail open",
+      sent, [])
+
+# F7: the broadcast refusal was a case-sensitive exact-string denylist four characters wide.
+for bad in ("!FFFFFFFF", "!FfFfFfFf", "^ALL", "^all ", " ^all", "!ffffffff ", 4294967295,
+            "!abc", "CalHT", "!zzzzzzzz", "!ffffffffff"):
+    sent, st = drain(ON, [bad] if isinstance(bad, str) else [json.dumps({"dest": bad})])
+    check(f"destination {bad!r} is refused", sent, [])
+    check_true(f"...and refusing {bad!r} costs no interval", not st.get("last_ts"))
+
+# The allowlist normalises before matching, so a queue entry written by hand with a stray
+# space or in upper case is still SENT rather than silently refused. (Removing the strip alone
+# only makes the regex stricter -- fail-closed -- which is why the refusal checks above cannot
+# see it, and why this positive case has to exist.)
+sent, _ = drain(ON, [json.dumps({"dest": "  " + TRACED.upper() + "  "})])
+check("a padded, upper-case, but otherwise valid destination is normalised and sent",
+      first(sent, "destinationId"), TRACED)
+sent, _ = drain(ON, [json.dumps({"dest": int(TRACED[1:], 16)})])
+check("a destination given as a plain integer is normalised to an id",
+      first(sent, "destinationId"), TRACED)
+
+# F4: an unresolvable destination made the library call sys.exit(1). SystemExit walked past
+# `except Exception`, so the poison entry was never quarantined and the bridge crash-looped
+# on it through every restart.
+class _ExitIface(FakeIface):
+    def sendData(self, data, **kw):
+        raise SystemExit(1)
+with tempfile.TemporaryDirectory() as td:
+    q = os.path.join(td, "traceroute"); os.makedirs(q)
+    os.makedirs(os.path.join(td, "sent"))
+    open(os.path.join(q, "000"), "w").write(TRACED)
+    oq, ost, osent = bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT
+    bridge.TR_QUEUE = q
+    bridge.TR_STATE = os.path.join(td, "traceroute-state.json")
+    bridge.SENT = os.path.join(td, "sent")
+    raised = None
+    try:
+        bridge.drain_traceroute(_ExitIface(5.0), ON)
+    except BaseException as e:                                # noqa: BLE001
+        raised = e
+    finally:
+        left = os.listdir(q)
+        bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT = oq, ost, osent
+    check("a library sys.exit does not escape drain_traceroute", raised, None)
+    check("...and the poison queue entry is quarantined rather than retried forever", left, [])
+
 # A refused destination must not consume the interval — otherwise one bad queue entry buys
 # silence until the next window for no transmission at all.
 sent, st = drain(ON, ["^all"])
@@ -400,22 +547,44 @@ if "--self-test" in sys.argv:
          'if str(cfg.get("TRACEROUTE_ENABLED", "false")).lower() != "true":',
          'if str(cfg.get("TRACEROUTE_ENABLED", "true")).lower() != "true":'),
         ("the interval is read once into memory instead of from disk each pass",
-         'st = read_json_file(TR_STATE, {}) or {}',
-         'st = {}'),
+         "    st = read_json_file(TR_STATE, {})\n    if not isinstance(st, dict):\n        st = {}",
+         "    st = {}"),
         ("a broadcast traceroute is allowed through",
-         'if not dest or dest in ("^all", "!ffffffff"):',
-         'if not dest and dest in ("^all", "!ffffffff"):'),
+         '    if int(dest[1:], 16) == 0xFFFFFFFF:\n        return None',
+         '    pass'),
+        ("the destination allowlist stops normalising, so case and whitespace walk past it",
+         '    dest = str(dest).strip()', '    dest = str(dest)'),
         ("unknown channel state is treated as permission to send",
          "    if util is None:\n        log(\"traceroute held: channel utilization unknown\")\n        return",
          "    if util is None:\n        util = 0.0"),
         ("the gate is raised to the firmware's HARD ceiling instead of its polite one",
-         'limit = float(cfg.get("TRACEROUTE_MAX_CH_UTIL", 25))',
-         'limit = float(cfg.get("TRACEROUTE_MAX_CH_UTIL", 40))'),
+         'limit = _num(cfg.get("TRACEROUTE_MAX_CH_UTIL", 25), 25)',
+         'limit = _num(cfg.get("TRACEROUTE_MAX_CH_UTIL", 40), 40)'),
         ("the gate compares the wrong way round",
          "    if util >= limit:", "    if util <= limit:"),
         ("channel state is read from the 30 s status file instead of live",
          'v = (me.get("deviceMetrics") or {}).get("channelUtilization")',
          'v = None'),
+        # The five the review found surviving a green suite, plus the forgery gate.
+        ("the interval is halved",
+         "    if waited < min_gap:", "    if waited < min_gap / 2:"),
+        ("a backlog buys an exemption from the interval",
+         "    if waited < min_gap:", "    if waited < min_gap and len(pending) < 3:"),
+        ("the channel gate applies only at twice the threshold",
+         "    if util >= limit:", "    if util >= limit * 2:"),
+        ("the interval stamp goes back to best-effort, so a failed write spends airtime "
+         "and forgets",
+         "        write_json(TR_STATE, st)\n        from meshtastic.protobuf",
+         "        try:\n            write_json(TR_STATE, st)\n        except Exception:\n"
+         "            pass\n        from meshtastic.protobuf"),
+        ("channel_util accepts anything float() will take",
+         "        if isinstance(v, bool) or not isinstance(v, (int, float)):\n            return None",
+         "        pass"),
+        ("any reply addressed to us counts as one we asked for",
+         "def probe_match(req_id, responder):", "def probe_match(req_id, responder):\n    return True"),
+        ("the destination allowlist is skipped",
+         "        if dest is None:\n            raise ValueError",
+         "        dest = dest or str(want).strip()\n        if False:\n            raise ValueError"),
         ("the interval stamp is never written, so every pass transmits again",
          '        st["last_ts"] = time.time()',
          '        pass'),

@@ -190,7 +190,13 @@ def build_routes(keep=400):
                "snr_back_complete": bool(r.get("snr_back_complete")),
                "links": r.get("links"), "witness": r.get("witness"),
                "requester": r.get("requester"), "traced": r.get("traced")}
-        if me and r.get("requester") == me:
+        # `witness` is the bridge's verdict, and it is the only thing that may promote a path
+        # to "ours". Keying on requester == me was forgeable by anyone on the channel: an
+        # unsolicited response carrying any request_id set requester to Cal and published an
+        # invented path, naming relays that carried nothing, on this public page. The bridge
+        # now marks a reply "addressed" only when it answers a probe Cal actually sent, to the
+        # node Cal sent it to; "unsolicited" is the new third state and is NOT ours.
+        if me and r.get("witness") == "addressed" and r.get("requester") == me:
             far = r.get("traced")
             # last one wins: a path is a point-in-time measurement and the newest is the one
             # that still might be true.
