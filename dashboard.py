@@ -2749,6 +2749,10 @@ main{padding:20px;max-width:1200px;margin:0 auto}
 color:var(--dim);text-transform:uppercase;letter-spacing:.6px;display:flex;gap:8px;align-items:center}
 .card h2 .badge{background:var(--card2);color:var(--fg);padding:2px 8px;border-radius:6px;font-size:11px;font-variant-numeric:tabular-nums}
 .card h2 .badge.right{margin-left:auto}
+/* A state badge that has only one appearance is not a state badge. `live` and `down`
+   were rendering identically until this existed. */
+.card h2 .badge.ok{background:#dafbe1;color:var(--ok)}
+.card h2 .badge.warn{background:#ffebe9;color:var(--bad)}
 .tag{padding:1px 7px;border-radius:5px;font-size:11px;font-weight:600}
 .tag.tx{background:#f3eefc;color:var(--tx)} .tag.rx{background:#dafbe1;color:var(--rx)}
 .tag.ch{background:#ddf4ff;color:var(--accent)} .tag.auto{background:#fff8c5;color:var(--warn)}
@@ -2873,10 +2877,25 @@ td.snr-good{color:var(--ok)} td.snr-bad{color:var(--warn)}
 #nodes-wrap{max-height:620px;overflow:auto}
 #nodes thead th{position:sticky;top:0;background:var(--card);z-index:1}
 #nodes th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
-.trans{display:flex;gap:10px;padding:14px 16px}
-.trans .t{flex:1;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
-.trans .t.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
-.trans .t .lbl{font-size:11px;color:var(--dim)}
+/* The radio speaks over exactly ONE transport at a time, and that is a switch position, not
+   two things. It used to be drawn as two cards stretched to the full width of the page, each
+   the size of a real panel, with the live one marked by a 1px border tint -- so the loudest
+   thing about it was the pair, and the quietest was which one was actually carrying traffic.
+   A segmented control says "one of these, and it is this one" in its shape, and it stops
+   claiming a whole row of the page for one binary fact. The idle segment is still shown, on
+   purpose: "USB exists and is not in use" is a different statement from "USB is broken", and
+   dropping it would lose that. */
+.trans{padding:14px 16px}
+.seg{display:inline-flex;border:1px solid #a3aebd;border-radius:9px;overflow:hidden;
+background:#e2e8ef}
+.sg{padding:8px 18px;font-size:13.5px;font-weight:600;color:#404c5c;
+border-right:1px solid #a3aebd;letter-spacing:.2px}
+.sg:last-child{border-right:0}
+/* Filled vs unfilled, which is a LIGHTNESS difference and survives any colour vision. The
+   old version encoded it as a border hue, which does not. */
+.sg.on{background:var(--accent);color:#fff}
+.segd{margin-top:10px;font-size:11.5px;color:var(--dim);line-height:1.5}
+.segd code{background:var(--card2);padding:1px 5px;border-radius:4px;font-size:11px}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
 .tile .v .dot{width:9px;height:9px;margin-right:7px;vertical-align:middle}
 .dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
@@ -3914,11 +3933,18 @@ async function tick(){
    tile('Ch util', m.chUtil!=null?m.chUtil.toFixed(1)+'%':'—', m.airUtilTx!=null?('air '+m.airUtilTx.toFixed(2)+'%'):''),
  ].join('');
  const cfg=d.config||{}, active=(st.transport||cfg.TRANSPORT||'serial');
- $('#active-t').textContent='active: '+active;
- $('#trans').innerHTML=[
-   `<div class="t ${active==='serial'?'active':''}"><div class="lbl"><span class="dot ${active==='serial'?'on':'off'}"></span>USB</div></div>`,
-   `<div class="t ${active==='tcp'?'active':''}"><div class="lbl"><span class="dot ${active==='tcp'?'on':'off'}"></span>WiFi</div></div>`,
- ].join('');
+ $('#active-t').textContent = on ? 'live' : 'down';
+ $('#active-t').className = 'badge right ' + (on ? 'ok' : 'warn');
+ const SEGS=[['serial','USB'],['tcp','WiFi']];
+ $('#trans').innerHTML =
+   `<div class="seg" role="group" aria-label="radio transport">`
+   + SEGS.map(([k,lab])=>`<span class="sg${active===k?' on':''}"`
+       + (active===k?' aria-current="true"':'') + `>${lab}</span>`).join('')
+   + `</div><div class="segd">`
+   + (on ? `Carrying traffic over <b>${active==='tcp'?'WiFi':'USB'}</b>`
+         : `Not connected &mdash; last configured for <b>${active==='tcp'?'WiFi':'USB'}</b>`)
+   + (active==='tcp'&&cfg.HOST?` to <code>${esc(cfg.HOST)}</code>`:'')
+   + `. The other is idle, which is not the same as broken.</div>`;
  SELF={id:node.id||null, name:node.shortName||node.longName||null};
  lastNodes=(d.nodes&&d.nodes.nodes)||[];
  const xs=d.exchanges||[];
