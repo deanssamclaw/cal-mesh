@@ -56,6 +56,29 @@ def run():
     global passed, failures
     passed, failures = 0, []
 
+    # ---- the budget must actually be reachable (live defect 2026-08-19) ------------------
+    # clean_reply() ended with `return text[:180]`, INSIDE run_claude and therefore upstream of
+    # the plan's budget at the call site. The unlocked 200 could never happen, and because
+    # DM_LOCKED_MAX_CHARS is also 180 the locked and unlocked paths produced identical lengths,
+    # which is why it stayed invisible. Live evidence: a 180-byte reply cut at "coverage gaps or re".
+    long_src = "word " * 80                       # 400 chars, far past any budget here
+    check("clean_reply does not impose its own 180 cap",
+          len(R.clean_reply(long_src, cap=None)) > 180)
+    check("clean_reply honours the cap it is given", len(R.clean_reply(long_src, cap=200)) <= 200)
+    check("a 195-char reply survives a 200 budget", len(R.clean_reply("x" * 195, cap=200)) == 195)
+    # A bare slice cuts mid-word. On a 180-char radio reply the last word is often the payload.
+    # The cap MUST fall inside a word or this proves nothing: "word " is 5 chars, so cap=200 is
+    # word-aligned and the naive slice passes it too. That vacuous version survived mutation M2.
+    for c in (198, 197, 196, 183):
+        cut = R.clean_reply(long_src, cap=c)
+        check(f"truncation at cap={c} lands on a word boundary", cut.endswith("word"))
+        check(f"truncation at cap={c} does not exceed the cap", len(cut) <= c)
+    # And the boundary rule must not eat a reply that already fits.
+    check("a reply inside the cap is untouched", R.clean_reply("five words exactly here now", cap=200)
+          == "five words exactly here now")
+    # No space to back off to: the hard slice still applies, so the cap is never exceeded.
+    check("a single long token still obeys the cap", len(R.clean_reply("x" * 400, cap=200)) == 200)
+
     # ---- gate: default state -------------------------------------------------------------
     ok, why, _ = R.dm_longer(cfg(), rec(), OURS)
     check("default OFF", ok is False and why == "dm_longer_disabled")

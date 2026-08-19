@@ -162,13 +162,23 @@ URL_RE = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.[a-z]{2,}\b", re.I)  # incl.
 
 # --- inbound sanitization (defense-in-depth vs prompt injection; Bob's review) ---
 # The inbound message is attacker-controllable (node IDs are spoofable). Before it EVER
-# enters the generation prompt we (1) keep only the first sentence/line — mesh queries are
-# terse — and (2) neutralize instruction/exfil-shaped tokens. This is not the primary
-# defense (tool-lockdown is) but it raises the bar and matters more as agency grows.
+# enters the generation prompt we (1) keep the message up to a LINE break and a 120-char cap
+# — mesh queries are terse — and (2) neutralize instruction/exfil-shaped tokens ACROSS ALL of
+# what is kept. This is not the primary defense (tool-lockdown is) but it raises the bar.
+#
+# 2026-08-19: this used to keep only the first SENTENCE. That assumed one message = one
+# sentence. Live: "You are an AI on Mesh. Could you use agent loops for anything related to
+# Mesh communications?" reached the model as "You are an AI on Mesh" — 93 chars in, 21 out —
+# and was answered "Roger. Standing by for tasking." The model was never asked the question.
+# The trim was also doing work _INJECT_RE was credited with: an injection after the first
+# period was DELETED rather than redacted, so the redaction was never exercised on it. It is
+# now, because the payload survives to reach it. A NEWLINE still ends the message: a second
+# line is the cheap way to staple an instruction onto a query, and nothing legitimate on a
+# 120-char radio link needs one.
 # A period BETWEEN DIGITS is a decimal point, not a sentence end. Without this exclusion the
 # sanitizer truncated "12.5 ft in m" to "12" before any capability saw it — 17 of 48 realistic
 # calculations returned nothing, and "15% off $260.50" silently answered for $260.
-_SENT_END  = re.compile(r"(?<![0-9])[.](?![0-9])|[!?\n]")
+_LINE_END  = re.compile(r"[\n]")
 _INJECT_RE = re.compile(
     r"\b(ignore|disregard|forget|override|overrule|instead|reveal|exfiltrat\w*|"
     r"system\s+prompt|previous\s+instructions|prior\s+instructions|delete|remove|"
@@ -190,7 +200,7 @@ def sanitize_inbound(text):
     unicode, keeps the first sentence, redacts instruction/exfil-shaped tokens."""
     norm = _normalize(text)
     t = norm.strip()
-    m = _SENT_END.search(t)
+    m = _LINE_END.search(t)
     if m and m.start() > 0:
         t = t[:m.start()].strip()
     t = t[:120]
@@ -207,19 +217,21 @@ def sanitize_trace(raw, clean, flagged):
     and how many times — NEVER the redacted content, which would defeat the redaction on a
     public page."""
     norm = _normalize(raw or "").strip()
-    m = _SENT_END.search(norm)
+    m = _LINE_END.search(norm)
     cut = bool(m and m.start() > 0)
     kept = norm[:m.start()].strip() if cut else norm
-    # Distinguish "we dropped a trailing '?'" from "we dropped a sentence of content". Both
-    # hit the same code path, but reporting them identically reads as though a single-sentence
-    # question lost something it didn't — a small lie on a page whose whole job is accuracy.
     dropped = norm[m.start():] if cut else ""
-    residue = _SENT_END.sub("", dropped).strip()
+    residue = _LINE_END.sub("", dropped).strip()
     return {"flagged": bool(flagged),
             "redactions": (clean or "").count("[redacted]"),
-            "sentence_trimmed": cut,                       # kept: older records use this
+            # `sentence_trimmed` / `sentence_trim` keep their names: records written before
+            # 2026-08-19 carry them, and the dashboard reads them. What they MEAN changed with
+            # the sanitizer — the cut is now at a LINE break, never at a sentence end. A
+            # renamed field would have silently read false across the whole archive.
+            "sentence_trimmed": cut,
             "sentence_trim": ("none" if not cut else
-                              ("punctuation" if not residue else "content")),
+                              ("whitespace" if not residue else "content")),
+            "trim_boundary": "line",
             "dropped_chars": len(residue),
             "length_capped": len(kept) > 120,
             "in_chars": len(norm),
@@ -293,11 +305,30 @@ def trim_file(path, keep=5000):
         log(f"trim err {path}: {e!r}")
 
 
-def clean_reply(text):
+def clean_reply(text, cap=180):
+    """Normalize a generated reply and bound it. `cap=None` means the CALLER bounds it.
+
+    The 180 here used to be unconditional, and it ran inside run_claude — upstream of the
+    plan's own budget at the call site. The unlocked DM's 200 could therefore never happen,
+    and since DM_LOCKED_MAX_CHARS is also 180 the locked and unlocked paths produced
+    identical lengths, which is exactly why it went unnoticed. Live on 2026-08-19: a reply
+    cut at "coverage gaps or re". Default stays 180 so callers that pass nothing (the fixed
+    replies) are unchanged."""
     text = (text or "").strip()
     text = re.sub(r"\s+", " ", text)
     text = text.strip('"').strip("'").strip()
-    return text[:180]
+    return _truncate(text, cap)
+
+
+def _truncate(text, cap):
+    """Bound `text` to `cap` chars, ending on a word boundary. A bare slice cuts mid-word,
+    and on a radio reply the last word is often the payload. Falls back to the hard slice
+    when there is no space to back off to, so the cap is never exceeded."""
+    if cap is None or len(text) <= cap:
+        return text
+    head = text[:cap]
+    sp = head.rfind(" ")
+    return (head[:sp] if sp > 0 else head).rstrip()
 
 
 def build_prompt(sender_short, msg_text, weather_fact=None):
@@ -712,7 +743,7 @@ def _claude_argv(cfg, prompt, persona=None):
             "--exclude-dynamic-system-prompt-sections", "--output-format", "text"]
 
 
-def run_claude(cfg, prompt, persona=None):
+def run_claude(cfg, prompt, persona=None, cap=180):
     """SIDE EFFECT: run the tool-locked model on a prompt.
       * --permission-mode plan + --strict-mcp-config => tools cannot execute, no MCP loads.
       * --setting-sources "" => load NO user/project/local settings, so Dean's global
@@ -727,7 +758,7 @@ def run_claude(cfg, prompt, persona=None):
             capture_output=True, text=True, timeout=_int_cfg(cfg, "GEN_TIMEOUT_S", DEFAULTS["GEN_TIMEOUT_S"]))
         if out.returncode != 0:
             return None, f"gen_rc{out.returncode}:{out.stderr.strip()[:80]}"
-        reply = clean_reply(out.stdout)
+        reply = clean_reply(out.stdout, cap=cap)
         if not reply:
             return None, "gen_empty"
         if URL_RE.search(reply):          # never broadcast a URL, whatever the input
@@ -1057,9 +1088,11 @@ def main():
                                        "sunmoon": "fixed_sunmoon",
                                        }.get(kind, "fixed_weather_unavailable")
                             else:
-                                reply, why = run_claude(cfg, plan["prompt"], plan.get("persona"))
-                                if reply and plan.get("max_chars"):
-                                    reply = reply[:plan["max_chars"]].rstrip()
+                                # The budget goes DOWN into run_claude so clean_reply applies
+                                # it once, on a word boundary. Clipping here as well would
+                                # re-introduce the mid-word cut this replaced.
+                                reply, why = run_claude(cfg, plan["prompt"], plan.get("persona"),
+                                                        cap=plan.get("max_chars"))
                             gen_ms = round((time.time() - gen_start) * 1000)
                             d["gen_status"] = why
                             if reply:
