@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Cap commit-message length. See .claude/CLAUDE.md.
+# Measured 2026-08-19: 87 commits carried 149,506 chars of prose for 20,022 lines of
+# churn, because review commits enumerated every finding. Count and severity only.
+set -euo pipefail
+MSGFILE="$1"
+
+# Strip comment lines and the diff git appends under --verbose.
+BODY="$(sed '/^#/d' "$MSGFILE" | sed '/^diff --git /,$d')"
+SUBJECT="$(printf '%s' "$BODY" | sed -n '1p')"
+CHARS="$(printf '%s' "$BODY" | wc -c | tr -d ' ')"
+SUBJ_CHARS="$(printf '%s' "$SUBJECT" | wc -c | tr -d ' ')"
+
+LIMIT=1000
+SUBJ_LIMIT=72
+fail=0
+
+if [ "$SUBJ_CHARS" -gt "$SUBJ_LIMIT" ]; then
+  echo "commit-msg: subject is $SUBJ_CHARS chars, limit $SUBJ_LIMIT." >&2
+  fail=1
+fi
+if [ "$CHARS" -gt "$LIMIT" ]; then
+  echo "commit-msg: message is $CHARS chars, limit $LIMIT." >&2
+  echo "  Findings get a count and severity, never the enumeration." >&2
+  echo "  Reasoning and lessons go in work-log.md." >&2
+  echo "  If it genuinely needs more, the commit is too big -- split it." >&2
+  fail=1
+fi
+if [ "$fail" -ne 0 ]; then
+  echo "  Override once with: git commit --no-verify" >&2
+  exit 1
+fi
+exit 0
