@@ -180,6 +180,11 @@ CASES = {
                        gates=GATES_OK, sanitize=SAN_PUNCT,
                        prompt_kind="fixed", dest="!aaaaaaaa", gen_status="fixed_calc",
                        calc={"handler": "arith", "refused": None})),
+    # A different SENDER. The harvested path is looked up by who sent the message, and drawing
+    # one node's measured path under another node's message would look entirely plausible.
+    "othersender": rec(text="Cal, hows the link?", reply="Solid", **{"from": "!bbbbbbbb"},
+                       trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="general",
+                                  model="m", dest="^all")),
     # An attacker-shaped greeting: the ack is fixed, but their TEXT is still drawn.
     "greetxss": rec(text="<script>alert(1)</script>", reply="Good morning",
                     capability="greeting", reason="greeting_ack", gen_ms=None, trace=dict(
@@ -253,6 +258,23 @@ CHECKS = [
      "a calc question is attacker-controlled text and is rendered on a public page"),
     ("greetxss", ["&lt;script&gt;"], ["<script>alert"],
      "the ack is fixed but the stranger's own text is still rendered on a public page"),
+    # ---- a harvested path is a SEPARATE measurement, never this message's path ----
+    ("weather", ["measured path to this node", "not this message", "traceroute 4 min ago"], [],
+     "a path drawn without its own age and without saying it is a different measurement reads "
+     "as the route this message took, which is a fabrication dressed as a measurement"),
+    ("weather", ["6.25 dB", "-3.5 dB", "6.75 dB"], [],
+     "both directions must be shown, and they differ — that asymmetry is the whole point of "
+     "having per-link SNR at all"),
+    ("weather", [">out<", ">back<"], [],
+     "the two directions are measured separately and must not be merged into one chain"),
+    # A path is looked up by the SENDER. Drawing one node's path against another node's message
+    # is the failure this lookup can have, and it would look completely plausible.
+    ("othersender", [], ["measured path to this node", "!deadbeef"],
+     "the path is looked up by SENDER — a different node's measured path must not be drawn "
+     "under this message, which would look entirely plausible and be wrong"),
+    ("general", ["measured path to this node"], [],
+     "...while the sender that DOES have one still gets it, or the check above passes by "
+     "the feature being broken"),
 ]
 
 failures, checked = [], 0
@@ -269,7 +291,7 @@ def run(script, extra):
 
 
 def render_all(script):
-    driver = ("const OUT={};" +
+    driver = ('\n// Harvested-path fixture. Without this, every check below runs with ROUTES empty and pathHtml\n// returns \'\' — so the whole feature would be "covered" by assertions that never reach it.\nROUTES = {me:"!cccccccc", ours:{\n  "!aaaaaaaa": {ts:new Date(Date.now()-240000).toISOString(),\n    path:["!cccccccc","!deadbeef","!aaaaaaaa"],\n    snr_towards:[6.25,-3.5], snr_back:[6.75,-4.25],\n    snr_towards_complete:true, snr_back_complete:true,\n    route_back:["!deadbeef"], links:2, witness:"addressed",\n    requester:"!cccccccc", traced:"!aaaaaaaa"}\n}, others:[]};\n' + "const OUT={};" +
               "".join(f"OUT[{json.dumps(k)}]=traceHtml({json.dumps(v)});" for k, v in CASES.items()) +
               "console.log(JSON.stringify(OUT));")
     r = run(script, driver)

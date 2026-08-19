@@ -10,6 +10,7 @@ Serves:
     /old-3       v3, retired 2026-08-19 (the trace drawn with depth, all-light palette)
     /api/state   JSON aggregate of bridge status, transports, sent/recv logs, neighbors
     /api/snr     per-node SNR time series (last hour)
+    /api/routes  harvested traceroute paths, split into ours vs overheard
     /api/stats   daily decision aggregates (replies, skips, gen latency)
 
 No third-party deps (stdlib only) so it's trivially exposable via Tailscale Funnel later,
@@ -27,6 +28,7 @@ SENT_LOG = os.path.join(BASE, "sent.jsonl")
 RSTATE   = os.path.join(BASE, "responder-state.json")
 DECISIONS = os.path.join(BASE, "decisions.jsonl")
 SNR_HIST = os.path.join(BASE, "snr-history.jsonl")
+ROUTES_LOG = os.path.join(BASE, "routes.jsonl")
 PORT     = int(os.environ.get("CALMESH_PORT", "8787"))
 BIND     = os.environ.get("CALMESH_BIND", "127.0.0.1")
 
@@ -160,6 +162,45 @@ def build_snr(window=3600, cap=120):
             pts = pts[-cap:]
         out[node] = {"short": short.get(node), "points": pts}
     return out
+
+
+def build_routes(keep=400):
+    """Harvested traceroute paths, split by whether they are OURS to claim.
+
+    The distinction is the whole point and it is easy to get wrong. A response Cal ASKED FOR
+    describes the path between Cal and that node. A response Cal merely OVERHEARD describes
+    the path between two other nodes — it is real topology, but it says nothing about how Cal
+    reaches either of them, and presenting it next to a message as "the path" would be a
+    fabrication dressed as a measurement.
+
+    So `ours` is keyed by the far endpoint and holds only paths where Cal was the requester;
+    `others` is everything else, kept as topology and labelled as such."""
+    me = (read_json(STATUS, {}).get("node") or {}).get("id")
+    ours, others = {}, []
+    for r in tail_jsonl(ROUTES_LOG, keep):
+        if r.get("kind") != "response":
+            continue
+        path = r.get("path") or []
+        if len(path) < 2:
+            continue
+        rec = {"ts": r.get("ts"), "path": path,
+               "snr_towards": r.get("snr_towards") or [],
+               "snr_back": r.get("snr_back") or [],
+               "snr_towards_complete": bool(r.get("snr_towards_complete")),
+               "snr_back_complete": bool(r.get("snr_back_complete")),
+               "links": r.get("links"), "witness": r.get("witness"),
+               "requester": r.get("requester"), "traced": r.get("traced")}
+        if me and r.get("requester") == me:
+            far = r.get("traced")
+            # last one wins: a path is a point-in-time measurement and the newest is the one
+            # that still might be true.
+            if far:
+                ours[far] = rec
+        else:
+            others.append(rec)
+    others = others[-60:]
+    return {"me": me, "ours": ours, "others": others,
+            "counts": {"ours": len(ours), "others": len(others)}}
 
 
 def _epoch(s):
@@ -3008,6 +3049,25 @@ details.tr[open]>summary:hover{border-color:#4478ad;
 .tp .bar>i.fill{background:var(--ok)}
 .tp .bar>i.fill.late{background:var(--warn)}
 .tp .bar .mk{background:var(--fg)}
+/* a harvested path: a separate measurement, so it gets its own plane and its own rule above
+   it rather than blending into the rows of the diagram it sits under */
+.tp .pathm{margin-top:11px;padding-top:10px;border-top:1px solid #3d4753}
+.tp .pathh{font-size:9.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;
+  color:var(--dim);margin-bottom:8px}
+.tp .pathh .pathage{font-weight:600;letter-spacing:.3px;text-transform:none;color:#9ecbff}
+.tp .pdir{font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
+  color:var(--dim);margin:7px 0 3px}
+.tp .pchain{display:flex;flex-wrap:wrap;align-items:center;gap:2px 0;margin-bottom:2px}
+.tp .phop{display:inline-block;padding:3px 9px;border-radius:7px;font-size:12px;font-weight:600;
+  background:linear-gradient(180deg,#1c232c,#161c24);border:1px solid #5c6673;color:var(--fg)}
+.tp .phop.unk{border-style:dashed;color:var(--dim);font-weight:500;font-style:italic}
+.tp .plink{display:inline-flex;flex-direction:column;align-items:center;margin:0 2px;min-width:56px}
+.tp .plink .parr{display:block;width:100%;height:2px;border-radius:1px;background:#6b7684;
+  position:relative}
+.tp .plink .parr::after{content:"";position:absolute;right:0;top:-3.5px;border:4.5px solid transparent;
+  border-left-color:#6b7684;border-right:0}
+.tp .plink .psnr{font-size:9.5px;color:var(--dim);margin-top:2px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
 /* the v2-era swap boxes. Not rendered by this page, but the rules are still in the
    sheet above and an unstyled light box would be the thing nobody notices until a
    record shaped the old way turns up. */
@@ -3270,6 +3330,7 @@ const $=s=>document.querySelector(s);
 const DIR=(function(){let p=location.pathname.replace(/\/(v2|v3|v4|old-\d+)\/?$/,'/');
  return p.endsWith('/')?p:p+'/';})();
 let SNR={}, lastNodes=[], nodeSort={key:null,dir:1}, lastXsig=null;
+let ROUTES={me:null,ours:{},others:[]};
 let SELF={id:null,name:null};
 const NODE_LABELS={short:'Short',long:'Name',hw:'HW',hops:'Hops',snr:'SNR'};
 function esc(s){return (s??"").toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -3324,6 +3385,55 @@ function fitLabel(s, n){ s=(s==null?'':String(s)); return s.length>n ? s.slice(0
 //      once a third box appeared the gaps were narrower than the label — it painted over the
 //      node it was pointing at. Signal is a fact about the last hop, so it is stated as such
 //      in the rows below rather than squeezed into the gap.
+// A harvested traceroute path, drawn as what it is: a SEPARATE measurement taken at its own
+// moment, not a better version of this message's own diagram. Backfilling it into that diagram
+// was the tempting move and it would be a fabrication -- a path is true only when it is
+// measured, and a message that arrived two hops ago did not necessarily take the route a
+// traceroute found four minutes later. So it sits below, with its own timestamp and age, and
+// it says outright that it is not this message's path.
+//
+// Only paths where CAL was the requester are drawn here. An overheard traceroute between two
+// other nodes is real topology but says nothing about how Cal reaches anybody; the server
+// separates the two and this reads only `ours`.
+function pathAge(ts){
+  const t=Date.parse(ts); if(!isFinite(t)) return null;
+  const s=Math.max(0,(Date.now()-t)/1000);
+  if(s<90) return Math.round(s)+' s ago';
+  if(s<5400) return Math.round(s/60)+' min ago';
+  if(s<172800) return Math.round(s/3600)+' h ago';
+  return Math.round(s/86400)+' days ago';
+}
+function chain(nodes, snrs, complete){
+  // One SNR per LINK, in order, exactly as the firmware fills it. When the array is not one
+  // entry per link it is NOT stretched to fit -- a missing reading is drawn missing.
+  let h='<div class="pchain">';
+  nodes.forEach((n,i)=>{
+    h += (n==null) ? '<span class="phop unk">unnamed</span>'
+                   : '<span class="phop">'+esc(nodeName(n))+'</span>';
+    if(i<nodes.length-1){
+      const v = (complete && snrs && snrs.length>i) ? snrs[i] : null;
+      h+='<span class="plink"><span class="parr"></span>'
+       + '<span class="psnr">'+(v==null?'? dB':(v>0?'+':'')+esc(v)+' dB')+'</span></span>';
+    }
+  });
+  return h+'</div>';
+}
+function pathHtml(nodeId){
+  const r = (ROUTES.ours||{})[nodeId];
+  if(!r || !r.path || r.path.length<2) return '';
+  const age = pathAge(r.ts);
+  const back = [r.traced].concat(r.route_back||[], [r.requester]);
+  const hasBack = r.snr_back_complete && r.snr_back && r.snr_back.length===back.length-1;
+  return '<div class="pathm"><div class="pathh">measured path to this node'
+    + (age?' <span class="pathage">&middot; traceroute '+esc(age)+'</span>':'')
+    + '</div>'
+    + '<div class="pdir">out</div>' + chain(r.path, r.snr_towards, r.snr_towards_complete)
+    + (hasBack ? '<div class="pdir">back</div>' + chain(back, r.snr_back, true) : '')
+    + '<span class="hint">A traceroute Cal sent and got an answer to, so every hop is named '
+    + 'rather than counted. <b>This is not this message&rsquo;s path</b> &mdash; it was measured '
+    + 'at its own moment, and a route is only true when it is measured. The two directions are '
+    + 'listed separately because they are measured separately and often differ.</span></div>';
+}
 function linkSvg(x){
   const hops=x.hops;
   const relayId = x.relay_byte!=null ? '·'+x.relay_byte.toString(16).padStart(2,'0') : null;
@@ -3411,6 +3521,7 @@ function linkSvg(x){
   // the page should not blur the two.
   if(x.hops_recovered)
     rows+=row('note','hop count recovered from a record predating the capture fix — reconstructed, not measured at the time');
+  rows += pathHtml(x.from);
   return {diagram:diagram, rows:rows, summary:(
     hops==null?'routing not recorded'
     :hops===0?'heard direct, no relay in between'
@@ -3735,6 +3846,7 @@ function renderNodes(){
     th.textContent=NODE_LABELS[k]+(on?(nodeSort.dir>0?' ▲':' ▼'):''); });
 }
 async function loadSnr(){try{SNR=await (await fetch(DIR+'api/snr',{cache:'no-store'})).json();}catch(e){}}
+async function loadRoutes(){try{ROUTES=await (await fetch(DIR+'api/routes',{cache:'no-store'})).json();}catch(e){}}
 function sparkline(pts, hops){
   if(!pts||pts.length===0){
     return (hops!=null&&hops>0)?'<span style="color:var(--dim)">multi-hop</span>'
@@ -3876,7 +3988,8 @@ $('#xtabs').addEventListener('keydown', e=>{
     '<a href="'+cur+'" style="color:#0a63c9;font-weight:600">Go to the current page &rarr;</a>';
   document.body.insertBefore(b, document.body.firstChild);
 })();
-loadSnr(); tick(); setInterval(tick,3000); setInterval(loadSnr,30000);
+loadSnr(); loadRoutes(); tick(); setInterval(tick,3000);
+setInterval(loadSnr,30000); setInterval(loadRoutes,30000);
 </script></body></html>"""
 
 
@@ -3943,6 +4056,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, json.dumps(cached("state", 2, build_state)).encode(), "application/json")
             elif path == "/api/snr":
                 self._send(200, json.dumps(cached("snr", 5, build_snr)).encode(), "application/json")
+            elif path == "/api/routes":
+                self._send(200, json.dumps(cached("routes", 10, build_routes)).encode(), "application/json")
             elif path == "/api/stats":
                 self._send(200, json.dumps(cached("stats", 10, build_decision_stats)).encode(), "application/json")
             else:

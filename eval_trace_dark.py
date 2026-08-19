@@ -410,7 +410,7 @@ def render(page):
     script = re.search(r"<script>(.*?)</script>", page, re.S)
     if not script:
         return None, "no <script> block"
-    driver = ("const OUT={};" +
+    driver = ('\n// Harvested-path fixture. Without this, every check below runs with ROUTES empty and pathHtml\n// returns \'\' — so the whole feature would be "covered" by assertions that never reach it.\nROUTES = {me:"!cccccccc", ours:{\n  "!aaaaaaaa": {ts:new Date(Date.now()-240000).toISOString(),\n    path:["!cccccccc","!deadbeef","!aaaaaaaa"],\n    snr_towards:[6.25,-3.5], snr_back:[6.75,-4.25],\n    snr_towards_complete:true, snr_back_complete:true,\n    route_back:["!deadbeef"], links:2, witness:"addressed",\n    requester:"!cccccccc", traced:"!aaaaaaaa"}\n}, others:[]};\n' + "const OUT={};" +
               "".join(f"OUT[{json.dumps(k)}]=traceHtml({json.dumps(v)});" for k, v in CASES.items()) +
               "console.log(JSON.stringify(OUT));")
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
@@ -435,14 +435,19 @@ MAX_SURFACE_LUM = 0.12
 # A background that ENCODES A VALUE is not a surface, and holding a bright gauge fill to a
 # darkness threshold would be measuring the wrong thing. These are checked by their own rule
 # (monotonic single-hue ramp) instead of by the surface rule.
-DATA_MARKS = {"track", "band", "mk", "sdot", "arw", "fill", "spark"}
+DATA_MARKS = {"track", "band", "mk", "sdot", "arw", "fill", "spark", "parr", "plink"}
+# A connector drawn with `background` because it is a 2px box is a RAIL, not a surface.
+# `.parr` is `.arw` by another name, and filing it as a surface made it the "lightest
+# surface in the panel" -- which every text check is then measured against, so ONE
+# misclassified 2px line reported 966 failures across correct markup. Rails are held to
+# the 3:1 boundary bar below instead.
 # On this sheet a ::before is never a surface — it is a rail, a spine or a boundary line drawn
 # with `background` because it is a 2px box. Measuring one as a surface asked the wrong question
 # of it: a rail is SUPPOSED to be lighter than its ground, which is the whole reason it is
 # visible. They are held to the non-text boundary bar instead.
 PSEUDO_IS_A_LINE = True
 # Boundaries that carry meaning: which stage a box is, and where a scale begins and ends.
-MEANINGFUL_BORDER = {"fb", "bx", "b2", "b3", "stg", "track", "bl", "sw"}
+MEANINGFUL_BORDER = {"fb", "bx", "b2", "b3", "stg", "track", "bl", "sw", "phop", "parr"}
 
 
 def audit(page, label):
@@ -511,7 +516,7 @@ def audit(page, label):
                     cols = colours_in(v)
                     if "gradient" in v and ("track" in nd.classes and "ramp" in nd.classes):
                         ramps.append((cols, w))
-                    elif cols and pseudo:
+                    elif cols and (pseudo or (nd.classes & {"parr"})):
                         for c in cols:
                             borders.append((c, w))
                     elif cols and not (nd.classes & DATA_MARKS):
