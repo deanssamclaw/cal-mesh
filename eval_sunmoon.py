@@ -78,6 +78,27 @@ def run():
     global passed, failures
     passed, failures = 0, []
 
+    # ---- 0. VERB INFLECTION on the sun triggers -------------------------------------------
+    #      Regression guard, 2026-08-18. "when does the sun set" matched; "can you tell me when
+    #      the sun sets" did NOT, and fell through to the language model, which would invent a
+    #      time. Cause was a misplaced word boundary: the sunset alternation closed with \b
+    #      OUTSIDE the group, so the trailing 's' of "sets" failed it, while the sunrise
+    #      alternation had \b INSIDE and matched "rises" by accident. The moon pattern
+    #      (_MOON_RISESET) already listed rise|rises|set|sets, so this was an asymmetry between
+    #      two paths, not a decision. Both sun patterns now take (?:is )?ris(e|es|ing) /
+    #      set(s|ting)? explicitly.
+    #
+    #      NEGATIVES matter as much: widening a sun trigger is how the routing arbitration got
+    #      broken four separate times. These must stay unmatched.
+    for _t in ("can you tell me when the sun sets", "the sun sets soon", "when the sun rises",
+               "the sun is setting", "sun setting", "what time is the sun rising",
+               "when does the sun set", "when is sunset", "sunrise"):
+        check("inflection matches: %r" % _t, bool(S.explain_match(_t)["via"]),
+              S.explain_match(_t)["via"])
+    for _t in ("the sunscreen is set", "set the antenna", "sunny", "sunday"):
+        check("inflection does NOT overmatch: %r" % _t, S.explain_match(_t)["via"] is None,
+              S.explain_match(_t)["via"])
+
     # ---- 1. event ORDERING. One assertion that catches a whole class of sign/branch errors ----
     for d in (date(2026, 3, 20), date(2026, 6, 21), date(2026, 9, 22), date(2026, 12, 21)):
         e = S.sun_events(d, LAT, LON)

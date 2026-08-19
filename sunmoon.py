@@ -260,13 +260,13 @@ def moon_phase(when):
 _INTENTS = (
     ("noon", re.compile(r"\b(solar\s*noon|sun\s*(?:is\s*)?highest|zenith|"
                         r"highest\s*point)\b", re.I)),
-    ("sunrise", re.compile(r"\b(sunrise|sun\s*rise|first\s*light|dawn|daybreak|"
+    ("sunrise", re.compile(r"\b(sunrise|sun\s*(?:is\s*)?ris(?:e|es|ing)|first\s*light|dawn|daybreak|"
                            r"sun\s*(?:come|comes|coming)\s*up|sun\s*up\b)", re.I)),
     ("dark", re.compile(r"\b(get\s*dark|gets\s*dark|getting\s*dark|dark\s*out|"
                         r"night\s*fall|last\s*light|till\s*dark|until\s*dark|"
                         r"dark\s*by|is\s*it\s*dark|when\s*is\s*it\s*dark|"
                         r"how\s*much\s*light|light\s*left|dark\s*yet|dusk)\b", re.I)),
-    ("sunset", re.compile(r"\b(sunset|sun\s*set|sundown|"
+    ("sunset", re.compile(r"\b(sunset|sun\s*(?:is\s*)?set(?:s|ting)?|sundown|"
                           r"sun\s*(?:go|goes|going)\s*down|golden\s*hour)\b", re.I)),
     ("twilight", re.compile(r"\b(twilight|daylight)\b", re.I)),
 )
