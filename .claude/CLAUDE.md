@@ -34,3 +34,19 @@ Commit as `Cal`. **No Claude trailer** on this repo.
 ## Hook install (fresh clone)
 
     ln -sf ../../hooks/commit-msg .git/hooks/commit-msg
+
+## Verifying claims
+
+A factual claim inside a **code comment** gets checked before it is written, at the same bar
+as a claim in an answer. Measured 2026-08-19: three of four misses in one session were
+assertions typed as documentation -- "U+FE0F is a format character" (it is Mn, not Cf), "this
+eval writes to the production log" (log() prints to stdout; launchd owns the redirect), and a
+fix referencing a module constant that does not exist.
+
+The tell is a **causal** comment: "because X is...", "the library omits...", "this never
+arrives here". If the comment explains WHY, it is asserting a fact, and the check is nearly
+always one command. Comments are worse than answers to get wrong -- nobody re-reads them, and
+the next session quotes them as ground truth.
+
+Firmware claims cite `file:line` from `~/src/meshtastic-firmware` (tag matching the device),
+never memory.
