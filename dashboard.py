@@ -2757,17 +2757,34 @@ color:var(--dim);text-transform:uppercase;letter-spacing:.6px;display:flex;gap:8
 /* --- tabbed streams: one card, two streams, so the page does not grow by one full
    card every time a stream is added. The pane is toggled with [hidden] rather than
    re-rendered, so the 3s refresh cannot knock the reader back to the first tab. --- */
-.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);background:var(--card2);padding:0 6px}
-.tab{appearance:none;background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);
-font:inherit;font-size:12.5px;padding:11px 12px;cursor:pointer;display:flex;align-items:center;gap:7px;
-white-space:nowrap}
-.tab:hover{color:var(--fg)}
-.tab[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
-.tab .badge{background:var(--card)}
-.tab:focus-visible{outline:2px solid var(--accent);outline-offset:-3px;border-radius:4px}
+/* Tabs, drawn as tabs. They were a row of grey text with a 2px underline on the active one:
+   the inactive tab read as DISABLED LABEL rather than "another view you can click", and the
+   active one was distinguished by a hairline most people never consciously see. Two views of
+   the traffic is a fact about this page, and it was being whispered.
+   The shape now carries it -- each tab is a filled, bordered folder tab, and the selected one
+   is the one that rises out of the strip and MERGES INTO THE PANEL below by covering the
+   strip's own bottom border. That join is the thing that says "this tab owns what is under
+   it", and it is why the selected tab is white while the others are not.
+   The border is deliberately not held to the 3:1 non-text bar: it is a refinement, and what
+   actually identifies these controls is the fill, the label colour and the accent bar, which
+   measure 7.07:1, 5.77:1 and 5.77:1. A boundary that is not doing the work does not need to
+   carry the weight of one. */
+.tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);background:var(--card2);
+padding:9px 10px 0}
+.tab{appearance:none;font:inherit;font-size:14px;font-weight:600;color:#404c5c;
+background:#e2e8ef;border:1px solid #a3aebd;border-bottom:0;border-radius:10px 10px 0 0;
+padding:11px 18px;margin-bottom:-1px;cursor:pointer;display:flex;align-items:center;gap:8px;
+white-space:nowrap;transition:background .12s ease,color .12s ease}
+.tab:hover{background:#eef2f6;color:var(--fg)}
+.tab[aria-selected="true"]{background:var(--card);color:var(--accent);
+border-color:var(--line);border-bottom:1px solid var(--card);
+box-shadow:inset 0 3px 0 var(--accent)}
+.tab .badge{background:#d8dee6;color:#404c5c;font-weight:700}
+.tab[aria-selected="true"] .badge{background:#ddf4ff;color:var(--accent)}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(max-width:520px){.tab{padding:10px 12px;font-size:13px}}
 .pane[hidden]{display:none}
 .tabnote{font-size:11.5px;color:var(--dim);line-height:1.55;margin:0;padding:13px 16px 2px;max-width:80ch}
-@media(max-width:520px){.tab{padding:10px 8px;font-size:11.5px}}
 /* --- exchanges --- */
 .xc{padding:14px 16px;border-bottom:1px solid var(--line)}
 .xc:last-child{border-bottom:0}
