@@ -199,6 +199,20 @@ def _route_snrs(vals):
     return out
 
 
+def channel_util(iface):
+    """Channel utilization percent as the radio measures it, or None if it cannot be read.
+
+    None is a real answer here and it means DO NOT SEND -- see drain_traceroute. Read live from
+    the interface rather than from status.json, which is written on a 30 s cycle and would let
+    a stale number authorise a probe into a channel that has since filled up."""
+    try:
+        me = iface.getMyNodeInfo() or {}
+        v = (me.get("deviceMetrics") or {}).get("channelUtilization")
+        return float(v) if isinstance(v, (int, float)) else None
+    except Exception:
+        return None
+
+
 _OURS = {"id": None, "warned": False}
 
 
@@ -477,7 +491,31 @@ def drain_traceroute(iface, cfg):
     would fail together at precisely the moment a flapping link was already retrying.
 
     A traceroute to the broadcast address with any hop limit is refused by the firmware
-    (PhoneAPI.cpp:835) and is refused here too, so it never becomes a silent no-op."""
+    (PhoneAPI.cpp:835) and is refused here too, so it never becomes a silent no-op.
+
+    WHEN it is polite to probe is not a number invented here. The firmware already defines it,
+    for exactly this category of traffic. `AirTime::isTxAllowedChannelUtil(polite=true)` tests
+    channel utilization against `polite_channel_util_percent = 25` (airtime.h:71), and the
+    precedent for using it is `MeshService.cpp:99`: when the node hears a stranger and wants to
+    volunteer its own NodeInfo -- unsolicited, self-initiated metadata, the same category a
+    traceroute falls in -- it checks that gate and logs "Skip sending NodeInfo > 25% ch. util".
+    40% (`max_channel_util_percent`) is where the firmware stops sending anything at all, so 25
+    is the polite floor and not the hard one. Their own word for the budget is in the comment
+    on the line below it: "half of Duty Cycle allowance is ok for METADATA".
+
+    The duty-cycle arm of that test is inert for us and is not implemented here rather than
+    implemented and left always-true: `isTxAllowedAirUtil` only binds where `dutyCycle < 100`,
+    and the US region is `RDEF(US, 902.0f, 928.0f, 100, ...)` (RadioInterface.cpp:53).
+
+    The interval is no longer a politeness rule -- the channel-state gate is. It survives as a
+    MEASUREMENT floor: channelUtilizationPercent() averages 6 ten-second buckets
+    (CHANNEL_UTILIZATION_PERIODS, airtime.h:28), so it describes the last 60 seconds, and
+    probing faster than that reads a number that does not yet contain our own last probe. The
+    reply floods for several seconds after the request, so this is the difference between
+    measuring the channel and measuring the channel as it was before we touched it.
+
+    Unknown channel state FAILS CLOSED. Not being able to tell how busy the air is, is not a
+    reason to transmit into it."""
     if not os.path.isdir(TR_QUEUE):
         return
     pending = sorted(p for p in glob.glob(os.path.join(TR_QUEUE, "*")) if not os.path.isdir(p))
@@ -486,10 +524,18 @@ def drain_traceroute(iface, cfg):
     if str(cfg.get("TRACEROUTE_ENABLED", "false")).lower() != "true":
         return
     st = read_json_file(TR_STATE, {}) or {}
-    min_gap = float(cfg.get("TRACEROUTE_MIN_GAP_S", 180))
+    min_gap = float(cfg.get("TRACEROUTE_MIN_GAP_S", 60))
     last = float(st.get("last_ts") or 0)
     waited = time.time() - last
     if waited < min_gap:
+        return
+    util = channel_util(iface)
+    limit = float(cfg.get("TRACEROUTE_MAX_CH_UTIL", 25))
+    if util is None:
+        log("traceroute held: channel utilization unknown")
+        return
+    if util >= limit:
+        log(f"traceroute held: channel utilization {util:.1f}% >= {limit:.0f}%")
         return
     path = pending[0]
     try:
@@ -505,10 +551,12 @@ def drain_traceroute(iface, cfg):
         st["last_ts"] = time.time()
         st["sent"] = int(st.get("sent", 0)) + 1
         st["last_dest"] = dest
+        st["last_ch_util"] = util
         write_json(TR_STATE, st)
         COUNTS["tr_tx"] = COUNTS.get("tr_tx", 0) + 1
         gap = "first" if not last else f"waited {waited:.0f}s"
-        log(f"TRACEROUTE -> {dest} hopLimit={hop_limit} ({gap}, total {st['sent']})")
+        log(f"TRACEROUTE -> {dest} hopLimit={hop_limit} "
+            f"(chUtil {util:.1f}%, {gap}, total {st['sent']})")
         os.replace(path, os.path.join(SENT, f"tr.{os.path.basename(path)}.{int(time.time())}"))
     except Exception as e:
         log(f"traceroute err {path}: {e!r}")

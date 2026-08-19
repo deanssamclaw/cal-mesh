@@ -210,14 +210,27 @@ check("...with an empty route", r["route"], [])
 #    checked against a fake interface that records calls instead of transmitting.
 # ---------------------------------------------------------------------------------------
 class FakeIface:
-    def __init__(self):
+    """`util=None` models a radio that cannot report channel state — which must read as
+    'do not send', not as 'no obstacle'."""
+
+    def __init__(self, util=5.0):
         self.sent = []
+        self.util = util
 
     def sendData(self, data, **kw):
         self.sent.append(kw)
 
+    def getMyNodeInfo(self):
+        if self.util is RAISES:
+            raise RuntimeError("radio not answering")
+        return {"deviceMetrics": ({} if self.util is None
+                                  else {"channelUtilization": self.util})}
 
-def drain(cfg, queued, state=None):
+
+RAISES = object()
+
+
+def drain(cfg, queued, state=None, util=5.0):
     """Run one drain pass in a scratch directory. Returns (sends, state-after)."""
     with tempfile.TemporaryDirectory() as td:
         q = os.path.join(td, "traceroute")
@@ -230,7 +243,7 @@ def drain(cfg, queued, state=None):
             json.dump(state, open(stp, "w"))
         oq, ost, osent = bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT
         bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT = q, stp, os.path.join(td, "sent")
-        f = FakeIface()
+        f = FakeIface(util)
         try:
             bridge.drain_traceroute(f, cfg)
             after = json.load(open(stp)) if os.path.exists(stp) else {}
@@ -241,6 +254,13 @@ def drain(cfg, queued, state=None):
 
 ON = {"TRACEROUTE_ENABLED": "true", "TRACEROUTE_MIN_GAP_S": 180}
 
+
+def first(sent, key):
+    """A field of the first send, or None if nothing was sent. Indexing sent[0] directly made
+    'the gate never opens' CRASH this file instead of failing it — and a crash is not a caught
+    mutation, it is the eval not running. The self-test below refuses to score it as one."""
+    return sent[0].get(key) if sent else None
+
 sent, _ = drain({}, [TRACED])
 check("send: DISABLED by default — an absent config key must not transmit", sent, [])
 sent, _ = drain({"TRACEROUTE_ENABLED": "false"}, [TRACED])
@@ -248,9 +268,9 @@ check("send: explicitly disabled does not transmit", sent, [])
 
 sent, st = drain(ON, [TRACED])
 check("send: enabled with an empty state transmits exactly once", len(sent), 1)
-check("send: it goes to the queued destination", sent[0].get("destinationId"), TRACED)
+check("send: it goes to the queued destination", first(sent, "destinationId"), TRACED)
 check_true("send: it asks for a response, or nothing ever comes back",
-           sent[0].get("wantResponse") is True)
+           first(sent, "wantResponse") is True)
 check_true("send: the state records the send, on disk", bool(st.get("last_ts")))
 
 sent, _ = drain(ON, [TRACED, REQ, "!cccccccc"])
@@ -270,7 +290,7 @@ def drain_twice(cfg, queued):
         stp = os.path.join(td, "traceroute-state.json")
         oq, ost, osent = bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT
         bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT = q, stp, os.path.join(td, "sent")
-        f = FakeIface()
+        f = FakeIface(5.0)
         try:
             bridge.drain_traceroute(f, cfg)
             bridge.drain_traceroute(f, cfg)
@@ -310,7 +330,41 @@ check("send: an empty queue transmits nothing", sent, [])
 
 sent, _ = drain({**ON, "TRACEROUTE_HOP_LIMIT": 2}, [TRACED])
 check("send: the hop limit is configurable and is passed through",
-      sent[0].get("hopLimit"), 2)
+      first(sent, "hopLimit"), 2)
+
+# --- the channel-state gate. The threshold is the firmware's own polite_channel_util_percent
+#     (airtime.h:71), used by MeshService.cpp:99 for exactly this category of self-initiated
+#     metadata. These checks pin the BEHAVIOUR, and the constant is asserted separately below
+#     so that changing it is a deliberate act rather than a silent drift.
+sent, _ = drain(ON, [TRACED], util=5.0)
+check("gate: a quiet channel allows a probe", len(sent), 1)
+sent, _ = drain(ON, [TRACED], util=24.9)
+check("gate: just under the polite threshold still allows it", len(sent), 1)
+sent, _ = drain(ON, [TRACED], util=25.0)
+check("gate: AT the polite threshold it is held, not sent", sent, [])
+sent, _ = drain(ON, [TRACED], util=39.0)
+check("gate: a busy channel below the firmware's hard 40% ceiling is still too busy for "
+      "self-initiated metadata", sent, [])
+sent, _ = drain(ON, [TRACED], util=None)
+check("gate: unknown channel state FAILS CLOSED", sent, [])
+sent, _ = drain(ON, [TRACED], util=RAISES)
+check("gate: a radio that throws on the read also fails closed", sent, [])
+sent, st = drain(ON, [TRACED], util=None)
+check_true("gate: a hold does not stamp the interval", not st.get("last_ts"))
+sent, _ = drain({**ON, "TRACEROUTE_MAX_CH_UTIL": 10}, [TRACED], util=15.0)
+check("gate: the threshold is configurable downward", sent, [])
+sent, st = drain(ON, [TRACED], util=7.5)
+check("gate: the utilization at send time is recorded with the send",
+      st.get("last_ch_util"), 7.5)
+
+# The threshold's provenance. 25 is not a number chosen here; it is
+# polite_channel_util_percent from the firmware. If a future edit drifts it, this fails.
+import inspect as _inspect
+_src = _inspect.getsource(bridge.drain_traceroute)
+check_true("gate: the default threshold is the firmware's polite value, 25",
+           'cfg.get("TRACEROUTE_MAX_CH_UTIL", 25)' in _src)
+check_true("gate: the interval default is one channel-utilization measurement window, 60 s",
+           'cfg.get("TRACEROUTE_MIN_GAP_S", 60)' in _src)
 
 # A refused destination must not consume the interval — otherwise one bad queue entry buys
 # silence until the next window for no transmission at all.
@@ -351,6 +405,17 @@ if "--self-test" in sys.argv:
         ("a broadcast traceroute is allowed through",
          'if not dest or dest in ("^all", "!ffffffff"):',
          'if not dest and dest in ("^all", "!ffffffff"):'),
+        ("unknown channel state is treated as permission to send",
+         "    if util is None:\n        log(\"traceroute held: channel utilization unknown\")\n        return",
+         "    if util is None:\n        util = 0.0"),
+        ("the gate is raised to the firmware's HARD ceiling instead of its polite one",
+         'limit = float(cfg.get("TRACEROUTE_MAX_CH_UTIL", 25))',
+         'limit = float(cfg.get("TRACEROUTE_MAX_CH_UTIL", 40))'),
+        ("the gate compares the wrong way round",
+         "    if util >= limit:", "    if util <= limit:"),
+        ("channel state is read from the 30 s status file instead of live",
+         'v = (me.get("deviceMetrics") or {}).get("channelUtilization")',
+         'v = None'),
         ("the interval stamp is never written, so every pass transmits again",
          '        st["last_ts"] = time.time()',
          '        pass'),

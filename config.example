@@ -101,3 +101,23 @@ CALC_MAX_CHARS=160
 SUNMOON_ENABLED=false
 SUNMOON_TZ=America/Chicago
 SUNMOON_MAX_CHARS=120
+
+# --- traceroute (full path discovery) --------------------------------------------------
+# Tier 1, harvesting paths from traceroute traffic Cal already receives, is always on and
+# costs no airtime. These keys govern only ACTIVE probing, which transmits.
+#
+# Off by default. A traceroute is the most airtime Cal can spend for the least payload:
+# roughly 5.7 s of channel occupancy across 8 transmissions for a 3-hop probe, because the
+# request floods out and the reply floods back and every relay in earshot repeats both.
+TRACEROUTE_ENABLED=false
+# The politeness threshold is the FIRMWARE's, not one invented here:
+# polite_channel_util_percent = 25 (airtime.h:71), which MeshService.cpp:99 uses to decide
+# whether to volunteer NodeInfo -- the same category of self-initiated metadata. 40% is where
+# the firmware stops sending anything at all, so 25 is the polite floor, not the hard one.
+# Channel state is read live at send time and UNKNOWN MEANS DO NOT SEND.
+TRACEROUTE_MAX_CH_UTIL=25
+# One channel-utilization measurement window (6 x 10 s buckets, airtime.h:28). Not a
+# politeness rule -- the gate above is that. This stops us reading a number that does not yet
+# contain our own last probe.
+TRACEROUTE_MIN_GAP_S=60
+TRACEROUTE_HOP_LIMIT=3
