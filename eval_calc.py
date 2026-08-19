@@ -449,6 +449,25 @@ def run():
     for t in ("cal 10^-3 w in dbm", "cal 10^3 w in dbm", "cal 1E5 ft in m"):
         check(f"caret/exponent still refused: {t[4:22]}", ans(t) is None)
 
+    # ---- 8h-bis. REVERSED UNIT PHRASING (session 128) -----------------------------------------
+    # The gap ledger (learn.py) flagged unit asks reaching the model; testing calc against them
+    # showed the canonical "N from in to" form already worked, but two reversed phrasings people
+    # actually use fell straight through. Both reduce to the same (value, from, to) and echo
+    # from->to like the canonical form.
+    check("reversed: 'how many <to> is <N> <from>'", ans("cal how many km is 5 miles") == "5 miles = 8.0467 km")
+    check("reversed: 'how many <to> in <N> <from>'", ans("cal how many feet in 2 meters") == "2 meters = 6.5617 feet")
+    check("reversed: 'how many <to> are <N> <from>'", ans("cal how many km are 5 miles") == "5 miles = 8.0467 km")
+    check("value-first: '<N> <from> is how many <to>'", ans("cal 5 miles is how many km") == "5 miles = 8.0467 km")
+    check("value-first, no copula: '<N> <from> how many <to>'", ans("cal 5 miles how many km") == "5 miles = 8.0467 km")
+    check("reversed still echoes from->to", ans("cal how many miles is 10 km") == "10 km = 6.2137 miles")
+    # The _LEN-membership guard is what makes the loose "how many" opening safe: a non-length
+    # token is None, never a wrong number, and ambiguous units still refuse rather than answer.
+    check("'how many' guard: non-unit noun -> None", ans("cal how many people is 5 miles") is None)
+    check("'how many' guard: time question -> None", ans("cal how many days until friday") is None)
+    check("'how many' guard: mesh question -> None", ans("cal how many hops to gremlin") is None)
+    check("reversed ambiguous unit refused, not answered",
+          C.try_answer("cal how many tons is 5 gallons")[1].get("refused") == "ambiguous unit")
+
     # (2) "temp 12*12" was answered by the WEATHER capability — calc returned None (prose), so
     #     weather claimed it on the word "temp" and replied "70F, clear, north wind 5 mph". An
     #     observation offered as the answer to a sum, twice, on the published DM path.

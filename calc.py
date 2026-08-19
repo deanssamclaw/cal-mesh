@@ -385,10 +385,29 @@ def _h_acres(t, trig=None):
 
 
 def _h_convert(t, trig=None):
+    # Three phrasings of the same ask, all reduced to (value, from, to). Real DM traffic uses
+    # the reversed forms as readily as the canonical one — "how many km is 5 miles" and "5 miles
+    # is how many km" both fell through to the model on 2026-08-18 — and the model then owns the
+    # digits, which is the failure this module exists to prevent. The _LEN-membership guard below
+    # is what keeps the looser "how many" openings from firing on non-conversions ("how many hops
+    # to gremlin", "how many days until friday"): a token that is not a length unit returns None,
+    # never a wrong number.
+    #   canonical:  <val> <from> (in|to|into) <to>       -> groups val, from, to
+    #   target-1st: how many <to> (is|in|are|=) <val> <from>
+    #   value-1st:  <val> <from> [is] how many <to>
     m = re.search(_NUM + r"\s*([a-z]+)\s*(?:in|to|into)\s*([a-z]+)\b", t)
-    if not m:
-        return None
-    val, frm, to = _dec(m.group(1)), m.group(2), m.group(3)
+    if m:
+        val, frm, to = _dec(m.group(1)), m.group(2), m.group(3)
+    else:
+        m = re.search(r"how\s+many\s+([a-z]+)\s+(?:is|are|in|into|equals?|=)\s*"
+                      + _NUM + r"\s*([a-z]+)\b", t)
+        if m:
+            val, frm, to = _dec(m.group(2)), m.group(3), m.group(1)
+        else:
+            m = re.search(_NUM + r"\s*([a-z]+)\s+(?:is|are|equals?|=)?\s*how\s+many\s+([a-z]+)\b", t)
+            if not m:
+                return None
+            val, frm, to = _dec(m.group(1)), m.group(2), m.group(3)
     if frm in AMBIGUOUS or to in AMBIGUOUS:
         raise CalcError("ambiguous unit")
     if frm not in _LEN or to not in _LEN:
