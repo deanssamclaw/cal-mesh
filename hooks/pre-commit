@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Run the secret scrub on the STAGED set, always, whatever shape the calling command has.
+#
+# 2026-08-19: scrub-staged.sh printed "SCRUB FAIL" and the commit ran anyway, because the
+# command was `git add && ./scrub-staged.sh && cat > msg.txt <<EOF ...` followed by
+# `git commit`. The && short-circuit skipped the HEREDOC, not the commit -- so the commit ran
+# with a stale message AND the leak staged. Verified by replaying the exact structure.
+# That is the second time a scrub result has been composed around (session 126 chained scrub
+# and push with &&). The durable fix is never the intention, it is the mechanism: git runs
+# this hook regardless of how the caller strings its commands together.
+#
+# Override deliberately with: git commit --no-verify
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+[ -x ./scrub-staged.sh ] || { echo "pre-commit: scrub-staged.sh missing or not executable" >&2; exit 1; }
+if ! ./scrub-staged.sh; then
+  echo "pre-commit: scrub BLOCKED the commit. Fix the staged content, or --no-verify." >&2
+  exit 1
+fi
+exit 0
