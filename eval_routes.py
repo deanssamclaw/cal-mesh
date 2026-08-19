@@ -419,6 +419,17 @@ sent, _ = drain({**ON, "TRACEROUTE_HOP_LIMIT": 9}, [TRACED])
 check("the hop limit is clamped to the firmware's HOP_MAX of 7", first(sent, "hopLimit"), 7)
 sent, _ = drain({**ON, "TRACEROUTE_HOP_LIMIT": 0}, [TRACED])
 check("...and to at least 1, since 0 would probe nothing", first(sent, "hopLimit"), 1)
+sent, _ = drain({**ON, "TRACEROUTE_HOP_LIMIT": 3},
+                [json.dumps({"dest": TRACED, "hop_limit": 6})])
+check("a queue entry may override the hop limit for one probe", first(sent, "hopLimit"), 6)
+sent, _ = drain({**ON, "TRACEROUTE_HOP_LIMIT": 3},
+                [json.dumps({"dest": TRACED, "hop_limit": 99})])
+check("...and the override is clamped like any other", first(sent, "hopLimit"), 7)
+sent, _ = drain({**ON, "TRACEROUTE_HOP_LIMIT": 2}, [json.dumps({"dest": TRACED})])
+check("...and with no override the config value still applies", first(sent, "hopLimit"), 2)
+sent, _ = drain({**ON, "TRACEROUTE_HOP_LIMIT": 2},
+                [json.dumps({"dest": TRACED, "hop_limit": "abc"})])
+check("a malformed override falls back rather than raising", first(sent, "hopLimit"), 3)
 
 # M2 / F1: a failed state write left the airtime spent and the interval unstamped, so the
 # next pass -- one second later -- sent again. Measured at ten probes in ten seconds.
@@ -566,6 +577,9 @@ if "--self-test" in sys.argv:
          'v = (me.get("deviceMetrics") or {}).get("channelUtilization")',
          'v = None'),
         # The five the review found surviving a green suite, plus the forgery gate.
+        ("the per-probe hop limit override is ignored",
+         'want_hl = json.loads(raw).get("hop_limit") if raw.startswith("{") else None',
+         'want_hl = None'),
         ("the interval is halved",
          "    if waited < min_gap:", "    if waited < min_gap / 2:"),
         ("a backlog buys an exemption from the interval",

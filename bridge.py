@@ -268,6 +268,16 @@ def remember_probe(st, pkt, dest):
     write_json(TR_STATE, st)
 
 
+def probe_match_any(req_id):
+    """True if req_id belongs to any probe we sent, regardless of who answered. Used only for
+    logging -- the strict, responder-bound check is probe_match below."""
+    st = read_json_file(TR_STATE, {})
+    if not isinstance(st, dict):
+        return False
+    return any(isinstance(p, dict) and p.get("id") == req_id
+               for p in (st.get("probes") or []))
+
+
 def probe_match(req_id, responder):
     """True only if req_id belongs to a live probe WE sent, to THIS node.
 
@@ -400,6 +410,17 @@ def on_receive(packet=None, interface=None):
         if frm and snr is not None:
             append_snr(frm, snr)
         d = packet.get("decoded") or {}
+        # Any reply to a probe WE sent, whatever port it comes back on. A traceroute that
+        # fails does not answer on TRACEROUTE_APP -- the firmware returns a ROUTING_APP error
+        # (NO_RESPONSE, MAX_RETRANSMIT) instead, and the old branch dropped those silently. So
+        # "no response" was unreadable: it looked identical to a probe nobody had answered and
+        # a probe whose failure we were throwing away.
+        rq = d.get("requestId")
+        if isinstance(rq, int) and probe_match_any(rq):
+            err = ((d.get("routing") or {}).get("errorReason")
+                   if d.get("portnum") == "ROUTING_APP" else None)
+            log(f"PROBE REPLY id={rq} port={d.get('portnum')} from={frm}"
+                + (f" error={err}" if err else ""))
         if d.get("portnum") == "TRACEROUTE_APP":
             capture_route(packet, d, our_node_id(interface))
             return
@@ -672,7 +693,12 @@ def drain_traceroute(iface, cfg):
         dest = valid_dest(want)
         if dest is None:
             raise ValueError(f"refusing traceroute destination {want!r}")
-        hop_limit = int(_num(cfg.get("TRACEROUTE_HOP_LIMIT", 3), 3))
+        # A queue entry may override the hop limit for one probe. Diagnosis needs to vary this
+        # against a single node; without it that means editing config and restarting the
+        # bridge, which drops the radio link for every other probe in flight.
+        want_hl = json.loads(raw).get("hop_limit") if raw.startswith("{") else None
+        hop_limit = int(_num(want_hl if want_hl is not None
+                             else cfg.get("TRACEROUTE_HOP_LIMIT", 3), 3))
         hop_limit = max(1, min(7, hop_limit))      # HOP_MAX is 7 (MeshTypes.h:38)
         # RESERVE THE SLOT BEFORE SPENDING THE AIRTIME. This used to send first and stamp
         # after, both inside one try: a state write that failed left the airtime already spent
