@@ -205,6 +205,120 @@ check("...with an empty route", r["route"], [])
 
 
 # ---------------------------------------------------------------------------------------
+# 9. The SEND guards. This is the only code in cal-mesh that puts a traceroute on the air, and
+#    a traceroute is the most airtime Cal can spend for the least payload. Every guard is
+#    checked against a fake interface that records calls instead of transmitting.
+# ---------------------------------------------------------------------------------------
+class FakeIface:
+    def __init__(self):
+        self.sent = []
+
+    def sendData(self, data, **kw):
+        self.sent.append(kw)
+
+
+def drain(cfg, queued, state=None):
+    """Run one drain pass in a scratch directory. Returns (sends, state-after)."""
+    with tempfile.TemporaryDirectory() as td:
+        q = os.path.join(td, "traceroute")
+        os.makedirs(q)
+        os.makedirs(os.path.join(td, "sent"))
+        for i, dest in enumerate(queued):
+            open(os.path.join(q, f"{i:03d}"), "w").write(dest)
+        stp = os.path.join(td, "traceroute-state.json")
+        if state is not None:
+            json.dump(state, open(stp, "w"))
+        oq, ost, osent = bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT
+        bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT = q, stp, os.path.join(td, "sent")
+        f = FakeIface()
+        try:
+            bridge.drain_traceroute(f, cfg)
+            after = json.load(open(stp)) if os.path.exists(stp) else {}
+        finally:
+            bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT = oq, ost, osent
+        return f.sent, after
+
+
+ON = {"TRACEROUTE_ENABLED": "true", "TRACEROUTE_MIN_GAP_S": 180}
+
+sent, _ = drain({}, [TRACED])
+check("send: DISABLED by default — an absent config key must not transmit", sent, [])
+sent, _ = drain({"TRACEROUTE_ENABLED": "false"}, [TRACED])
+check("send: explicitly disabled does not transmit", sent, [])
+
+sent, st = drain(ON, [TRACED])
+check("send: enabled with an empty state transmits exactly once", len(sent), 1)
+check("send: it goes to the queued destination", sent[0].get("destinationId"), TRACED)
+check_true("send: it asks for a response, or nothing ever comes back",
+           sent[0].get("wantResponse") is True)
+check_true("send: the state records the send, on disk", bool(st.get("last_ts")))
+
+sent, _ = drain(ON, [TRACED, REQ, "!cccccccc"])
+check("send: at most ONE per pass, however many are queued", len(sent), 1)
+
+
+def drain_twice(cfg, queued):
+    """Two consecutive passes against ONE persistent state file — the shape a repeat really
+    takes. The single-pass check above cannot see a missing interval stamp, because the stamp
+    only matters on the NEXT pass."""
+    with tempfile.TemporaryDirectory() as td:
+        q = os.path.join(td, "traceroute")
+        os.makedirs(q)
+        os.makedirs(os.path.join(td, "sent"))
+        for i, dest in enumerate(queued):
+            open(os.path.join(q, f"{i:03d}"), "w").write(dest)
+        stp = os.path.join(td, "traceroute-state.json")
+        oq, ost, osent = bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT
+        bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT = q, stp, os.path.join(td, "sent")
+        f = FakeIface()
+        try:
+            bridge.drain_traceroute(f, cfg)
+            bridge.drain_traceroute(f, cfg)
+        finally:
+            bridge.TR_QUEUE, bridge.TR_STATE, bridge.SENT = oq, ost, osent
+        return f.sent
+
+
+sent = drain_twice(ON, [TRACED, REQ])
+check("send: a second pass immediately after a send is blocked by the stamp it left",
+      len(sent), 1)
+
+import time as _t
+sent, _ = drain(ON, [TRACED], state={"last_ts": _t.time() - 10})
+check("send: the on-disk interval blocks a probe sent 10 s ago", sent, [])
+sent, _ = drain(ON, [TRACED], state={"last_ts": _t.time() - 999})
+check("send: and allows one after the interval has passed", len(sent), 1)
+
+# The whole reason the limiter is on disk: an in-memory one dies with the process, and this
+# bridge restarts on every dropped link — the same event that resets the firmware's own 30 s
+# window. Reloading the module must NOT forget that we just transmitted.
+st_recent = {"last_ts": _t.time() - 10}
+sent, _ = drain(ON, [TRACED], state=st_recent)
+sent2, _ = drain(ON, [TRACED], state=st_recent)
+check("send: the interval survives a restart, because it is read from disk every pass",
+      (sent, sent2), ([], []))
+
+sent, _ = drain(ON, ["^all"])
+check("send: a broadcast traceroute is refused, not silently sent", sent, [])
+sent, _ = drain(ON, ["!ffffffff"])
+check("send: the broadcast NUMBER is refused too", sent, [])
+sent, _ = drain(ON, [""])
+check("send: an empty destination is refused", sent, [])
+
+sent, _ = drain(ON, [])
+check("send: an empty queue transmits nothing", sent, [])
+
+sent, _ = drain({**ON, "TRACEROUTE_HOP_LIMIT": 2}, [TRACED])
+check("send: the hop limit is configurable and is passed through",
+      sent[0].get("hopLimit"), 2)
+
+# A refused destination must not consume the interval — otherwise one bad queue entry buys
+# silence until the next window for no transmission at all.
+sent, st = drain(ON, ["^all"])
+check_true("send: a refusal does not stamp the interval", not st.get("last_ts"))
+
+
+# ---------------------------------------------------------------------------------------
 if "--self-test" in sys.argv:
     print("\n--- self-test: each mutation must be CAUGHT ---")
     import re
@@ -228,6 +342,18 @@ if "--self-test" in sys.argv:
         ("a half-built request route is presented as a path",
          "path = ([to] + route + [frm]) if is_response else None",
          "path = [to] + route + [frm]"),
+        ("the enabled flag defaults to ON",
+         'if str(cfg.get("TRACEROUTE_ENABLED", "false")).lower() != "true":',
+         'if str(cfg.get("TRACEROUTE_ENABLED", "true")).lower() != "true":'),
+        ("the interval is read once into memory instead of from disk each pass",
+         'st = read_json_file(TR_STATE, {}) or {}',
+         'st = {}'),
+        ("a broadcast traceroute is allowed through",
+         'if not dest or dest in ("^all", "!ffffffff"):',
+         'if not dest and dest in ("^all", "!ffffffff"):'),
+        ("the interval stamp is never written, so every pass transmits again",
+         '        st["last_ts"] = time.time()',
+         '        pass'),
     ]
     bad = 0
     for why, old, new in MUTATIONS:

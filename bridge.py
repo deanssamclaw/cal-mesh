@@ -27,6 +27,8 @@ STATUS   = os.path.join(BASE, "status.json")
 NODES    = os.path.join(BASE, "nodes.json")
 SNR_HIST = os.path.join(BASE, "snr-history.jsonl")
 ROUTES   = os.path.join(BASE, "routes.jsonl")
+TR_QUEUE = os.path.join(BASE, "traceroute")
+TR_STATE = os.path.join(BASE, "traceroute-state.json")
 CONFIG   = os.path.join(BASE, "config")
 LOCK     = os.path.join(BASE, "bridge.lock")
 
@@ -38,6 +40,14 @@ START = time.time()
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def log(m): print(f"{now()} {m}", flush=True)
+
+
+def read_json_file(path, default=None):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return default
 
 
 def write_json(path, obj):
@@ -451,8 +461,66 @@ def drain_outbox(iface, transport):
                 pass
 
 
+def drain_traceroute(iface, cfg):
+    """Send at most ONE queued traceroute per pass, and only if every guard agrees.
+
+    Traceroute is the most expensive thing Cal can put on the air for the least payload: one
+    3-hop probe is roughly 5.7 s of channel occupancy across 8 transmissions, because the
+    request floods out and the reply floods back and every relay in earshot repeats both. The
+    firmware will NOT hold us to that. Its only limit is 30 s per TCP client session on the
+    client->radio path (PhoneAPI.cpp:828), and it is a member of the PhoneAPI instance, so it
+    RESETS whenever the client reconnects -- which this bridge does on every dropped link.
+    There is no responder-side and no relay-side throttle anywhere in the firmware.
+
+    So the interval is enforced HERE, and it is kept ON DISK for exactly that reason: an
+    in-memory timer would reset on the same reconnect that resets the firmware's, and the two
+    would fail together at precisely the moment a flapping link was already retrying.
+
+    A traceroute to the broadcast address with any hop limit is refused by the firmware
+    (PhoneAPI.cpp:835) and is refused here too, so it never becomes a silent no-op."""
+    if not os.path.isdir(TR_QUEUE):
+        return
+    pending = sorted(p for p in glob.glob(os.path.join(TR_QUEUE, "*")) if not os.path.isdir(p))
+    if not pending:
+        return
+    if str(cfg.get("TRACEROUTE_ENABLED", "false")).lower() != "true":
+        return
+    st = read_json_file(TR_STATE, {}) or {}
+    min_gap = float(cfg.get("TRACEROUTE_MIN_GAP_S", 180))
+    last = float(st.get("last_ts") or 0)
+    waited = time.time() - last
+    if waited < min_gap:
+        return
+    path = pending[0]
+    try:
+        raw = open(path).read().strip()
+        dest = json.loads(raw).get("dest") if raw.startswith("{") else raw
+        hop_limit = int(cfg.get("TRACEROUTE_HOP_LIMIT", 3))
+        if not dest or dest in ("^all", "!ffffffff"):
+            raise ValueError(f"refusing a broadcast traceroute ({dest!r})")
+        from meshtastic.protobuf import mesh_pb2 as _m, portnums_pb2 as _pn
+        iface.sendData(_m.RouteDiscovery(), destinationId=dest,
+                       portNum=_pn.PortNum.TRACEROUTE_APP, wantResponse=True,
+                       hopLimit=hop_limit)
+        st["last_ts"] = time.time()
+        st["sent"] = int(st.get("sent", 0)) + 1
+        st["last_dest"] = dest
+        write_json(TR_STATE, st)
+        COUNTS["tr_tx"] = COUNTS.get("tr_tx", 0) + 1
+        gap = "first" if not last else f"waited {waited:.0f}s"
+        log(f"TRACEROUTE -> {dest} hopLimit={hop_limit} ({gap}, total {st['sent']})")
+        os.replace(path, os.path.join(SENT, f"tr.{os.path.basename(path)}.{int(time.time())}"))
+    except Exception as e:
+        log(f"traceroute err {path}: {e!r}")
+        try:
+            os.replace(path, os.path.join(SENT, f"tr.{os.path.basename(path)}.err.{int(time.time())}"))
+        except Exception:
+            pass
+
+
 def main():
     os.makedirs(OUTBOX, exist_ok=True)
+    os.makedirs(TR_QUEUE, exist_ok=True)
     os.makedirs(SENT, exist_ok=True)
 
     lf = open(LOCK, "w")
@@ -486,6 +554,7 @@ def main():
             last_trim = time.time()
             while not lost.is_set():
                 drain_outbox(iface, cfg["TRANSPORT"])
+                drain_traceroute(iface, cfg)
                 if time.time() - last_nodes > 30:
                     write_nodes(iface)
                     last_nodes = time.time()
