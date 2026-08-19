@@ -26,6 +26,7 @@ SENT_LOG = os.path.join(BASE, "sent.jsonl")
 STATUS   = os.path.join(BASE, "status.json")
 NODES    = os.path.join(BASE, "nodes.json")
 SNR_HIST = os.path.join(BASE, "snr-history.jsonl")
+ROUTES   = os.path.join(BASE, "routes.jsonl")
 CONFIG   = os.path.join(BASE, "config")
 LOCK     = os.path.join(BASE, "bridge.lock")
 
@@ -163,6 +164,111 @@ def pubkey_fp(pub):
     return hashlib.sha256(bytes(pub)).hexdigest()[:16]
 
 
+UNKNOWN_NODE = 0xFFFFFFFF   # NODENUM_BROADCAST, what the firmware inserts for a hop it
+                            # could not decrypt or name (TraceRouteModule.cpp:367)
+UNKNOWN_SNR  = -128         # INT8_MIN (TraceRouteModule.cpp:376)
+
+
+def _route_ids(nums):
+    """Node numbers -> ids, with the firmware's 'I could not name this hop' marker kept as a
+    hole rather than resolved. 0xFFFFFFFF is ALSO the broadcast address, so node_id() would
+    render it '^all' — a relay that could not be identified would appear as a broadcast."""
+    out = []
+    for n in nums or []:
+        out.append(None if n == UNKNOWN_NODE else node_id(n, None))
+    return out
+
+
+def _route_snrs(vals):
+    """Quarter-dB int8 -> dB. -128 means unknown (TraceRouteModule.cpp:376) — but a real
+    -32.0 dB encodes to -128 as well and the firmware does not disambiguate the two, so this
+    reads it as unknown and that ambiguity is recorded rather than hidden."""
+    out = []
+    for v in vals or []:
+        out.append(None if v == UNKNOWN_SNR else v / 4.0)
+    return out
+
+
+_OURS = {"id": None, "warned": False}
+
+
+def our_node_id(iface):
+    """Cal HT's own id, cached. Used only to tell a path ADDRESSED to us from one we merely
+    overheard — so failing to resolve it silently would relabel every path 'overheard' and
+    nothing on the page would look wrong. It logs once instead of failing quietly."""
+    if _OURS["id"]:
+        return _OURS["id"]
+    try:
+        me = iface.getMyNodeInfo() or {}
+        nid = (me.get("user") or {}).get("id") or node_id(me.get("num"), None)
+        if nid:
+            _OURS["id"] = nid
+            return nid
+    except Exception as e:
+        if not _OURS["warned"]:
+            _OURS["warned"] = True
+            log(f"our_node_id unavailable ({e!r}) — routes will all read 'overheard'")
+        return None
+    if not _OURS["warned"]:
+        _OURS["warned"] = True
+        log("our_node_id returned nothing — routes will all read 'overheard'")
+    return None
+
+
+def capture_route(packet, d, ours):
+    """Record a traceroute we can see. Zero airtime: this only reads packets the radio has
+    already received, including ones addressed to somebody else — Cal hears far more of the
+    channel than talks to it (159 nodes sampled vs 18 that ever sent it text), so other
+    people's traceroutes are free topology.
+
+    Orientation, read off the library's own consumer (mesh_interface.onResponseTraceRoute):
+    a RESPONSE travels from the traced node back to whoever asked, so `to` is the requester
+    and `from` is the node that was traced. The path towards the destination is therefore
+    [to] + route + [from], and snr_towards carries one entry PER LINK, which is one more
+    than the number of intermediate hops.
+
+    MessageToDict omits an empty repeated field entirely, so a direct path arrives with no
+    'route' key at all. Absent must read as EMPTY (a direct path) and never as unknown —
+    the same omission that twice dropped the hop count on this bridge."""
+    tr = d.get("traceroute") or {}
+    req_id = d.get("requestId")
+    is_response = req_id is not None
+    frm = node_id(packet.get("from"), packet.get("fromId"))
+    to  = node_id(packet.get("to"), packet.get("toId"))
+    route      = _route_ids(tr.get("route"))
+    route_back = _route_ids(tr.get("routeBack"))
+    snr_t      = _route_snrs(tr.get("snrTowards"))
+    snr_b      = _route_snrs(tr.get("snrBack"))
+    # The full chain only means anything on a response; a request in flight carries a route
+    # that is still being built, so it is stored but not presented as a path.
+    path = ([to] + route + [frm]) if is_response else None
+    rec = {"ts": now(),
+           "kind": "response" if is_response else "request",
+           # who asked and who was traced, in traceroute terms rather than packet terms
+           "requester": to if is_response else frm,
+           "traced":    frm if is_response else to,
+           "path": path,
+           "route": route, "snr_towards": snr_t,
+           "route_back": route_back, "snr_back": snr_b,
+           # a link count, not a node count: a direct path has one link and no intermediates
+           "links": (len(route) + 1) if is_response else None,
+           # SNR arrays are complete only when they carry one entry per link. An incomplete
+           # array is not padded — a missing reading is a missing reading.
+           "snr_towards_complete": len(snr_t) == len(route) + 1 if is_response else False,
+           "snr_back_complete": len(snr_b) == len(route_back) + 1 if is_response else False,
+           # Cal spent no airtime on an overheard one. Worth keeping: it is the whole reason
+           # this tier is free, and it is also the honest label for a path nobody asked us for.
+           "witness": "addressed" if (ours and to == ours) else "overheard",
+           "packet_id": packet.get("id"), "request_id": req_id,
+           "rx_snr": packet.get("rxSnr"), "rx_rssi": packet.get("rxRssi")}
+    with open(ROUTES, "a") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    COUNTS["routes"] = COUNTS.get("routes", 0) + 1
+    if is_response:
+        log(f"ROUTE {rec['witness']}: " + " -> ".join(h or "?" for h in path))
+    return rec
+
+
 def on_receive(packet=None, interface=None):
     try:
         if not packet:
@@ -174,6 +280,9 @@ def on_receive(packet=None, interface=None):
         if frm and snr is not None:
             append_snr(frm, snr)
         d = packet.get("decoded") or {}
+        if d.get("portnum") == "TRACEROUTE_APP":
+            capture_route(packet, d, our_node_id(interface))
+            return
         if d.get("portnum") != "TEXT_MESSAGE_APP":
             return
         hops, hs, hl = hops_taken(packet)

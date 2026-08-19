@@ -30,6 +30,9 @@ battery-history.jsonl
 /config.bak*
 /config.*.bak
 
+# --- passive traceroute harvest: third parties' node ids and topology, runtime data ---
+routes.jsonl
+
 # --- learn.py distiller artifacts (contain DM text; source learn.py is tracked) ---
 gap-ledger.json
 gap-ledger.md
