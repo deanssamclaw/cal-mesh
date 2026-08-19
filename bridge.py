@@ -408,6 +408,19 @@ def log_port_census():
                                       sorted(PORTS.items(), key=lambda kv: -kv[1])))
 
 
+def _u32(v):
+    """A proto3 uint32 as it survives MessageToDict: absent, int, or a numeric string (the
+    JSON mapping emits 64-bit ints as strings, and has emitted 32-bit ones too). Anything
+    else -> 0, so a malformed value cannot read as a reaction."""
+    if isinstance(v, bool):
+        return 0
+    if isinstance(v, int):
+        return v if v >= 0 else 0
+    if isinstance(v, str) and v.isdigit():
+        return int(v)
+    return 0
+
+
 def on_receive(packet=None, interface=None):
     try:
         if not packet:
@@ -461,6 +474,14 @@ def on_receive(packet=None, interface=None):
                "id": packet.get("id"),
                "hops": hops, "hop_start": hs, "hop_limit": hl,
                "relay_byte": relay if isinstance(relay, int) else None,
+               # Reaction vs message, and what it points at. `emoji` and `reply_id` are proto3
+               # uint32 with NO presence, so a zero is OMITTED ENTIRELY from the dict -- absent
+               # must read as "not a reaction", never as unknown. Same omission that discarded
+               # the hop count twice and pkiEncrypted once, two fields up. Any non-zero emoji
+               # is a tapback: the firmware writes 1, and treating only ==1 as a reaction would
+               # let a different value read as an ordinary message.
+               "reaction": bool(_u32(d.get("emoji"))),
+               "reply_to": _u32(d.get("replyId")) or None,
                "pki": pki,
                # A node's public key is public by design (it is broadcast in NodeInfo), but the
                # full value is not useful here and the dashboard is public — keep a short

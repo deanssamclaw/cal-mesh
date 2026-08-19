@@ -123,6 +123,43 @@ check("on_receive records hop_start",                rec["hop_start"], 3)
 check("SNR sample kept for an unresolved sender",    line_count(bridge.SNR_HIST), 1)
 
 # --- report ------------------------------------------------------------------------------
+# --- reaction / reply capture (2026-08-19) -----------------------------------------------
+# A wave arrived on the public channel and nothing recorded whether it was a MESSAGE or a
+# TAPBACK on one of Cal's own broadcasts. The greeting ack answers waves, so the difference
+# decides whether Cal is greeting a neighbour or replying to a reaction to himself.
+# Same omission trap as hop_limit above: emoji and reply_id are proto3 uint32, so a ZERO is
+# dropped by MessageToDict and absent must read as "not a reaction".
+def data_dict(**kw):
+    """The `decoded` sub-dict, built the way the library actually builds one."""
+    d = mesh_pb2.Data()
+    for k, v in kw.items():
+        setattr(d, k, v)
+    return MessageToDict(d)
+
+
+check("library omits emoji when it is 0", "emoji" in data_dict(emoji=0), False)
+check("library keeps emoji when nonzero", "emoji" in data_dict(emoji=1), True)
+check("library omits reply_id when it is 0", "replyId" in data_dict(reply_id=0), False)
+
+# _u32 is what turns that dict back into a decision. Absent and zero must agree.
+check("absent emoji is not a reaction", bridge._u32(data_dict().get("emoji")), 0)
+check("emoji=0 is not a reaction", bridge._u32(data_dict(emoji=0).get("emoji")), 0)
+check("emoji=1 is a reaction", bridge._u32(data_dict(emoji=1).get("emoji")), 1)
+# The firmware writes 1, but keying on ==1 would let any other value read as an ordinary
+# message. Any non-zero is a tapback.
+check("emoji=2 is still a reaction", bool(bridge._u32(data_dict(emoji=2).get("emoji"))), True)
+# MessageToDict emits large ints as STRINGS. A reply_id is a message id, which is 32-bit and
+# routinely above 2^31 -- if the string form were dropped, every reply to a high-id message
+# would record as a reply to nothing.
+_big = data_dict(reply_id=3052927276)
+check("a high reply_id survives whatever type it arrives as",
+      bridge._u32(_big.get("replyId")), 3052927276)
+check("reply_id round-trips a real captured id", bridge._u32(data_dict(reply_id=1543772128)
+                                                             .get("replyId")), 1543772128)
+# Junk must fail closed rather than fabricate a reaction.
+for bad in (True, "x", -2, None, [], {}):
+    check(f"junk emoji {bad!r} is not a reaction", bridge._u32(bad), 0)
+
 passed = sum(1 for _, ok, _, _ in CHECKS if ok)
 for name, ok, got, want in CHECKS:
     if not ok:
