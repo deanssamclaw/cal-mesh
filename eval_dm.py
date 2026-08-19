@@ -139,6 +139,19 @@ plan = R.plan_response(cfg(), "MTDN", "hi", unlocked=True, dm_context=None)
 check("unlocked with no context still builds a prompt", bool(plan.get("prompt")), True)
 check("no context -> no context preamble", "provided by the harness" in plan["prompt"], False)
 
+# DOER PRECEDENCE ON AN UNLOCKED DM (session 128). The unlock no longer short-circuits at the top,
+# so the deterministic doers run FIRST: a computable ask gets Python's exact answer, and only an
+# open-ended ask falls through to the private persona + injected context. Reverting this would let
+# the model guess a number the doers would have computed exactly, so it is pinned here.
+dc = cfg(CALC_ENABLED="true", SUNMOON_ENABLED="true")
+plan = R.plan_response(dc, DEAN, "5 mi in km", unlocked=True, dm_context=c)
+check("unlocked DM: computable ask hits calc, not the model", plan.get("capability"), "calc")
+check("unlocked DM: calc answer is the exact fixed reply", plan.get("fixed_reply"), "5 mi = 8.0467 km")
+check("unlocked DM: a doer answer does NOT take the private persona", plan.get("persona"), None)
+plan = R.plan_response(dc, DEAN, "what can you do", unlocked=True, dm_context=c)
+check("unlocked DM: open-ended ask falls to the private context path", plan.get("persona"), R.PERSONA_PRIVATE)
+check("unlocked DM: open-ended prompt still carries the context", "mesh dashboard" in (plan.get("prompt") or ""), True)
+
 # ------------------------------------------------------------------ the two streams
 # The direct channel is a published test bench, not a private one — Dean's call, and the
 # reason it is published is that the experiments are the point. So the invariant is NOT

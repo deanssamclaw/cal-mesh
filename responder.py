@@ -502,14 +502,12 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
            "sunmoon_match": None, "sunmoon_meta": None,
            "persona": None, "unlocked": False, "max_chars": None,
            "fixed_kind": None, "calc_meta": None, "caps_match": None}
-    # P1: an authenticated DM from Dean gets the private persona and injected context. This is
-    # decided by the CALLER (dm_unlock) and passed in — plan_response never re-derives trust.
-    if unlocked:
-        out["unlocked"] = True
-        out["persona"] = PERSONA_PRIVATE
-        out["max_chars"] = _int_cfg(cfg, "DM_MAX_CHARS", DEFAULTS["DM_MAX_CHARS"])
-        out["prompt"] = build_private_prompt(clean, dm_context)
-        return out
+    # P1: an authenticated DM from Dean gets the private persona and injected context — but the
+    # DOERS RUN FIRST. This used to short-circuit here at the top, which meant an unlocked DM
+    # skipped calc/sunmoon/weather entirely and a computable ask ("5 mi in km") got a model
+    # guess instead of Python's exact number. The private path now sits at the GENERAL fallback
+    # below (only when no doer claimed the message), so the unlock adds reach without displacing
+    # the deterministic answers. Trust is still decided by the caller (dm_unlock), never here.
     # COMPUTE doer first. Intent is a SUCCESSFUL BOUNDED PARSE, not "contains a number", so
     # anything that is not a calculation returns None here and the weather path is unaffected.
     # No model is involved on this path: Python formats the reply and we emit it as fixed.
@@ -677,6 +675,18 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
             out["fixed_kind"] = "capabilities"
             out["fixed_reply"] = capabilities.answer(cfg)
             return out
+
+    # GENERAL FALLBACK on an unlocked DM: reached only when NO doer above claimed the message
+    # (capability is None). Now — not at the top — the private persona and injected context/memory
+    # apply, so open-ended DMs get reach while computable/weather/sun-moon asks already returned
+    # their exact answers above. Guarded on `capability is None` so a successful weather DM keeps
+    # its own fact and short budget rather than being rerouted through the context path.
+    if unlocked and out["capability"] is None:
+        out["unlocked"] = True
+        out["persona"] = PERSONA_PRIVATE
+        out["max_chars"] = _int_cfg(cfg, "DM_MAX_CHARS", DEFAULTS["DM_MAX_CHARS"])
+        out["prompt"] = build_private_prompt(clean, dm_context)
+        return out
 
     out["prompt"] = build_prompt(sender_short, clean, fact)
     # Length-only relaxation on an authenticated DM. GENERAL path only: the weather prompt
