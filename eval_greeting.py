@@ -192,6 +192,54 @@ for i in range(50):
         sent += 1
 check("50 greetings from one bot -> exactly 1 ack", sent, 1)
 
+# --- the wave (2026-08-19) --------------------------------------------------------------
+# A bare wave emoji reached the greeting path and failed `bare_greeting` with
+# reason "not_a_greeting" -- observed live on 2026-08-19. It is unambiguously a greeting
+# and the cheapest possible reply on shared airtime: one glyph back.
+check("a bare wave is a greeting", R.is_bare_greeting("\U0001F44B"), True)
+check("a bare wave is answered with a wave", R.greeting_reply("\U0001F44B"), "\U0001F44B")
+check("a wave with a skin tone still waves",
+      R.greeting_reply("\U0001F44B\U0001F3FD"), "\U0001F44B")
+check("a repeated wave still waves", R.greeting_reply("\U0001F44B\U0001F44B"), "\U0001F44B")
+check("a wave with the variation selector still waves",
+      R.greeting_reply("\U0001F44B\uFE0F"), "\U0001F44B")
+check("surrounding whitespace does not matter", R.greeting_reply("  \U0001F44B  "), "\U0001F44B")
+
+# A word greeting carrying a wave keeps its WORD reply -- the time of day is the better
+# mirror when it was offered, and the wave is decoration on it.
+check("'morning' plus a wave still mirrors the time of day",
+      R.greeting_reply("Good morning \U0001F44B"), "Good morning")
+check("'hello' plus a wave still says hello", R.greeting_reply("hello \U0001F44B"), "Hello")
+
+# The operator override still wins over everything, including the wave.
+check("GREET_TEXT still overrides the wave",
+      R.greeting_reply("\U0001F44B", override="Standing by"), "Standing by")
+
+# It must not widen into "any emoji is a greeting" -- that would ack every reaction on the
+# channel. Only the wave.
+check("a thumbs up is not a greeting", R.is_bare_greeting("\U0001F44D"), False)
+check("a party emoji is not a greeting", R.is_bare_greeting("\U0001F973"), False)
+check("a wave plus real content is not a bare greeting",
+      R.is_bare_greeting("\U0001F44B whats the temp"), False)
+
+# ONLY the wave is stripped before the words are judged. Widening the strip pattern to any
+# emoji made "\U0001F389 hello" a bare greeting -- a reaction on someone else's traffic would
+# have earned an ack. That mutation survived the first version of this block.
+check("a party emoji beside a greeting is not stripped",
+      R.is_bare_greeting("\U0001F389 hello"), False)
+check("a thumbs up beside a greeting is not stripped",
+      R.is_bare_greeting("\U0001F44D hello"), False)
+check("a heart beside a greeting is not stripped",
+      R.is_bare_greeting("\u2764 morning"), False)
+check("a wave with a question mark is not a bare greeting",
+      R.is_bare_greeting("\U0001F44B?"), False)
+
+# End to end through the gate, since is_bare_greeting alone proves nothing about the ack.
+_ok, _why, _d, _c, _t, _g = R.plan_greeting(cfg(), {"greet_per_sender": {}, "greet_day": {}},
+                                            rec("\U0001F44B"), OURS)
+check("a bare wave passes the greeting gate", _ok, True)
+check("and the ack it would send is a wave", _t, "\U0001F44B")
+
 print()
 print("eval_greeting: %d passed, %d failed" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

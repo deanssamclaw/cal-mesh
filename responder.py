@@ -854,6 +854,23 @@ _GREET_REPLY = [
 ]
 _GREET_DEFAULT = "Hello"
 
+# The wave, and ONLY the wave. A bare \U0001F44B failed `bare_greeting` live on 2026-08-19 and
+# went unanswered; it is unambiguously a greeting and the cheapest reply that exists on shared
+# airtime — one glyph. Deliberately not "any emoji": a thumbs-up or a party popper is a
+# REACTION to someone else's traffic, and acking those would put Cal in every thread on the
+# channel. Skin-tone modifiers are matched so a toned wave is the same greeting, and so is the
+# variation selector: U+FE0F is category Mn, NOT Cf, so _normalize keeps it. I wrote the
+# opposite here first and the eval refuted it in one run.
+_WAVE_TAIL = r"[\U0001F3FB-\U0001F3FF\uFE0F]*"
+_WAVE_RE  = re.compile(r"\U0001F44B" + _WAVE_TAIL)
+_WAVE_ONLY_RE = re.compile(r"^(?:\U0001F44B" + _WAVE_TAIL + r"\s*)+$")
+_GREET_WAVE = "\U0001F44B"
+
+
+def _strip_waves(s):
+    """Remove waves so a word greeting wearing one still matches on its words."""
+    return _WAVE_RE.sub(" ", s)
+
 
 def greeting_reply(text, override=""):
     """The fixed line for a matched greeting. `override`, if set, wins for every greeting —
@@ -867,6 +884,11 @@ def greeting_reply(text, override=""):
     for pat, out in _GREET_REPLY:
         if pat.search(s):
             return out
+    # Wave-only gets a wave. Checked AFTER the time-of-day patterns on purpose: "Good morning
+    # \U0001F44B" was offered a time of day, and mirroring that is the better reply — the wave
+    # is decoration on it, not the message.
+    if _WAVE_ONLY_RE.match(s.strip()):
+        return _GREET_WAVE
     return _GREET_DEFAULT
 
 
@@ -877,6 +899,14 @@ def is_bare_greeting(text):
     if not s or "?" in s:
         return False
     s = re.sub(r"[\s]+", " ", s.strip(" .!,;:-–—\"'"))
+    if _WAVE_ONLY_RE.match(s):
+        return True
+    # A word greeting may wear a wave; strip it and judge the words that remain. Anything with
+    # real content beside the wave still fails below, which is what keeps "\U0001F44B whats the
+    # temp" out of the ack path.
+    s = re.sub(r"[\s]+", " ", _strip_waves(s)).strip()
+    if not s:
+        return False
     if len(s.split()) > 3:
         return False
     return _GREET_RE.match(s) is not None
