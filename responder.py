@@ -52,6 +52,7 @@ import weather                    # Level 3 Stage 1 capability (harness-fetched,
 import calc                       # Level 3 COMPUTE doer (Python owns every digit)
 import sunmoon                    # COMPUTE doer: closed-form astronomy, offline-resilient
 import capabilities               # FIXED doer: what is armed, composed from the flags
+import dm_memory                  # per-identity DM memory on the pinned unlock tier (default OFF)
 from zoneinfo import ZoneInfo
 
 OUR_ID_FALLBACK = "!xxxxxxxx"   # Cal HT
@@ -138,6 +139,13 @@ DEFAULTS = {
     "CALC_ENABLED": "false",
     "CAPS_ENABLED": "false",
     "CALC_MAX_CHARS": "160",
+    # Per-identity DM memory (default OFF). Rides the pinned dm_unlock tier ONLY — it keys on the
+    # unspoofable public-key fingerprint, never the node id, so the store is single-identity by
+    # construction. Double-gated: inert unless DM_UNLOCK is configured (a pinned fingerprint
+    # exists). See dm_memory.py for the full argument.
+    "DM_MEMORY_ENABLED": "false",
+    "DM_MEMORY_MAX_TURNS": "8",       # recent (q,a) pairs retained; oldest fall off
+    "DM_MEMORY_MAX_CHARS": "1200",    # hard cap on the injected memory block (prompt, not a window)
 }
 
 # The unlocked persona. Still forbids secrets outright, because "absence not refusal" covers the
@@ -971,9 +979,17 @@ def main():
                                 d["dm_longer_gates"] = lng_gates
                                 d["dm_longer"] = lng
                                 d["dm_longer_reason"] = lng_why
+                            # On an unlocked DM, the injected context is the operator-curated
+                            # static file PLUS this identity's remembered thread. Memory is inert
+                            # unless armed AND the record is the pinned, key-verified identity, so
+                            # this adds nothing on any other path.
+                            dm_ctx = None
+                            if unl:
+                                dm_ctx = dm_memory.combine(
+                                    load_dm_context(cfg), dm_memory.recall(cfg, rec))
                             plan = plan_response(cfg, rec.get("from"), rec.get("text", ""),
                                                  unlocked=unl, dm_authed=lng,
-                                                 dm_context=load_dm_context(cfg) if unl else None)
+                                                 dm_context=dm_ctx)
                             # the public decision trace: how this reply came to exist. Machinery
                             # only — inputs, gates, the injected fact. No model introspection:
                             # generation is `--output-format text`, there is no reasoning to show,
@@ -1044,6 +1060,17 @@ def main():
                                 d["reply"] = reply
                                 d["dest"] = dest
                                 d["gen_ms"] = gen_ms
+                                # Write-back for DM memory: only the pinned, key-verified identity
+                                # (an unlocked exchange) is ever stored, and only the sanitized
+                                # question the model saw plus the reply that went on air. No-op
+                                # unless armed. Failure here must never break the reply that
+                                # already shipped, so it is caught.
+                                if unl:
+                                    try:
+                                        if dm_memory.remember(cfg, rec, plan.get("clean"), reply):
+                                            d["dm_memory_stored"] = True
+                                    except Exception as e:
+                                        log(f"dm_memory write err: {e!r}")
                                 log(f"REPLY to {rec.get('from')} -> {dest}: {reply!r} ({gen_ms}ms)")
                             else:
                                 d["matched"] = False
