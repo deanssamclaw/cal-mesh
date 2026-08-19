@@ -223,7 +223,10 @@ def correlate(inbox, sent, decisions):
                          "weather_ok", "gen_status", "injection_flagged", "dest",
                          "obs_station", "obs_age_s", "forecast_asked", "trigger_match",
                          "greeting_gates", "greeting_reason", "calc",
-                         "sunmoon_match", "sunmoon")
+                         "sunmoon_match", "sunmoon",
+                         # authenticated-DM path: so the trace can say the model also got the
+                         # injected context + remembered thread, not just the message.
+                         "dm_unlock", "dm_memory_stored")
                         if dec.get(k) is not None}
 
     replied = [d for d in decisions if d.get("matched") and d.get("reply")]
@@ -2214,6 +2217,8 @@ function flowHtml(x,t){
   const fetched=!!t.injected_fact;
   const modelRan=!!t.model;
   const crosses=fetched&&modelRan;
+  // A DM lands on one screen, not every node in range, so the 5-7 word rule does not apply to it.
+  const isDM=!!(t.dest&&t.dest.charAt(0)==='!');
   const arrow=(label)=>`<span class="arw"><span>${label}</span></span>`;
   const b1=`<div class="fb b1"><div class="fk">1 · the question</div>`
     +`<div class="fv">${inTxt}</div>`
@@ -2223,7 +2228,8 @@ function flowHtml(x,t){
   const b3=`<div class="fb b3"><div class="fk">${lastN} · ${modelRan?'what the model wrote':'what Cal sent'}</div>`
     +`<div class="fv">${outTxt}</div>`
     +`<div class="fn"><span class="onair">✓ sent on air to ${esc(t.dest||'')}</span> — `
-    +(modelRan?'5-7 words, because every node in range shares the airtime'
+    +(modelRan?(isDM?'a sentence or two — a direct message lands on one screen, not every node in range'
+                    :'5-7 words, because every node in range shares the airtime')
              :'a fixed sentence written into the software — no model ran for this one')+`</div></div>`;
   // A greeting ack is a THIRD shape, and both of the branches below would misdescribe it.
   // The capability branch is weather-shaped ("what Cal looked up"); the general branch says
@@ -2303,10 +2309,22 @@ function flowHtml(x,t){
       +`ambiguous (a gallon is not the same on both sides of the Atlantic) or falls outside `
       +`what can be answered exactly, Cal says nothing rather than guess.</div>`;
   }
-  if(!capability)
+  if(!capability){
+    // An authenticated DM from Dean is the same "no lookup, model ran" shape, but the model did
+    // NOT see only the message — the harness also injected Cal's saved context and, when present,
+    // the remembered thread. Saying "the message itself" here would be the same collapse that
+    // once made a refused forecast claim the model was handed the message.
+    if(t.dm_unlock){
+      const mem=t.dm_memory_stored?' and the recent messages it remembers':'';
+      return `<div class="flow gen">${b1}${arrow('given to the model with<br>Cal\'s saved context')}${b3}</div>`
+        +`<div class="flowcap">This is an <b>authenticated direct message from Dean</b>, so the model was `
+        +`given the message <b>plus Cal&rsquo;s saved context${mem}</b> — which is why the reply can be `
+        +`longer and carry a thread. The context is the operator&rsquo;s public file; no secret crosses.</div>`;
+    }
     return `<div class="flow gen">${b1}${arrow('sanitized, then given<br>to the model')}${b3}</div>`
       +`<div class="flowcap">Nothing was looked up for this one, so the model was given `
       +`<b>the message itself</b> and wrote a reply from it.</div>`;
+  }
   // The step between the question and the lookup: plain word-matching that decides WHICH
   // capability runs. No model is involved, and it is where a 2026-08-11 defect hid — a question
   // that matched nothing never reached the capability at all, with nothing on the page to say so.
