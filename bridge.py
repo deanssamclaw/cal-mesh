@@ -399,6 +399,15 @@ def capture_route(packet, d, ours):
     return rec
 
 
+PORTS = {}
+
+
+def log_port_census():
+    if PORTS:
+        log("PORT CENSUS " + " ".join(f"{k}={v}" for k, v in
+                                      sorted(PORTS.items(), key=lambda kv: -kv[1])))
+
+
 def on_receive(packet=None, interface=None):
     try:
         if not packet:
@@ -410,6 +419,13 @@ def on_receive(packet=None, interface=None):
         if frm and snr is not None:
             append_snr(frm, snr)
         d = packet.get("decoded") or {}
+        # A census of what actually arrives, by port. The passive traceroute harvest assumed
+        # other people's traceroutes were readable; a traceroute to a specific node is a DM,
+        # and since firmware 2.5 a DM between two nodes that know each other's keys is
+        # PKC-encrypted, which Cal cannot decrypt at all -- such a packet arrives with NO
+        # `decoded` member and never reaches any branch below. That is the difference between
+        # "rare" and "impossible", and it is not a thing to guess at.
+        PORTS[d.get("portnum") or "ENCRYPTED"] = PORTS.get(d.get("portnum") or "ENCRYPTED", 0) + 1
         # Any reply to a probe WE sent, whatever port it comes back on. A traceroute that
         # fails does not answer on TRACEROUTE_APP -- the firmware returns a ROUTING_APP error
         # (NO_RESPONSE, MAX_RETRANSMIT) instead, and the old branch dropped those silently. So
@@ -567,7 +583,7 @@ def drain_outbox(iface, transport):
             if not raw:
                 os.remove(p)
                 continue
-            text, dest, ch, ack, source = raw, "^all", 0, False, "manual"
+            text, dest, ch, ack, source, meta = raw, "^all", 0, False, "manual", None
             if raw.lstrip().startswith("{"):
                 j = json.loads(raw)
                 text = j.get("text", "")
@@ -575,11 +591,20 @@ def drain_outbox(iface, transport):
                 ch = int(j.get("channel", 0))
                 ack = bool(j.get("wantAck", False))
                 source = j.get("source", "manual")
+                # Provenance from whatever queued this, passed through untouched. The NOAA
+                # channelizer holds the event code, severity, counties, station, duration and
+                # the raw SAME header, and every one of them used to die at this boundary —
+                # so the page could not tell a decoded weather-radio warning from a message
+                # somebody typed by hand, and said "MANUAL" for both.
+                m = j.get("meta")
+                meta = m if isinstance(m, dict) else None
             iface.sendText(text, destinationId=dest, channelIndex=ch, wantAck=ack)
             COUNTS["tx"] += 1
             rec = {"ts": now(), "dest": dest, "channel": ch, "text": text,
                    "wantAck": ack, "transport": transport, "bytes": len(text.encode()),
                    "source": source}
+            if meta:
+                rec["meta"] = meta
             with open(SENT_LOG, "a") as f:
                 f.write(json.dumps(rec, ensure_ascii=False, allow_nan=False) + "\n")
             log(f"TX -> {dest} ch{ch}: {text!r}")
@@ -785,6 +810,7 @@ def main():
                     # state write fail) and evicts every genuine path from the
                     # dashboard's 256 KB tail.
                     trim_file(ROUTES, 2000)
+                    log_port_census()
                     last_trim = time.time()
                 write_status(cfg, True, iface)
                 time.sleep(1)
