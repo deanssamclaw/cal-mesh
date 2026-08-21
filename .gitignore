@@ -44,5 +44,8 @@ traceroute-state.json
 gap-ledger.json
 gap-ledger.md
 learn-state.json
+# triage verdicts are keyed BY THE ASK, so the keys are inbound message text — same reason the
+# ledger itself is ignored. learn.py is source and is tracked.
+triage.json
 dm-memory.json
 dm-context.txt

@@ -81,8 +81,122 @@ check("does NOT flag a plain reply", bool(learn._GENERIC_SMELL.search(
       "Yeah, familiar with it. What do you need?")), False)
 check("does NOT flag a weather reply", bool(learn._GENERIC_SMELL.search("66F, clear, SE 5 mph wind")), False)
 
+print("\nclassify() — the doer's own outcome, read BEFORE the HIT rule")
+# Both of these reached a doer, so both would count as clean answers under the old rule. That
+# is the failure this loop was built to fix: a half-built doer and a missing capability were
+# invisible to the thing whose job is spotting them.
+check("clarify is not a HIT", learn.classify(
+      rec(capability="calc", prompt_kind="fixed", calc={"handler": "torque", "outcome": "clarify"}),
+      OUR), "CLARIFY")
+check("no_table is not a REFUSED", learn.classify(
+      rec(capability="calc", prompt_kind="fixed", calc={"handler": "torque", "outcome": "no_table"}),
+      OUR), "NO_TABLE")
+check("a real answer is still a HIT", learn.classify(
+      rec(capability="calc", prompt_kind="fixed", calc={"handler": "torque", "outcome": "answered"}),
+      OUR), "HIT")
+# Older records predate the field entirely and must keep their old bucket.
+check("missing outcome falls back to HIT", learn.classify(
+      rec(capability="calc", prompt_kind="fixed", calc={"handler": "convert"}), OUR), "HIT")
+check("no calc meta at all", learn.classify(
+      rec(capability="weather", prompt_kind="fixed"), OUR), "HIT")
+# An outcome on a record the model answered must not rescue it out of the build queue.
+check("gap stays a gap", learn.classify(rec(prompt_kind="general"), OUR), "GAP")
+
+print("\nmigrate() — v1 ledgers are rewritten, never rebuilt")
+# decisions.jsonl keeps only its last 5000 lines, so resetting to pick up the new schema would
+# silently drop every gap older than the rotation and read as a quiet mesh.
+v1 = {"totals": {"GAP": 3}, "clusters": {
+    "old ask": {"count": 3, "dm_count": 1, "examples": [], "replies": [], "froms": ["!a"],
+                "first_ts": "2026-01-01", "last_ts": "2026-02-02", "generic_smell": False}}}
+migrated, n = learn.migrate(dict(v1, clusters=dict(v1["clusters"])))
+check("one cluster migrated", n, 1)
+check("count preserved as GAP", migrated["clusters"]["old ask"]["counts"]["GAP"], 3)
+check("dm count preserved", migrated["clusters"]["old ask"]["dm_counts"]["GAP"], 1)
+check("schema stamped", migrated.get("schema"), learn.SCHEMA)
+check("migration is idempotent", learn.migrate(migrated)[1], 0)
+# The readers must tolerate the v1 shape even before a migration runs.
+check("total() reads a v1 cluster", learn.total(v1["clusters"]["old ask"]), 3)
+check("total() of a v1 cluster by non-GAP bucket", learn.total(v1["clusters"]["old ask"], "CLARIFY"), 0)
+
+print("\nrecurred() — coverage is whether the ask still reaches the MODEL")
+ARMED = {"oracle": "derivable", "armed": "2026-08-21T12:00:00Z"}
+after = {"last_by_bucket": {"GAP": "2026-08-21T18:00:00Z"}}
+before = {"last_by_bucket": {"GAP": "2026-08-21T09:00:00Z"}}
+check("gap after arming is a recurrence", learn.recurred(after, ARMED), True)
+check("gap before arming is not", learn.recurred(before, ARMED), False)
+check("no verdict, no alarm", learn.recurred(after, None), False)
+check("triaged but unarmed, no alarm", learn.recurred(after, {"oracle": "derivable"}), False)
+# A CLARIFY after arming is a half-built doer, reported separately. Folding it into the
+# recurrence alarm would make a doer that is working as designed look broken.
+clar = {"last_by_bucket": {"CLARIFY": "2026-08-21T18:00:00Z"}}
+check("clarify after arming is NOT a recurrence", learn.recurred(clar, ARMED), False)
+check("clarify after arming IS a partial", learn.partial(clar, ARMED), True)
+
+print("\nverdict() — an untriaged cluster is the actionable state and is never defaulted")
+check("unknown key has no verdict", learn.verdict({}, "anything"), None)
+check("malformed entry is not a verdict", learn.verdict({"k": "derivable"}, "k"), None)
+check("a real entry reads back", learn.verdict({"k": ARMED}, "k"), ARMED)
+
+# ------------------------------------------------------------------------------- MUTATIONS
+# The classifier is the product, so a passing eval that would also pass with the classifier
+# broken is worth nothing. Each mutation below is this session's change reverted.
+MUTATIONS = [
+    ("classifier ignores the doer's outcome (the pre-loop behaviour)",
+     lambda: setattr(learn, "classify", lambda rec, our:
+                     "FILTERED" if not rec.get("matched") else
+                     ("REFUSED" if rec.get("gen_status") == "fixed_forecast_refused" else
+                      ("GREETING" if rec.get("capability") == "greeting" else
+                       ("HIT" if rec.get("capability") in learn.DOER_CAPS
+                        and rec.get("prompt_kind") != "general" else "GAP"))))),
+    ("migrate rebuilds instead of rewriting (drops pre-rotation history)",
+     lambda: setattr(learn, "migrate",
+                     lambda agg: ({"totals": {}, "clusters": {}, "schema": learn.SCHEMA}, 0))),
+    ("recurrence keyed on last_ts, so a clarify reads as a recurrence",
+     lambda: setattr(learn, "recurred", lambda c, v: bool(
+         v and v.get("armed") and (c.get("last_ts", "")
+                                   or max(c.get("last_by_bucket", {}).values(), default=""))
+         > v["armed"]))),
+    ("untriaged clusters default to a verdict, emptying the actionable queue",
+     lambda: setattr(learn, "verdict", lambda tr, key:
+                     tr.get(key) if isinstance(tr.get(key), dict) else {"oracle": "derivable"})),
+]
+
+
+def self_test():
+    import io, contextlib
+    src = open(__file__).read()
+    body = src.split('print("classify()', 1)[1]
+    body = 'print("classify()' + body.split("# ---------------------------------------------"
+                                            "---------------------------------- MUTATIONS")[0]
+    saved = {n: getattr(learn, n) for n in ("classify", "migrate", "recurred", "verdict")}
+    survived = []
+    for name, mutate in MUTATIONS:
+        globals()["FAIL"] = []
+        mutate()
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                exec(compile(body, "<mutation>", "exec"), globals())
+        except Exception:
+            pass
+        caught = bool(globals()["FAIL"])
+        for k, v in saved.items():
+            setattr(learn, k, v)
+        print(f"  {'CAUGHT  ' if caught else 'SURVIVED'} {name}"
+              + (f" ({len(globals()['FAIL'])} case(s) failed)" if caught else ""))
+        if not caught:
+            survived.append(name)
+    return survived
+
+
 print()
 if FAIL:
     print(f"FAIL — {len(FAIL)} case(s): {FAIL}")
     sys.exit(1)
 print("all eval_learn checks pass")
+if "--self-test" in sys.argv:
+    print("mutations (each MUST be caught):")
+    _survived = self_test()
+    if _survived:
+        print(f"FAIL: {len(_survived)} mutation(s) survived: {_survived}")
+        sys.exit(1)
+    print(f"all {len(MUTATIONS)} mutations caught")

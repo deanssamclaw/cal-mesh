@@ -41,6 +41,7 @@ crash/restart without ever dropping packet capture. The dashboard only observes.
 | `com.cal.mesh-bridge`    | `bridge.py`    | Owns Cal HT (serial or TCP). Capture → `inbox.jsonl`; send ← `outbox/`. Emits `status.json`, `sent.jsonl`, `nodes.json`. |
 | `com.cal.mesh-responder` | `responder.py` | Autonomous Cal. Gates inbound → generates a terse reply via headless `claude` → `outbox/`. Logs every verdict to `decisions.jsonl`. |
 | `com.cal.mesh-dashboard` | `dashboard.py` | Read-only web view of every lever. No deps (stdlib). Funnel-exposed. |
+| `com.cal.mesh-learn`     | `learn.py`     | Daily 06:15. Distils `decisions.jsonl` into a ranked ledger of what Cal could not answer. Reads only; proposes, never arms. |
 
 Restart any: `launchctl kickstart -k gui/$(id -u)/com.cal.mesh-<name>`
 

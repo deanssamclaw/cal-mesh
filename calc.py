@@ -62,6 +62,33 @@ class CalcError(Exception):
     """Any refusal. Callers turn this into silence, never into a guess."""
 
 
+class AskFor(Exception):
+    """A doer that parsed the question but is missing one input it must not assume.
+
+    Carries the finished reply. This is an ANSWER, not a failure -- it keeps the message from
+    falling through to the model, which is what produced "Thirty foot pounds" for a bolt whose
+    grade nobody had stated. It is a distinct exception rather than a returned string so the
+    distiller can count it structurally instead of pattern-matching Cal's own prose: a doer that
+    asks is a doer that is half-built, and under the old classifier it was indistinguishable
+    from a clean HIT."""
+
+    def __init__(self, reply):
+        super().__init__(reply)
+        self.reply = reply
+
+
+class NoTable(Exception):
+    """The ask is well-formed and this node has no ground truth for it.
+
+    Also an answer, and the single most valuable record the loop collects: a labelled sample,
+    in the asker's own words, of a capability that does not exist yet. Bucketing it as a
+    designed refusal -- 'working as built' -- would bury exactly the signal it emits."""
+
+    def __init__(self, reply):
+        super().__init__(reply)
+        self.reply = reply
+
+
 # ---------------------------------------------------------------------------------------------
 # Tier 0 — arithmetic
 # ---------------------------------------------------------------------------------------------
@@ -543,7 +570,7 @@ def _h_torque(t, trig=None):
     if not re.search(r"\b(bolt|screw|nut|fastener|stud|cap ?screw|lug)\b", t) and "grade" not in t:
         return None
     if re.search(r"\bm\d{1,2}\b", t) or re.search(r"\b(8\.8|10\.9|12\.9)\b", t):
-        return "Metric fasteners not supported. SAE inch sizes only."
+        raise NoTable("Metric fasteners not supported. SAE inch sizes only.")
     frac = _frac_in(t)
     gm = re.search(r"\b(?:grade|gr\.?|g)\s*(2|5|8)\b", t)
     grade = int(gm.group(1)) if gm else None
@@ -553,18 +580,18 @@ def _h_torque(t, trig=None):
     if frac is None and grade is None:
         return None
     if frac is None:
-        return "Which size? SAE torque needs the diameter, e.g. 1/2 in."
+        raise AskFor("Which size? SAE torque needs the diameter, e.g. 1/2 in.")
     if grade is None:
-        return "Which grade -- 2, 5 or 8? Torque changes by more than 2x."
+        raise AskFor("Which grade -- 2, 5 or 8? Torque changes by more than 2x.")
     tpi = _explicit_tpi(t, frac)
     if tpi == -1:
-        return "That pitch is not standard for %s. Coarse or fine?" % frac
+        raise AskFor("That pitch is not standard for %s. Coarse or fine?" % frac)
     if tpi is None:
         fine = "unf" in t or "fine" in t
         table = UNF_TPI if fine else UNC_TPI
         if frac not in table:
-            return "No %s thread in %s. Ask for the other series." % (
-                "fine" if fine else "coarse", frac)
+            raise AskFor("No %s thread in %s. Ask for the other series." % (
+                "fine" if fine else "coarse", frac))
         tpi = table[frac]
     dia = _dia_decimal(frac)
     dry = bolt_torque_ftlb(dia, tpi, grade, K_DRY)
@@ -594,6 +621,10 @@ def _h_concrete(t, trig=None):
     m = re.search(_NUM + r"\s*(in|inch|inches|ft|foot|feet)\b[^0-9]{0,20}?" + _NUM +
                   r"\s*(in|inch|inches|ft|foot|feet)\b", t)
     if not m:
+        # Two bare numbers and a concrete word is a real ask with one input missing, not a
+        # non-question. Returning None here handed it to the model; asking keeps it here.
+        if re.search(_NUM + r"\s*(?:x|by)\s*" + _NUM, t):
+            raise AskFor("Inches or feet? 12 in x 4 ft and 12 ft x 4 ft differ 144x.")
         return None
     dia_in = _dec(m.group(1)) * _LEN[m.group(2)] / IN_M
     depth_ft = _dec(m.group(3)) * _LEN[m.group(4)] / FT_M
@@ -1068,7 +1099,7 @@ def try_answer(text, max_chars=160, trigger="cal", embedded=False):
     _embedded_expr. A refusal already recorded is never overridden — if the direct parse
     refused, that verdict stands.
     """
-    meta = {"handler": None, "refused": None}
+    meta = {"handler": None, "refused": None, "outcome": None}
     if not text:
         return None, meta
     # Own length bound. The responder truncates to 120 chars, but that is the CALLER's promise;
@@ -1087,7 +1118,8 @@ def try_answer(text, max_chars=160, trigger="cal", embedded=False):
         if r is None and embedded and meta["refused"] is None:
             expr = _embedded_expr(t)
             if expr:
-                r2, m2 = _dispatch(expr, {"handler": None, "refused": None}, max_chars, trigger)
+                r2, m2 = _dispatch(expr, {"handler": None, "refused": None, "outcome": None},
+                                   max_chars, trigger)
                 if r2:
                     m2["embedded"] = True
                     return r2, m2
@@ -1103,6 +1135,16 @@ def _dispatch(t, meta, max_chars, trig=None):
     for h in HANDLERS:
         try:
             r = h(t, trig)
+        except (AskFor, NoTable) as e:
+            # Both are finished replies, and both are recorded as what they are. `outcome` is
+            # the field the distiller reads; without it a clarify counts as a clean answer and
+            # a missing capability counts as working-as-built.
+            meta["handler"] = h.__name__[3:]
+            meta["outcome"] = "clarify" if isinstance(e, AskFor) else "no_table"
+            if len(e.reply) > max_chars:
+                meta["refused"] = "too long"
+                return None, meta
+            return e.reply, meta
         except CalcError as e:
             meta["handler"] = h.__name__[3:]
             meta["refused"] = str(e)
@@ -1114,5 +1156,6 @@ def _dispatch(t, meta, max_chars, trig=None):
             if len(r) > max_chars:
                 meta["refused"] = "too long"
                 return None, meta
+            meta["outcome"] = "answered"
             return r, meta
     return None, meta

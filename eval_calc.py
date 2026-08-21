@@ -846,9 +846,27 @@ def run():
     check("concrete: singular/plural", "1 bags" not in r)
 
     # Units are REQUIRED on both numbers. "12 by 4" is 12 in x 4 ft or 12 ft x 4 ft, and those
-    # differ by 144x — the one thing this handler must never do is pick one.
-    check("concrete: refuses undimensioned hole",
-          ans("cal concrete for a 12 by 4 post hole") is None)
+    # differ by 144x — the one thing this handler must never do is pick one. It ASKS rather than
+    # returning None, because None is not silence here: the ladder carries the message down to
+    # the model, which is the path that produced every wrong number this session.
+    r = ans("cal concrete for a 12 by 4 post hole")
+    check("concrete: undimensioned hole asks", r is not None and "nches or feet" in r)
+    check("concrete: undimensioned hole gives no number", "cu ft" not in r)
+    _, m = C.try_answer("cal concrete for a 12 by 4 post hole")
+    check("concrete: clarify recorded as an outcome", m.get("outcome") == "clarify")
+
+    # The outcome field is what the distiller counts. A doer that asks is half-built and a doer
+    # that has no table is a labelled request for one; neither may look like a clean answer.
+    _, m = C.try_answer("cal torque for a 1/2 inch bolt")
+    check("outcome: missing grade is clarify", m.get("outcome") == "clarify")
+    _, m = C.try_answer("cal torque for a m12 bolt")
+    check("outcome: metric is no_table", m.get("outcome") == "no_table")
+    _, m = C.try_answer("cal torque for a 1/2 inch grade 5 bolt")
+    check("outcome: a real answer is answered", m.get("outcome") == "answered")
+    _, m = C.try_answer("cal 5 mi in km")
+    check("outcome: set on every handler, not just the new ones", m.get("outcome") == "answered")
+    _, m = C.try_answer("cal what is the meaning of life")
+    check("outcome: no handler leaves it unset", m.get("outcome") is None)
 
     # Trigger is a successful bounded parse, not "mentions concrete".
     check("concrete: no dimensions, no answer", ans("cal is concrete expensive") is None)
