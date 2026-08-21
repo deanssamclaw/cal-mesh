@@ -863,6 +863,82 @@ def run():
     _, meta = C.try_answer("cal how many bags of concrete for a 12 inch by 4 foot post hole")
     check("concrete: wins over arith", meta.get("handler") == "concrete")
 
+    # ---- 8m. FASTENER TORQUE, against SAE J429 and published tables --------------------------
+    # Built after the model aired "Thirty foot pounds" for a 1/2 in grade 5 bolt on 2026-08-21 --
+    # 60% low, and almost exactly the correct figure for a 3/8. Every number below is derived
+    # from the standard, not from the code: At = 0.7854*(D - 0.9743/n)^2, clamp = 75% of proof,
+    # T = K*D*F with K 0.20 dry and 0.15 lubricated.
+
+    # Stress area reproduces the published table values before any torque is computed. If this
+    # is wrong every figure downstream is wrong in a way the torque checks cannot localise.
+    check("At 1/2-13 = 0.1419", abs(C.stress_area_in2(Decimal("0.5"), 13) - Decimal("0.1419")) < Decimal("0.0002"))
+    check("At 3/8-16 = 0.0775", abs(C.stress_area_in2(Decimal("0.375"), 16) - Decimal("0.0775")) < Decimal("0.0002"))
+    check("At 5/8-11 = 0.226", abs(C.stress_area_in2(Decimal("0.625"), 11) - Decimal("0.226")) < Decimal("0.0005"))
+    check("At 1-8 = 0.606", abs(C.stress_area_in2(Decimal("1"), 8) - Decimal("0.606")) < Decimal("0.001"))
+
+    # THE LIVE FAILURE. 0.75*85000*0.1419 = 9046 lb clamp; 0.20*0.5*9046/12 = 75.4 ft-lb.
+    r = ans("cal whats torque for a half inch grade 5 bolt")
+    check("torque: the answer that was 30", "75 ft-lb" in r)
+    check("torque: lubricated figure aired too", "57 lubricated" in r)
+    check("torque: names the fastener it answered for", "1/2-13 grade 5" in r)
+    # 30 was the 3/8 row. Pinning it means a regression to that specific wrong answer is caught.
+    check("torque: not the 3/8 figure", "30 ft-lb" not in r and "31 ft-lb" not in r)
+    r = ans("cal torque for a 3/8 grade 5 bolt")
+    check("torque: 3/8 grade 5 is 31", "31 ft-lb" in r)
+
+    check("torque: 1/2 grade 8 is 106", "106 ft-lb" in ans("cal torque for a 1/2 inch grade 8 bolt"))
+    check("torque: 5/8 grade 8 is 212", "212 ft-lb" in ans("cal torque for a 5/8 grade 8 bolt"))
+    check("torque: 7/8 grade 5 is 429", "429 ft-lb" in ans("cal torque for a 7/8 grade 5 bolt"))
+
+    # SAE J429's SIZE BREAK. A grade 5 over 1 in is proof-tested at 74,000 psi, not 85,000, and a
+    # handler that misses it is 15% high on the biggest fasteners. 1-1/4-7: At 0.969,
+    # clamp 0.75*74000*0.969 = 53,780, T = 0.2*1.25*53780/12 = 1,120 ft-lb.
+    r = ans("cal torque for a 1-1/4 grade 5 bolt")
+    check("torque: grade 5 size break applied", "1,121 ft-lb" in r or "1,120 ft-lb" in r)
+    check("torque: compound size not read as 1 in", "1-1/4-7" in r)
+    # Same break for grade 2 at 3/4 in: 55,000 psi at and below, 33,000 above.
+    check("torque: grade 2 at the break", "172 ft-lb" in ans("cal torque for a 3/4 grade 2 bolt"))
+
+    # Thread series changes the answer: 1/2-20 is not 1/2-13.
+    check("torque: fine thread differs", "85 ft-lb" in ans("cal torque for a 1/2-20 grade 5 bolt"))
+    check("torque: explicit coarse pitch honoured", "1/2-13" in ans("cal torque for a 1/2-13 grade 5 bolt"))
+    check("torque: nonstandard pitch refused",
+          "not standard" in ans("cal torque for a 1/2-11 grade 5 bolt"))
+
+    # Small fasteners keep a decimal: 1/4-20 grade 2 is 5.5 ft-lb, and "5" is a 9% error on a
+    # bolt with nothing to spare.
+    check("torque: small sizes keep a decimal", "5.5 ft-lb" in ans("cal torque for a 1/4-20 grade 2 bolt"))
+
+    # BOTH nut factors, every time. This is the whole contract — the same failure as the unnamed
+    # bag size, and it is invisible in a reply that looks complete.
+    for q in ("cal torque for a 1/2 inch grade 5 bolt", "cal torque for a 5/8 grade 8 bolt",
+              "cal torque for a 1/4-20 grade 2 bolt", "cal torque for a 1-1/4 grade 5 bolt"):
+        r = ans(q)
+        check(f"torque: dry stated  [{q[16:30]}]", "dry" in r)
+        check(f"torque: lubed stated [{q[16:30]}]", "lubricated" in r)
+
+    # MISSING INPUTS ASK, they do not return None. A None here is not silence: the ladder carries
+    # the message down to the model, which is what produced "Thirty foot pounds".
+    r = ans("cal torque for a 1/2 inch bolt")
+    check("torque: missing grade asks", r is not None and "grade" in r)
+    check("torque: missing grade gives no number", "ft-lb" not in r)
+    r = ans("cal torque for a grade 5 bolt")
+    check("torque: missing size asks", r is not None and "size" in r.lower() or "diameter" in (r or ""))
+    r = ans("cal torque for a m12 bolt")
+    check("torque: metric refused explicitly", r is not None and "etric" in r)
+    check("torque: metric gives no number", "ft-lb" not in ans("cal torque for a m12 bolt"))
+
+    # A size that does not exist is NOT snapped to the nearest one — that would answer for a
+    # different fastener, which is the failure being fixed.
+    check("torque: invented size not snapped", ans("cal torque for a 0.55 inch grade 5 bolt") is None
+          or "ft-lb" not in ans("cal torque for a 0.55 inch grade 5 bolt"))
+
+    # Trigger stays narrow: engine torque is not fastener torque.
+    check("torque: engine question untouched", ans("cal whats the torque of a 350 chevy") is None)
+    check("torque: bare grade word untouched", ans("cal what grade is this hill") is None)
+    _, meta = C.try_answer("cal torque for a 1/2 inch grade 5 bolt")
+    check("torque: wins over arith", meta.get("handler") == "torque")
+
     # ---- 9. constants are the exact defined values ------------------------------------------
     check("foot exact", C.FT_M == Decimal("0.3048"))
     check("mile exact", C.MI_M == Decimal("1609.344"))
@@ -936,6 +1012,18 @@ MUTATIONS = [
     ("imperial rendering reverted to centimetres",
      lambda: setattr(C, "_imp_len",
                      lambda meters, places=1: C.fmt(Decimal(meters) * 100, places) + " cm")),
+    # session 132 — fastener torque.
+    ("proof-stress size break removed (grade 5 always 85 ksi)",
+     lambda: setattr(C, "SAE_PROOF_PSI", {2: ((Decimal("1.5"), 55000),),
+                                          5: ((Decimal("1.5"), 85000),),
+                                          8: ((Decimal("1.5"), 120000),)})),
+    ("lubricated nut factor equals dry", lambda: setattr(C, "K_LUBE", Decimal("0.20"))),
+    ("preload taken as 100% of proof", lambda: setattr(C, "CLAMP_FRACTION", Decimal("1"))),
+    ("stress area ignores the thread",
+     lambda: setattr(C, "stress_area_in2",
+                     lambda dia, tpi: Decimal("0.7854") * dia * dia)),
+    ("compound size read as the bare inch (1-1/4 -> 1)",
+     lambda: setattr(C, "_frac_in", lambda text: "1" if "1-1/4" in text else _ORIG_FRAC(text))),
     ("embedded look runs by default, not on opt-in",
      lambda: setattr(C, "try_answer",
                      lambda text, max_chars=160, trigger="cal", embedded=False:
@@ -943,13 +1031,15 @@ MUTATIONS = [
 ]
 
 _ORIG_TRY = C.try_answer
+_ORIG_FRAC = C._frac_in
 
 
 def self_test():
     originals = {n: getattr(C, n) for n in
                  ("_ALLOWED_NODES", "MAX_EXP", "MAX_ABS", "AMBIGUOUS", "FT_M", "ACRE_SQFT",
                   "money", "_NUM", "_UNAMBIG", "_embedded_expr", "try_answer",
-                  "BAG_YIELD_CUFT", "POST_ACTUAL_IN", "PI", "ANTENNA_K", "_imp_len")}
+                  "BAG_YIELD_CUFT", "POST_ACTUAL_IN", "PI", "ANTENNA_K", "_imp_len",
+                  "SAE_PROOF_PSI", "K_LUBE", "CLAMP_FRACTION", "stress_area_in2", "_frac_in")}
     print("negative controls — each mutation MUST be caught:")
     all_caught = True
     for name, mutate in MUTATIONS:

@@ -416,6 +416,166 @@ def _h_acres(t, trig=None):
                                                    fmt(area_acres(a, b), 3))
 
 
+# SAE J429 proof stress, psi, by grade and diameter. The size break is not decoration: a
+# grade 5 bolt over 1 in is proof-tested at 74,000 psi, not 85,000, and a handler that ignores
+# that is 15% high on exactly the fasteners where being high matters most.
+SAE_PROOF_PSI = {
+    2: ((Decimal("0.75"), 55000), (Decimal("1.5"), 33000)),
+    5: ((Decimal("1.0"), 85000), (Decimal("1.5"), 74000)),
+    8: ((Decimal("1.5"), 120000),),
+}
+# Coarse and fine thread pitches, ASME B1.1. Thread series changes the stress area and so the
+# torque; 1/2-13 and 1/2-20 are not the same fastener.
+UNC_TPI = {"1/4": 20, "5/16": 18, "3/8": 16, "7/16": 14, "1/2": 13, "9/16": 12, "5/8": 11,
+           "3/4": 10, "7/8": 9, "1": 8, "1-1/8": 7, "1-1/4": 7, "1-3/8": 6, "1-1/2": 6}
+UNF_TPI = {"1/4": 28, "5/16": 24, "3/8": 24, "7/16": 20, "1/2": 20, "9/16": 18, "5/8": 18,
+           "3/4": 16, "7/8": 14, "1": 12}
+# Nut factors. Dry/plain vs lubricated is a 25% swing on the same bolt, which is why every reply
+# below carries both rather than picking one and staying quiet about it.
+K_DRY = Decimal("0.20")
+K_LUBE = Decimal("0.15")
+CLAMP_FRACTION = Decimal("0.75")     # standard practice: preload to 75% of proof load
+
+_DIA_WORDS = {"quarter": "1/4", "half": "1/2", "three quarter": "3/4", "three quarters": "3/4",
+              "three eighth": "3/8", "three eighths": "3/8", "five eighth": "5/8",
+              "five eighths": "5/8", "seven eighth": "7/8", "seven eighths": "7/8",
+              "five sixteenth": "5/16", "five sixteenths": "5/16", "nine sixteenth": "9/16",
+              "nine sixteenths": "9/16", "seven sixteenth": "7/16", "seven sixteenths": "7/16"}
+
+_GRADE_WORDS = {"two": 2, "five": 5, "eight": 8}
+
+
+def _frac_in(text):
+    """A standard fastener diameter named in `text`, as the exact string UNC_TPI is keyed by.
+
+    Deliberately a MEMBERSHIP test against real sizes, not a parse of any number followed by
+    'inch'. A 0.55 in bolt does not exist, and the useful answer to one is that it does not --
+    snapping it to the nearest real size would produce a torque figure for a different
+    fastener, which is the precise failure this handler was built to stop.
+    """
+    for word, frac in _DIA_WORDS.items():
+        if word in text:
+            return frac
+    # Compound sizes FIRST. Trying the bare "1" before "1-1/4" reads a 1-1/4 in bolt as a 1 in
+    # one and airs 644 ft-lb where the answer is 1,120 -- found by smoke test, and it is the
+    # same shape as the torque error this handler exists to prevent.
+    m = re.search(r"\b(1[-\s]\d/\d{1,2})", text)
+    if m:
+        cand = m.group(1).replace(" ", "-")
+        if cand in UNC_TPI:
+            return cand
+    m = re.search(r"\b(\d/\d{1,2})\b", text)
+    if m and m.group(1) in UNC_TPI:
+        return m.group(1)
+    if re.search(r"\b1\s*(?:in|inch|inches|\")", text):
+        return "1"
+    return None
+
+
+def _explicit_tpi(text, frac):
+    """The pitch written as part of the size ("1/2-13"), or None.
+
+    Bounded to real pitches, and it must not run into a fraction: without the trailing guard,
+    "1-1/4" reads as a 1 in bolt with 1 TPI."""
+    m = re.search(re.escape(frac) + r"\s*-\s*(\d{1,2})(?![\d/])", text)
+    if not m:
+        return None
+    tpi = int(m.group(1))
+    if tpi in (UNC_TPI.get(frac), UNF_TPI.get(frac)):
+        return tpi
+    return -1          # written, but not a standard pitch for this size
+
+
+def _dia_decimal(frac):
+    if "-" in frac:
+        whole, _, rest = frac.partition("-")
+        n, _, d = rest.partition("/")
+        return Decimal(whole) + Decimal(n) / Decimal(d)
+    if "/" in frac:
+        n, _, d = frac.partition("/")
+        return Decimal(n) / Decimal(d)
+    return Decimal(frac)
+
+
+def stress_area_in2(dia, tpi):
+    """ASME B1.1 tensile stress area: 0.7854 * (D - 0.9743/n)^2. Derived, not tabulated, so it
+    holds for any pitch -- and it reproduces the published 0.1419 for 1/2-13."""
+    eff = dia - Decimal("0.9743") / Decimal(tpi)
+    if eff <= 0:
+        raise CalcError("thread pitch out of range")
+    return Decimal("0.7854") * eff * eff
+
+
+def bolt_torque_ftlb(dia, tpi, grade, k):
+    """T = K * D * F. F is 75% of proof load, the standard preload target."""
+    bands = SAE_PROOF_PSI.get(grade)
+    if not bands:
+        raise CalcError("unknown grade")
+    psi = None
+    for limit, p in bands:
+        if dia <= limit:
+            psi = p
+            break
+    if psi is None:
+        raise CalcError("diameter out of range for that grade")
+    clamp = CLAMP_FRACTION * Decimal(psi) * stress_area_in2(dia, tpi)
+    return k * dia * clamp / 12
+
+
+def _h_torque(t, trig=None):
+    """Tightening torque for an SAE inch fastener.
+
+    Built because the model answered "torque for a half inch grade 5 bolt" live on 2026-08-21
+    with "Thirty foot pounds" -- 60% low, and low in the direction that leaves a joint loose.
+    Thirty is very close to the correct figure for a 3/8 bolt, so it was not noise: it was the
+    right method applied to the wrong diameter, which is the hardest kind of wrong to spot
+    because the number is internally consistent.
+
+    Two rules, both learned from that answer and from the concrete one before it:
+      * dry and lubricated are BOTH aired, always. The nut factor swings 25% and the asker
+        rarely says which they meant, so picking one silently repeats the bag-size failure.
+      * when something needed is missing, ASK for it in the reply rather than returning None.
+        A None here does not mean silence -- the ladder simply carries the message down to the
+        model, which is exactly what produced the wrong number in the first place.
+    """
+    if "torque" not in t and "tighten" not in t and "ft-lb" not in t and "foot pound" not in t:
+        return None
+    if not re.search(r"\b(bolt|screw|nut|fastener|stud|cap ?screw|lug)\b", t) and "grade" not in t:
+        return None
+    if re.search(r"\bm\d{1,2}\b", t) or re.search(r"\b(8\.8|10\.9|12\.9)\b", t):
+        return "Metric fasteners not supported. SAE inch sizes only."
+    frac = _frac_in(t)
+    gm = re.search(r"\b(?:grade|gr\.?|g)\s*(2|5|8)\b", t)
+    grade = int(gm.group(1)) if gm else None
+    if grade is None:
+        wm = re.search(r"\bgrade\s+(two|five|eight)\b", t)
+        grade = _GRADE_WORDS[wm.group(1)] if wm else None
+    if frac is None and grade is None:
+        return None
+    if frac is None:
+        return "Which size? SAE torque needs the diameter, e.g. 1/2 in."
+    if grade is None:
+        return "Which grade -- 2, 5 or 8? Torque changes by more than 2x."
+    tpi = _explicit_tpi(t, frac)
+    if tpi == -1:
+        return "That pitch is not standard for %s. Coarse or fine?" % frac
+    if tpi is None:
+        fine = "unf" in t or "fine" in t
+        table = UNF_TPI if fine else UNC_TPI
+        if frac not in table:
+            return "No %s thread in %s. Ask for the other series." % (
+                "fine" if fine else "coarse", frac)
+        tpi = table[frac]
+    dia = _dia_decimal(frac)
+    dry = bolt_torque_ftlb(dia, tpi, grade, K_DRY)
+    lube = bolt_torque_ftlb(dia, tpi, grade, K_LUBE)
+    # A quarter-inch grade 2 bolt is 5.5 ft-lb; rounding that to "5" is a 9% error on a fastener
+    # with no margin to give. Whole numbers only once the figure is big enough to carry it.
+    places = 0 if dry >= 20 else 1
+    return "%s-%d grade %d: %s ft-lb dry, %s lubricated" % (
+        frac, tpi, grade, fmt(dry, places), fmt(lube, places))
+
+
 def _h_concrete(t, trig=None):
     """Bags of mix for a round post hole.
 
@@ -892,7 +1052,7 @@ def _h_distance(t, trig=None):
 # "cement" or "post hole" AND two dimensioned numbers, which is narrower than every handler
 # below it -- and it must outrank _h_arith, which would otherwise find digits in the sentence
 # and answer a question nobody asked.
-HANDLERS = (_h_concrete, _h_wavelength, _h_fspl, _h_dbm, _h_ohm, _h_acres, _h_convert,
+HANDLERS = (_h_torque, _h_concrete, _h_wavelength, _h_fspl, _h_dbm, _h_ohm, _h_acres, _h_convert,
             _h_fraction, _h_percent, _h_grid, _h_distance, _h_arith)
 
 
