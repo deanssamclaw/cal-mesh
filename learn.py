@@ -78,6 +78,7 @@ DECISIONS  = os.path.join(BASE, "decisions.jsonl")
 STATUS     = os.path.join(BASE, "status.json")
 STATE      = os.path.join(BASE, "learn-state.json")     # watermark + run counter
 TRIAGE     = os.path.join(BASE, "triage.json")          # oracle verdicts, arm dates, corrections
+HISTORY    = os.path.join(BASE, "learn-history.jsonl")  # one line per run — the loop's own motion
 LEDGER_JSON = os.path.join(BASE, "gap-ledger.json")     # accumulated aggregate
 LEDGER_MD  = os.path.join(BASE, "gap-ledger.md")        # rendered human view
 
@@ -329,9 +330,12 @@ def _cluster_lines(i, key, c, v, lines):
     lines.append(f"{meta} · {len(c['froms'])} node(s) · last {c['last_ts']}")
     if v:
         src = f" — {v['source']}" if v.get("source") else ""
+        sha = ""
+        if v.get("commit"):
+            sha = f" · commit `{v['commit']}`" + (" pushed" if v.get("pushed") else " LOCAL ONLY")
         lines.append("")
         lines.append(f"**oracle: {v.get('oracle','?')}**{src}"
-                     + (f" · armed {v['armed']}" if v.get("armed") else "")
+                     + (f" · armed {v['armed']}" if v.get("armed") else "") + sha
                      + (f" · found by {v['found_by']}" if v.get("found_by") else ""))
         if v.get("note"):
             lines.append(f"> {v['note']}")
@@ -443,6 +447,69 @@ def render_md(agg, state, tr):
     return md
 
 
+def snapshot(agg, tr):
+    """The scoreboard as numbers, for one run.
+
+    Written every run so the loop's own motion is visible as a series rather than as a table
+    that always looks the same. A ledger that is only ever read as "now" cannot answer the
+    question this exists to answer -- is it doing anything -- and neither can one nobody opens.
+    """
+    ranked = rank(agg["clusters"])
+    armed = [(k, c) for k, c in ranked if (verdict(tr, k) or {}).get("armed")]
+    return {
+        "clusters": len(ranked),
+        "untriaged": sum(1 for k, _ in ranked if not verdict(tr, k)),
+        "ready": sum(1 for k, _ in ranked
+                     if (verdict(tr, k) or {}).get("oracle") in ("derivable", "needs-source")
+                     and not (verdict(tr, k) or {}).get("armed")),
+        "armed": len(armed),
+        "closed": sum(1 for k, _ in ranked
+                      if (verdict(tr, k) or {}).get("oracle") == "none"
+                      and not (verdict(tr, k) or {}).get("armed")),
+        "recurred": sum(1 for k, c in armed if recurred(c, verdict(tr, k))),
+        "partial": sum(1 for k, c in armed if partial(c, verdict(tr, k))),
+        "corrections": sum(len(v.get("corrections", []))
+                           for v in tr.values() if isinstance(v, dict)),
+        "by_loop": sum(1 for v in tr.values()
+                       if isinstance(v, dict) and v.get("found_by") == "loop"),
+        "by_hand": sum(1 for v in tr.values()
+                       if isinstance(v, dict) and v.get("found_by") == "manual"),
+    }
+
+
+def append_history(run, snap):
+    rec = {"ts": datetime.now(timezone.utc).isoformat(), "processed": run.get("processed", 0),
+           "new_gaps": run.get("new_gaps", 0),
+           "new_clarify": run.get("new_clarify", 0),
+           "new_no_table": run.get("new_no_table", 0)}
+    rec.update(snap)
+    try:
+        with open(HISTORY, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
+    return rec
+
+
+def git_head():
+    """(short sha, on_origin) for the current checkout, or (None, False).
+
+    The commit is what turns "armed" from a claim into something a reader can go and check --
+    and `on_origin` separates work that is only on this Mac from work that has actually shipped,
+    which is the distinction a public page has to be honest about."""
+    import subprocess
+    try:
+        sha = subprocess.run(["git", "-C", BASE, "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+        if not sha:
+            return None, False
+        out = subprocess.run(["git", "-C", BASE, "branch", "-r", "--contains", sha],
+                             capture_output=True, text=True, timeout=5).stdout
+        return sha, "origin/main" in out
+    except Exception:
+        return None, False
+
+
 def cmd_triage(args):
     tr = load_triage()
     v = tr.setdefault(args.triage, {})
@@ -456,6 +523,14 @@ def cmd_triage(args):
         v["found_by"] = args.found_by
     if args.arm:
         v["armed"] = args.arm if args.arm != "now" else datetime.now(timezone.utc).isoformat()
+    if args.commit:
+        if args.commit == "auto":
+            sha, on_origin = git_head()
+            if sha:
+                v["commit"], v["pushed"] = sha, on_origin
+        else:
+            v["commit"] = args.commit
+            v["pushed"] = args.pushed
     if args.correct:
         v.setdefault("corrections", []).append(
             {"ts": datetime.now(timezone.utc).isoformat(), "what": args.correct})
@@ -474,6 +549,9 @@ def main():
     ap.add_argument("--note")
     ap.add_argument("--found-by", dest="found_by", choices=("loop", "manual"))
     ap.add_argument("--arm", metavar="ISO|now", help="mark a triaged cluster as armed")
+    ap.add_argument("--commit", metavar="SHA|auto",
+                    help="record the commit that armed this capability ('auto' reads HEAD)")
+    ap.add_argument("--pushed", action="store_true", help="with --commit SHA: mark it as pushed")
     ap.add_argument("--correct", metavar="WHAT",
                     help="record a post-arming correction (the counter-metric)")
     args = ap.parse_args()
@@ -484,6 +562,8 @@ def main():
 
     agg, run, state = fold(reset=args.reset)
     tr = load_triage()
+    snap = snapshot(agg, tr)
+    append_history(run, snap)
     render_md(agg, state, tr)
 
     t = agg["totals"]

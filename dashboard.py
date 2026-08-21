@@ -390,6 +390,77 @@ def split_streams(records):
     return bcast, direct
 
 
+LEDGER   = os.path.join(BASE, "gap-ledger.json")
+TRIAGE   = os.path.join(BASE, "triage.json")
+LHISTORY = os.path.join(BASE, "learn-history.jsonl")
+
+
+def build_learning(top=6, runs=20):
+    """What the distiller has found, what got built for it, and whether that shipped.
+
+    PUBLISHED DELIBERATELY, and the reason is the same one that publishes the decision trace:
+    a capability list anyone can read is a claim; a queue showing what Cal still cannot answer,
+    with the commit that fixed the last one, is a demonstration. The awkward numbers are the
+    load-bearing ones -- recurrences, corrections, and how many gaps this loop found on its own
+    versus how many a person spotted by hand.
+
+    Cluster keys are inbound message text, which is already published verbatim in the exchange
+    streams above; node ids are NOT carried through, because nothing here needs them.
+    """
+    agg = read_json(LEDGER, {}) or {}
+    tr = read_json(TRIAGE, {}) or {}
+    clusters = agg.get("clusters", {}) or {}
+
+    def tot(c):
+        return sum((c.get("counts") or {}).values()) or c.get("count", 0)
+
+    def vd(k):
+        v = tr.get(k)
+        return v if isinstance(v, dict) else None
+
+    def rec_flag(k, c):
+        v = vd(k)
+        return bool(v and v.get("armed")
+                    and (c.get("last_by_bucket", {}) or {}).get("GAP", "") > v["armed"])
+
+    ranked = sorted(clusters.items(), key=lambda kv: (tot(kv[1]), kv[1].get("last_ts", "")),
+                    reverse=True)
+    armed, untriaged = [], []
+    for k, c in ranked:
+        v = vd(k)
+        if v and v.get("armed"):
+            armed.append({"ask": k, "oracle": v.get("oracle"), "source": v.get("source"),
+                          "armed": v.get("armed"), "commit": v.get("commit"),
+                          "pushed": bool(v.get("pushed")),
+                          "corrections": len(v.get("corrections", [])),
+                          "recurred": rec_flag(k, c), "count": tot(c)})
+        elif not v:
+            untriaged.append({"ask": k, "count": tot(c), "last": c.get("last_ts", "")})
+    # Corrections live on triage entries that may have no cluster at all — a doer fixed after
+    # arming that never appeared as a gap. Counting only clusters would hide exactly those.
+    corrections = [{"ask": k, "ts": co.get("ts"), "what": co.get("what")}
+                   for k, v in sorted(tr.items()) if isinstance(v, dict)
+                   for co in v.get("corrections", [])]
+    hist = tail_jsonl(LHISTORY, runs)
+    last = hist[-1] if hist else {}
+    return {
+        "scoreboard": {
+            "untriaged": last.get("untriaged", len(untriaged)),
+            "armed": last.get("armed", len(armed)),
+            "recurred": last.get("recurred", 0),
+            "corrections": last.get("corrections", len(corrections)),
+            "by_loop": last.get("by_loop", 0), "by_hand": last.get("by_hand", 0),
+        },
+        "armed": armed[:top],
+        "untriaged": untriaged[:top],
+        "corrections": corrections[-top:],
+        "history": [{"ts": h.get("ts"), "new_gaps": h.get("new_gaps", 0),
+                     "untriaged": h.get("untriaged", 0), "armed": h.get("armed", 0)}
+                    for h in hist],
+        "last_run": last.get("ts"),
+    }
+
+
 def build_state():
     cfg = read_config()
     safe_cfg = {k: cfg[k] for k in PUBLIC_CONFIG_KEYS if k in cfg}
@@ -421,6 +492,9 @@ def build_state():
         # render it with the identical code — a second renderer would drift from the first.
         "dm_exchanges": build_exchanges(dm_inbox, dm_sent),
         "totals": {"sent": count_lines(SENT_LOG), "recv": count_lines(INBOX)},
+        # 60 s cache: the distiller writes once a day, so re-reading it on every 3 s poll is
+        # pure waste.
+        "learning": cached("learning", 60, build_learning),
         "responder": {
             "enabled": cfg.get("RESPONDER_ENABLED", "false"),
             "model": cfg.get("RESPONDER_MODEL", ""),
@@ -2901,6 +2975,21 @@ border-right:1px solid #a3aebd;letter-spacing:.2px}
 .dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
 footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 .empty{padding:16px;color:var(--dim);font-size:13px}
+#learning .lstats{display:flex;flex-wrap:wrap;gap:1px;background:var(--line);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+#learning .lstat{flex:1 1 150px;background:var(--card);padding:11px 16px}
+#learning .lstat.warn{background:var(--card2)}
+#learning .lk{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim)}
+#learning .lv{font-size:19px;font-weight:650;margin-top:2px}
+#learning .lstat.warn .lv{color:var(--warn)}
+#learning .lsec h3{margin:0;padding:14px 16px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent)}
+#learning .lnote{margin:0;padding:0 16px 8px;font-size:11.5px;color:var(--dim);line-height:1.5;max-width:80ch}
+#learning .lrow{padding:9px 16px;border-top:1px solid var(--line)}
+#learning .lrow.bad{border-left:3px solid var(--bad)}
+#learning .lask{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;word-break:break-word}
+#learning .lmeta{font-size:11.5px;color:var(--dim);margin-top:2px}
+#learning .lsha{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent);text-decoration:none}
+#learning .lsha:hover{text-decoration:underline}
+#learning .lwarn{color:var(--warn);font-weight:600}
 .faq h3{margin:0;padding:14px 16px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent);border-bottom:1px solid var(--line);background:#f0f3f7}
 .faq .a a{color:var(--accent);text-decoration:none;font-weight:600}
 .faq .a a:hover{text-decoration:underline}
@@ -3154,6 +3243,24 @@ details.tr[open]>summary:hover{border-color:#4478ad;
       <th class="sortable" data-key="hops" onclick="setSort('hops')">Hops</th>
       <th class="sortable" data-key="snr" onclick="setSort('snr')">SNR</th>
       <th>1h SNR trend</th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <div class="card" id="learning"><h2>What Cal could not answer <span class="badge right" id="lrn-untriaged">0</span></h2>
+    <p class="tabnote">A distiller reads every exchange once a day and files what reached the
+    model instead of a capability. That queue is the build list, and it is published for the
+    same reason the trace is: a list of what this node <i>can</i> do is a claim, while a list of
+    what it still <b>cannot</b> — next to the commit that fixed the last one — is checkable.
+    The uncomfortable numbers are the load-bearing ones.</p>
+    <div class="lstats" id="lrn-stats"></div>
+    <div class="lsec"><h3>Armed</h3><div id="lrn-armed"></div></div>
+    <div class="lsec"><h3>Waiting on an oracle</h3>
+      <p class="lnote">Nothing is built from these until someone decides what the right answer
+      is measured against. A doer graded only by its own test suite is a guess with a green
+      check next to it.</p>
+      <div id="lrn-queue"></div></div>
+    <div class="lsec"><h3>Corrections after arming</h3>
+      <p class="lnote">The counter-metric. Kept in view on purpose — a loop scored only on what
+      it builds will build.</p>
+      <div id="lrn-corr"></div></div>
   </div>
   <div class="card faq" id="faq"><h2>FAQ — what this is and how it works</h2>
     <h3>Start here</h3>
@@ -3968,6 +4075,46 @@ async function tick(){
  }
  $('#nn').textContent=lastNodes.length;
  renderNodes();
+ renderLearning(d.learning||{});
+}
+function shaLink(c,pushed){
+  if(!c) return '<span class="lwarn">not committed</span>';
+  const url='https://github.com/deanssamclaw/cal-mesh/commit/'+encodeURIComponent(c);
+  // "pushed" is not decoration: a commit only on the Mac is work nobody else can see, and
+  // saying "armed" without saying that would overstate it.
+  return `<a class="lsha" href="${url}" target="_blank" rel="noopener noreferrer">${esc(c)}</a>`
+       + (pushed?'':' <span class="lwarn">local only</span>');
+}
+function renderLearning(L){
+  const sb=L.scoreboard||{};
+  $('#lrn-untriaged').textContent=(sb.untriaged??0)+' open';
+  const stat=(k,v,warn)=>`<div class="lstat${warn?' warn':''}"><div class="lk">${k}</div><div class="lv">${v}</div></div>`;
+  $('#lrn-stats').innerHTML=[
+    stat('needs an oracle', sb.untriaged??0),
+    stat('armed', sb.armed??0),
+    stat('recurred after arming', sb.recurred??0, (sb.recurred||0)>0),
+    stat('corrections', sb.corrections??0, (sb.corrections||0)>0),
+    stat('found by loop / by hand', (sb.by_loop??0)+' / '+(sb.by_hand??0), (sb.by_loop||0)===0),
+  ].join('');
+  const A=L.armed||[];
+  $('#lrn-armed').innerHTML=A.length?A.map(a=>
+    `<div class="lrow${a.recurred?' bad':''}"><div class="lask">${esc(a.ask)}</div>`
+    +`<div class="lmeta">${a.source?esc(a.source):'no source recorded'}</div>`
+    +`<div class="lmeta">${shaLink(a.commit,a.pushed)}`
+    +(a.armed?` · armed ${daystamp(a.armed)}`:'')
+    +(a.corrections?` · <span class="lwarn">${a.corrections} correction${a.corrections>1?'s':''}</span>`:'')
+    +(a.recurred?' · <span class="lwarn">still reaching the model</span>':'')
+    +`</div></div>`).join(''):'<div class="empty">nothing armed from the queue yet</div>';
+  const Q=L.untriaged||[];
+  $('#lrn-queue').innerHTML=Q.length?Q.map(q=>
+    `<div class="lrow"><div class="lask">${esc(q.ask)}</div>`
+    +`<div class="lmeta">seen ${q.count}×${q.last?' · last '+daystamp(q.last):''}</div></div>`
+   ).join(''):'<div class="empty">queue is empty — every ask has a verdict</div>';
+  const C=L.corrections||[];
+  $('#lrn-corr').innerHTML=C.length?C.map(c=>
+    `<div class="lrow"><div class="lask">${esc(c.ask)}</div>`
+    +`<div class="lmeta">${daystamp(c.ts)} — ${esc(c.what)}</div></div>`
+   ).join(''):'<div class="empty">none yet</div>';
 }
 // 'toggle' does not bubble, so listen in the capture phase on the container. Survives every
 // re-render because the listener is on #exchanges, not on the details elements themselves.
