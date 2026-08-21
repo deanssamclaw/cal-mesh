@@ -76,6 +76,39 @@ for name, html in sorted(PAGES):
             f"backslash plus a quote that ENDS the string. Rewrite the sentence without the "
             f"apostrophe rather than trying to escape it.")
 
+# --- version promotion: a published /old-N link must always mean the same page --------------
+# Promotion is four edits in three places (a new PAGE_Vn, CURRENT_PAGE, RETIRED_PAGES, the
+# footer) and nothing enforced any of them. Getting it half-right serves the old page from "/"
+# or renumbers a slot someone has already linked to, and both look fine from the machine that
+# made the change.
+SRC = open(os.path.join(HERE, "dashboard.py")).read()
+m = re.search(r"^CURRENT_PAGE = (PAGE_V(\d+))", SRC, re.M)
+if not m:
+    failures.append("CURRENT_PAGE is not a plain `PAGE_Vn` assignment — the evals resolve it "
+                    "from source and cannot follow anything cleverer")
+else:
+    cur_name, cur_n = m.group(1), int(m.group(2))
+    retired = dict(re.findall(r'"(old-\d+)": (PAGE_V\d+)', SRC))
+    checked += 1
+    if cur_name in retired.values():
+        failures.append(f"{cur_name} is served at / AND retired at an old-N slot")
+    # Every version below the current one must be retired, at the slot matching its number.
+    for n in range(1, cur_n):
+        want, got = f"PAGE_V{n}", retired.get(f"old-{n}")
+        if got != want:
+            failures.append(f"old-{n} should be {want}, found {got or 'nothing'} — an old-N slot "
+                            f"is permanent and must never be renumbered")
+    if len(retired) != cur_n - 1:
+        failures.append(f"{len(retired)} retired page(s) for a current v{cur_n}; "
+                        f"expected {cur_n - 1}")
+    # The footer is the only version label a reader ever sees. A promoted page still wearing the
+    # old number is the single most likely thing to be missed, because everything else works.
+    cur_html = dict(PAGES).get(cur_name, "")
+    if f"cal-mesh dashboard v{cur_n}" not in cur_html:
+        failures.append(f"{cur_name} footer does not say 'cal-mesh dashboard v{cur_n}'")
+    if cur_n > 1 and f'href="old-{cur_n - 1}"' not in cur_html:
+        failures.append(f"{cur_name} footer does not link back to old-{cur_n - 1}")
+
 for f in failures:
     print("FAIL " + f)
 print(f"\n{checked} script block(s) checked across {len(PAGES)} page template(s); "

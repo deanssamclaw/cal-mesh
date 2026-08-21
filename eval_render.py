@@ -49,6 +49,17 @@ def page_script(name):
     return s.group(1) if s else None
 
 
+def current_page_name():
+    """The template CURRENT_PAGE points at, resolved from source.
+
+    Hardcoding the version number here means every promotion silently retargets these checks at
+    a RETIRED page — which still passes, because the retired page was correct when it froze.
+    The audit would go on reporting green about a page nobody is served."""
+    m = re.search(r"^CURRENT_PAGE = (PAGE_V\d+)", SRC, re.M)
+    return m.group(1) if m else None
+
+
+
 # Enough of a browser for the module to finish loading. Deliberately tiny: if the page ever needs
 # more than this at load time, that is itself worth knowing about.
 SHIM = r"""
@@ -306,9 +317,10 @@ def render_all(script):
         return None, f"could not parse render output: {e}"
 
 
-script = page_script("PAGE_V4")
+CUR = current_page_name()
+script = page_script(CUR) if CUR else None
 if script is None:
-    print("FAIL: PAGE_V4 not found")
+    print(f"FAIL: {CUR} not found")
     sys.exit(1)
 
 rendered, err = render_all(script)

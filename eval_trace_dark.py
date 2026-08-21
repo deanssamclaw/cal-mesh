@@ -59,6 +59,17 @@ def page_block(name):
     return m.group(1) if m else None
 
 
+def current_page_name():
+    """The template CURRENT_PAGE points at, resolved from source.
+
+    Hardcoding the version number here means every promotion silently retargets these checks at
+    a RETIRED page — which still passes, because the retired page was correct when it froze.
+    The audit would go on reporting green about a page nobody is served."""
+    m = re.search(r"^CURRENT_PAGE = (PAGE_V\d+)", SRC, re.M)
+    return m.group(1) if m else None
+
+
+
 # --------------------------------------------------------------------------------------
 # colour
 # --------------------------------------------------------------------------------------
@@ -611,10 +622,13 @@ def audit(page, label):
     return fails
 
 
-v4 = page_block("PAGE_V4")
+CUR = current_page_name()
+v4 = page_block(CUR) if CUR else None
+# v3 stays pinned by name: it is a frozen historical artifact and the whole point of it here
+# is that the audit FAILS on it. A moving negative control proves nothing.
 v3 = page_block("PAGE_V3")
 if v4 is None or v3 is None:
-    print("FAIL: PAGE_V4 or PAGE_V3 not found in dashboard.py")
+    print(f"FAIL: {CUR} or PAGE_V3 not found in dashboard.py")
     sys.exit(1)
 
 # --------------------------------------------------------------------------------------
@@ -677,7 +691,7 @@ for f in v4_fails:
 n_surfaces = len(v3_fails)
 print()
 print(f"trace-panel colour audit over {len(CASES)} rendered record shapes; "
-      f"{len(v4_fails)} problem(s) in v4")
+      f"{len(v4_fails)} problem(s) in {CUR[5:].lower()}")
 print(f"negative control: the same audit finds {n_surfaces} problem(s) in v3 (the light page), "
       f"so it can fail")
 sys.exit(1 if v4_fails else 0)
