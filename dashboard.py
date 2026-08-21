@@ -4379,21 +4379,22 @@ border-right:1px solid #a3aebd;letter-spacing:.2px}
 .dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
 footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 .empty{padding:16px;color:var(--dim);font-size:13px}
-#learning .lstats{display:flex;flex-wrap:wrap;gap:1px;background:var(--line);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-#learning .lstat{flex:1 1 150px;background:var(--card);padding:11px 16px}
-#learning .lstat.warn{background:var(--card2)}
-#learning .lk{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim)}
-#learning .lv{font-size:19px;font-weight:650;margin-top:2px}
-#learning .lstat.warn .lv{color:var(--warn)}
-#learning .lsec h3{margin:0;padding:14px 16px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent)}
-#learning .lnote{margin:0;padding:0 16px 8px;font-size:11.5px;color:var(--dim);line-height:1.5;max-width:80ch}
-#learning .lrow{padding:9px 16px;border-top:1px solid var(--line)}
-#learning .lrow.bad{border-left:3px solid var(--bad)}
-#learning .lask{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;word-break:break-word}
-#learning .lmeta{font-size:11.5px;color:var(--dim);margin-top:2px}
-#learning .lsha{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent);text-decoration:none}
-#learning .lsha:hover{text-decoration:underline}
-#learning .lwarn{color:var(--warn);font-weight:600}
+/* Scoped to the PANE. These rules were written for a standalone card and kept its id after
+   the content moved into the tab strip, so every one of them matched nothing and the tab
+   rendered unstyled — invisible to the evals here, which read the JSON and the script and
+   never resolve a selector against the markup. The stat row is the page's own .tiles/.tile,
+   not a second component that looks like it. */
+#pane-learn .lsec h3{margin:0;padding:16px 16px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent)}
+#pane-learn .lnote{margin:0;padding:0 16px 8px;font-size:11.5px;color:var(--dim);line-height:1.5;max-width:80ch}
+#pane-learn .tiles{padding:4px 16px 0;margin-bottom:8px}
+#pane-learn .lrow{padding:9px 16px 9px 19px;border-top:1px solid var(--line);border-left:3px solid transparent}
+#pane-learn .lrow.bad{border-left-color:var(--bad)}
+#pane-learn .lask{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;word-break:break-word}
+#pane-learn .lmeta{font-size:11.5px;color:var(--dim);margin-top:2px}
+#pane-learn .lsha{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent);text-decoration:none}
+#pane-learn .lsha:hover{text-decoration:underline}
+#pane-learn .lwarn{color:var(--warn);font-weight:600}
+.tile.alarm{border-color:var(--warn)} .tile.alarm .v{color:var(--warn)}
 .faq h3{margin:0;padding:14px 16px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent);border-bottom:1px solid var(--line);background:#f0f3f7}
 .faq .a a{color:var(--accent);text-decoration:none;font-weight:600}
 .faq .a a:hover{text-decoration:underline}
@@ -4646,7 +4647,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     read for what it could not answer. Published for the reason the trace is: a list of what
     this node <b>can</b> do is a claim, while a list of what it still cannot, next to the commit
     that fixed the last one, is checkable. The uncomfortable numbers are the load-bearing ones.</p>
-    <div class="lstats" id="lrn-stats"></div>
+    <div class="tiles" id="lrn-stats"></div>
     <div class="lsec"><h3>Armed</h3><div id="lrn-armed"></div></div>
     <div class="lsec"><h3>Waiting on an oracle</h3>
      <p class="lnote">Nothing is built from these until someone decides what the right answer is
@@ -4885,7 +4886,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
 const $=s=>document.querySelector(s);
 const DIR=(function(){let p=location.pathname.replace(/\/(v2|v3|v4|old-\d+)\/?$/,'/');
  return p.endsWith('/')?p:p+'/';})();
-let SNR={}, lastNodes=[], nodeSort={key:null,dir:1}, lastXsig=null;
+let SNR={}, lastNodes=[], nodeSort={key:null,dir:1}, lastXsig=null, lastLsig=null;
 let ROUTES={me:null,ours:{},others:[]};
 let SELF={id:null,name:null};
 const NODE_LABELS={short:'Short',long:'Name',hw:'HW',hops:'Hops',snr:'SNR'};
@@ -4893,7 +4894,7 @@ function esc(s){return (s??"").toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<
 function hhmmss(ts){try{return new Date(ts).toLocaleTimeString();}catch(e){return ts;}}
 function daystamp(ts){try{return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric'});}catch(e){return '';}}
 function secs(ms){return (ms/1000).toFixed(2)+'s';}
-function tile(k,v,sub){return `<div class="tile"><div class="k">${k}</div><div class="v">${v}${sub?` <small>${sub}</small>`:''}</div></div>`;}
+function tile(k,v,sub,cls){return `<div class="tile${cls?' '+cls:''}"><div class="k">${k}</div><div class="v">${v}${sub?` <small>${sub}</small>`:''}</div></div>`;}
 function fmtDur(s){s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
  return h?`${h}h ${m}m`:(m?`${m}m ${ss}s`:`${ss}s`);}
 function batteryLabel(m){ if(m.battery==null) return '—';
@@ -5494,14 +5495,22 @@ function shaLink(c,pushed){
 }
 function renderLearning(L){
   const sb=L.scoreboard||{};
-  $('#lrn-untriaged').textContent=(sb.untriaged??0)+' open';
-  const stat=(k,v,warn)=>`<div class="lstat${warn?' warn':''}"><div class="lk">${k}</div><div class="lv">${v}</div></div>`;
+  // The distiller writes once a day; this ran four innerHTML writes every 3s regardless,
+  // against the rule the exchange stream states two functions up — it fights the reader for
+  // text selection and scroll position, and buys nothing.
+  const lsig=JSON.stringify(L);
+  if(lsig===lastLsig) return;
+  lastLsig=lsig;
+  // A bare count, like the two tabs beside it. "19 open" put a unit inside one badge of three.
+  $('#lrn-untriaged').textContent=sb.untriaged??0;
+  // Emphasis is reserved for the two numbers that mean something went wrong. by_loop being 0
+  // is the honest state of a new loop, not an alarm, and colouring it as one cries wolf.
   $('#lrn-stats').innerHTML=[
-    stat('needs an oracle', sb.untriaged??0),
-    stat('armed', sb.armed??0),
-    stat('recurred after arming', sb.recurred??0, (sb.recurred||0)>0),
-    stat('corrections', sb.corrections??0, (sb.corrections||0)>0),
-    stat('found by loop / by hand', (sb.by_loop??0)+' / '+(sb.by_hand??0), (sb.by_loop||0)===0),
+    tile('needs an oracle', sb.untriaged??0),
+    tile('armed', sb.armed??0),
+    tile('recurred after arming', sb.recurred??0, '', (sb.recurred||0)>0?'alarm':''),
+    tile('corrections', sb.corrections??0, '', (sb.corrections||0)>0?'alarm':''),
+    tile('found by', (sb.by_loop??0)+' / '+(sb.by_hand??0), 'loop / by hand'),
   ].join('');
   const A=L.armed||[];
   $('#lrn-armed').innerHTML=A.length?A.map(a=>

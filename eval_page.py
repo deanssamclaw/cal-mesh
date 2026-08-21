@@ -76,6 +76,43 @@ for name, html in sorted(PAGES):
             f"backslash plus a quote that ENDS the string. Rewrite the sentence without the "
             f"apostrophe rather than trying to escape it.")
 
+# --- selectors must resolve against the markup they were written for ------------------------
+# The v5 build queue shipped with 15 stylesheet rules anchored to `#learning` — the id of the
+# card the content had just been MOVED OUT OF. Every rule matched nothing and the tab rendered
+# completely unstyled, and not one eval here noticed: they execute the render functions, check
+# the JSON, and audit colours over markup they build themselves. Nothing resolved an id in the
+# stylesheet against the page.
+#
+# Two directions, because both fail silently:
+#   CSS -> markup   a rule anchored to a missing id styles nothing.
+#   script -> markup  $('#x') on a missing id returns null; the write vanishes, or throws and
+#                     takes the rest of the paint with it.
+#
+# Current page only. A retired page is frozen, and holding it to a rule written later would
+# force an edit to a record of what the page WAS.
+CUR_NAME = None
+_m = re.search(r"^CURRENT_PAGE = (PAGE_V\d+)", open(os.path.join(HERE, "dashboard.py")).read(), re.M)
+if _m:
+    CUR_NAME = _m.group(1)
+    cur = dict(PAGES).get(CUR_NAME, "")
+    ids = set(re.findall(r'id="([\w-]+)"', cur))
+    style = "\n".join(re.findall(r"<style>(.*?)</style>", cur, re.S))
+    checked += 1
+    # A hex colour is not a selector. `#fff8c5` and `#ffffff` are values, and reading them as
+    # ids is how this check first reported 100+ imaginary failures.
+    HEX = re.compile(r"^[0-9a-fA-F]{3,8}$")
+    css_ids = {sel for sel in re.findall(r"#([\w-]+)", style) if not HEX.match(sel)}
+    for sel in sorted(css_ids - ids):
+        failures.append(f"{CUR_NAME} stylesheet targets #{sel}, which is not in the markup — "
+                        f"the rule matches nothing and whatever it was meant to style is bare")
+    script = "\n".join(re.findall(r"<script>(.*?)</script>", cur, re.S))
+    # Only ids the page addresses directly. Anything built into a template string is created at
+    # render time and cannot be resolved here.
+    js_ids = set(re.findall(r"""\$\(['"]#([\w-]+)['"]\)""", script))
+    for sel in sorted(js_ids - ids):
+        failures.append(f"{CUR_NAME} script writes to #{sel}, which is not in the markup — "
+                        f"the write goes nowhere")
+
 # --- version promotion: a published /old-N link must always mean the same page --------------
 # Promotion is four edits in three places (a new PAGE_Vn, CURRENT_PAGE, RETIRED_PAGES, the
 # footer) and nothing enforced any of them. Getting it half-right serves the old page from "/"
