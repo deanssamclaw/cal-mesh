@@ -27,6 +27,7 @@ STATUS   = os.path.join(BASE, "status.json")
 NODES    = os.path.join(BASE, "nodes.json")
 SNR_HIST = os.path.join(BASE, "snr-history.jsonl")
 ROUTES   = os.path.join(BASE, "routes.jsonl")
+ACK_LOG  = os.path.join(BASE, "acks.jsonl")
 TR_QUEUE = os.path.join(BASE, "traceroute")
 TR_STATE = os.path.join(BASE, "traceroute-state.json")
 CONFIG   = os.path.join(BASE, "config")
@@ -73,6 +74,15 @@ COUNTS = {"rx": 0, "tx": 0}
 POS_SEEN = {"n": None}   # last logged count of position-reporting neighbours (see write_nodes)
 CURRENT = {"iface": None}   # the live interface; guards against stale lost-events
 SNR_APPENDS = {"n": 0}
+
+
+def append_jsonl(path, rec):
+    """Append one record, and never let a logging failure take the receive path down."""
+    try:
+        with open(path, "a") as f:
+            f.write(json.dumps(rec, ensure_ascii=False, allow_nan=False) + "\n")
+    except Exception as e:
+        log(f"append_jsonl {os.path.basename(path)} err: " + repr(e))
 
 
 def append_snr(node, snr):
@@ -421,6 +431,76 @@ def _u32(v):
     return 0
 
 
+ACK_RING  = 16           # how many outstanding wantAck sends we remember
+ACK_TTL_S = 300          # a routing packet arriving later than this is not that send's receipt
+
+# Deliberately in memory, not on disk like the probe ring. A bridge restart forgetting a
+# pending send costs one "unmatched" log line; persisting it would let a stale id from a
+# previous process claim a receipt it never earned.
+PENDING_ACK = []
+
+
+def remember_ack(pkt, dest, text):
+    """Record the packet id of a wantAck send, so its routing reply can be matched to it.
+
+    sendText returns the MeshPacket it built; the id it carries is the only handle that ties
+    an outbound message to the receipt that comes back for it. This return value used to be
+    discarded, which is why a delivery ACK was unreadable -- it arrived, was counted in the
+    port census, and could be matched to nothing."""
+    pid = getattr(pkt, "id", None) if pkt is not None else None
+    if not isinstance(pid, int):
+        return None
+    PENDING_ACK.append({"id": pid, "dest": dest, "ts": time.time(), "text": text[:80]})
+    del PENDING_ACK[:-ACK_RING]
+    return pid
+
+
+def match_ack(req_id):
+    """The live pending send req_id belongs to, or None. Expired entries are dropped, never
+    matched -- a receipt for a send we gave up on is not that send's receipt."""
+    if not isinstance(req_id, int):
+        return None
+    now_s = time.time()
+    PENDING_ACK[:] = [p for p in PENDING_ACK if now_s - _num(p.get("ts"), 0) <= ACK_TTL_S]
+    for p in PENDING_ACK:
+        if p.get("id") == req_id:
+            return p
+    return None
+
+
+def classify_ack(err, frm, dest, ours):
+    """(status, why) for a routing receipt. THREE outcomes hide behind one portnum, and
+    collapsing them is exactly how "we called sendText" gets read as "it arrived":
+
+      from == dest, no error  -> DELIVERED. The destination's own router answers a want_ack
+        addressed to it. Every NONE ack in the firmware sits behind an isToUs guard
+        (ReliableRouter.cpp:95-129, NextHopRouter.cpp:73).
+
+      from == US,   no error  -> IMPLICIT. Our OWN radio manufactures a NONE ack the moment it
+        hears anybody rebroadcast our packet (ReliableRouter.cpp:40-57, "Generate implicit
+        ack"). It proves a relay repeated us. It does NOT prove the destination heard anything
+        -- and at this layer it is byte-identical to a real receipt apart from `from`.
+
+      from == US,   MAX_RETRANSMIT -> FAILED. Also generated locally, by our own retransmit
+        timer giving up (NextHopRouter.cpp:284, guarded by isFromUs).
+
+    `error_reason` is a member of Routing's `variant` ONEOF, so protobuf tracks its presence
+    and MessageToDict emits it even at the NONE default -- unlike hopLimit and pkiEncrypted,
+    which are bare proto3 scalars and vanish. Verified both ways: mesh_pb2.Routing with
+    error_reason=NONE renders {'errorReason': 'NONE'}, an untouched one renders {}, and the
+    live receipt at 2026-08-21T17:07:01Z carried the string. So NONE is the shape to expect;
+    absent means the oneof carried a different arm, which is still not an error. Both are
+    read as success, and neither may be read as delivered on its own."""
+    ok = err in (None, "", "NONE")
+    if not ok:
+        return "failed", err
+    if dest and frm and frm == dest:
+        return "delivered", "destination answered"
+    if ours and frm == ours:
+        return "implicit", "our own radio heard a rebroadcast; destination unproven"
+    return "relayed", "receipt from neither destination nor us"
+
+
 def on_receive(packet=None, interface=None):
     try:
         if not packet:
@@ -450,6 +530,27 @@ def on_receive(packet=None, interface=None):
                    if d.get("portnum") == "ROUTING_APP" else None)
             log(f"PROBE REPLY id={rq} port={d.get('portnum')} from={frm}"
                 + (f" error={err}" if err else ""))
+        # Delivery receipts for our own wantAck sends. Without this branch a receipt was
+        # invisible: it landed in the port census as a ROUTING_APP tick and nowhere else, so
+        # "did it arrive" could only be answered by watching a counter change.
+        if d.get("portnum") == "ROUTING_APP":
+            rid = _u32(rq) or (rq if isinstance(rq, int) else 0)
+            pend = match_ack(rid)
+            if pend:
+                err = (d.get("routing") or {}).get("errorReason")
+                status, why = classify_ack(err, frm, pend.get("dest"), our_node_id(interface))
+                rec = {"ts": now(), "id": rid, "dest": pend.get("dest"), "from": frm,
+                       "status": status, "why": why, "error": err,
+                       "rtt_s": round(time.time() - _num(pend.get("ts"), 0), 2),
+                       "text": pend.get("text")}
+                append_jsonl(ACK_LOG, rec)
+                PENDING_ACK[:] = [x for x in PENDING_ACK if x.get("id") != rid]
+                log(f"RECEIPT {status} id={rid} dest={pend.get('dest')} from={frm} "
+                    f"rtt={rec['rtt_s']}s ({why})")
+            elif not probe_match_any(rid):
+                # Never silently discarded: an unmatched receipt is either a forgery, a
+                # duplicate after we already cleared the send, or one that outlived ACK_TTL_S.
+                log(f"RECEIPT unmatched id={rid} from={frm}")
         if d.get("portnum") == "TRACEROUTE_APP":
             capture_route(packet, d, our_node_id(interface))
             return
@@ -619,11 +720,16 @@ def drain_outbox(iface, transport):
                 # somebody typed by hand, and said "MANUAL" for both.
                 m = j.get("meta")
                 meta = m if isinstance(m, dict) else None
-            iface.sendText(text, destinationId=dest, channelIndex=ch, wantAck=ack)
+            pkt = iface.sendText(text, destinationId=dest, channelIndex=ch, wantAck=ack)
             COUNTS["tx"] += 1
+            # Only a wantAck send can produce a receipt. A broadcast never does -- there is no
+            # single destination to answer -- so remembering one would only ever expire.
+            pid = remember_ack(pkt, dest, text) if ack and dest != "^all" else None
             rec = {"ts": now(), "dest": dest, "channel": ch, "text": text,
                    "wantAck": ack, "transport": transport, "bytes": len(text.encode()),
                    "source": source}
+            if pid is not None:
+                rec["packet_id"] = pid
             if meta:
                 rec["meta"] = meta
             with open(SENT_LOG, "a") as f:

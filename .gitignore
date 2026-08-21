@@ -33,6 +33,9 @@ battery-history.jsonl
 /config.bak*
 /config.*.bak
 
+# --- delivery receipts: every record names a real node id we sent to, and this repo is public
+acks.jsonl
+
 # --- passive traceroute harvest: third parties' node ids and topology, runtime data ---
 routes.jsonl
 traceroute-state.json
