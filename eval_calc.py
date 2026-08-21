@@ -160,9 +160,12 @@ def run():
           C.try_answer("cal wavelength at 915 MHz", max_chars=10)[1]["refused"] == "too long")
 
     # ---- 8. correctness against the spec's own worked values --------------------------------
+    # US customary, per this module's stated convention and the operator's standing one.
+    # 299792458 / 915e6 = 0.327642 m = 12.899 in; a quarter of that is 3.225 in.
     r = ans("cal wavelength at 915 MHz")
-    check("915MHz wavelength 32.8cm", "32.8 cm" in r)
-    check("915MHz quarter-wave 8.2cm", "8.2 cm" in r)
+    check("915MHz wavelength 12.9in", "12.9 in" in r)
+    check("915MHz quarter-wave 3.2in", "3.2 in" in r)
+    check("no centimetres anywhere", "cm" not in r)
     check("frequency unit cased correctly", "915 MHz" in r and "MHZ" not in r)
     check("wavelength states idealization", "free space" in r)
 
@@ -215,14 +218,38 @@ def run():
             failures[-1] += f"  (got {got!r}, want {expect!r})"
 
     r = ans("cal wavelength at 2 ghz")
-    check("GHz multiplier correct", "15 cm" in r)
+    check("GHz multiplier correct", "5.9 in" in r)
+    # 599.58 m of wavelength in inches is a five-digit number nobody can picture, so lengths at
+    # or above 3 ft air as feet. The unit SWITCHES, which is exactly the kind of thing that
+    # silently stops being tested once the assertion only ever sees short antennas.
     r = ans("cal wavelength at 500 khz")
-    check("kHz multiplier correct", "59,958.5 cm" in r)
+    check("kHz multiplier correct", "1,967.1 ft" in r)
+    check("long wavelength uses feet, not inches", " in" not in r.replace("(free space)", ""))
 
     # antenna questions must give the CUT length, not just free space (~5% error otherwise)
     r = ans("cal quarter wave antenna for 915 MHz")
-    check("antenna gives cut length", "7.8 cm" in r and "end effect" in r)
+    check("antenna gives cut length", "3.1 in" in r and "end effect" in r)
     check("antenna still shows free space", "free space" in r)
+
+    # REGRESSION, live 2026-08-21. The cut length used to be gated on `"antenna" in t`, and a
+    # question that spelled it "anyenna" got the free-space number with nothing to signal that
+    # the answer for cutting metal was ~5% shorter. A misspelled noun is the ordinary case on a
+    # radio keyboard; the ASK ("quarter wave") is what the branch keys on now.
+    for typo in ("cal how long is a quarter wave whip anyenna for 915 mhz",
+                 "cal quarter wave antena 915 mhz",
+                 "cal quarter wave elemnt for 915 mhz",
+                 "cal how long to cut a quarter wave for 915 mhz"):
+        r = ans(typo)
+        check(f"typo still gets cut length: {typo[4:24]}", "end effect" in r and "3.1 in" in r)
+
+    # ... and the noun alone still works when the phrase "quarter wave" is absent.
+    r = ans("cal antenna for 915 mhz")
+    check("bare noun still gets cut length", "end effect" in r)
+
+    # A pure physics question must NOT be given a cut length -- it is not a wrong number, it is
+    # an answer to a question nobody asked, and this is the failure mode of widening a trigger.
+    r = ans("cal wavelength at 915 mhz")
+    check("plain wavelength has no end effect", "end effect" not in r)
 
     # dBm must scale to a readable unit AND never print a nonzero value as 0
     check("-100 dBm scales to pW", ans("cal -100 dbm in watts") == "-100 dBm = 0.1 pW")
@@ -775,11 +802,79 @@ def run():
         check(f"nav still answers its own: {q[4:32]}",
               _p["capability"] == "calc" and _p["fixed_reply"])
 
+    # ---- 8l. CONCRETE, against hand-computed volumes and PUBLISHED bag yields ----------------
+    # Built after the model answered this live on 2026-08-21 with "Five to six bags should
+    # work." — a range that straddles the right answer while hiding the two assumptions that
+    # decide it. Every assertion below pins a number that can be checked without running the
+    # code: pi*(d/24)^2*depth for the hole, 3.5 in for a nominal 4x4, and the yields Quikrete
+    # prints on the bag (80 lb = 0.60, 60 lb = 0.45, 50 lb = 0.375 cu ft).
+    #
+    # 12 in x 4 ft = pi*0.5^2*4 = 3.1416 cu ft. 80 lb: 5.24 -> 6 bags. 60 lb: 6.98 -> 7 bags.
+    r = ans("cal how many bags of concrete for a 12 inch by 4 foot post hole")
+    check("concrete: volume", "3.14 cu ft" in r)
+    check("concrete: 80 lb count", "6 bags of 80 lb" in r)
+    check("concrete: 60 lb count", "7 bags of 60 lb" in r)
+    # The whole point of the handler: a bag count is meaningless without the bag.
+    check("concrete: names the bag weight", "lb" in r)
+    check("concrete: says no post was subtracted", "no post" in r)
+
+    # A named post displaces mix, and nominal lumber is not actual: a 4x4 is 3.5 in, so it
+    # removes 3.5/12 squared * 4 = 0.3403 cu ft, leaving 2.8013. 80 lb: 4.67 -> 5. 60 lb: 6.23 -> 7.
+    r = ans("cal concrete for a 12 inch by 4 foot post hole with a 4x4 post")
+    check("concrete: post subtracted", "2.8 cu ft" in r)
+    check("concrete: post named in reply", "4x4" in r)
+    check("concrete: 80 lb with post", "5 bags of 80 lb" in r)
+    check("concrete: 60 lb with post", "7 bags of 60 lb" in r)
+    # Using the NOMINAL 4 in instead of the actual 3.5 would leave 2.697 cu ft, which is still
+    # 5 bags of 80 — so the bag count cannot catch that error and the volume has to.
+    check("concrete: nominal-vs-actual visible in volume", "2.7 cu ft" not in r)
+
+    # A 6x6 is 5.5 in: 0.8403 cu ft removed, 2.3013 left. 80 lb: 3.84 -> 4. 60 lb: 5.11 -> 6.
+    r = ans("cal concrete for a 12 inch by 4 ft post hole with a 6x6 post")
+    check("concrete: 6x6 actual size", "2.3 cu ft" in r)
+    check("concrete: 6x6 bags", "4 bags of 80 lb" in r and "6 bags of 60 lb" in r)
+
+    # A named bag weight is answered on its own terms and nothing else is offered.
+    r = ans("cal concrete for a 10 in by 3 ft post hole, 60 lb bags")
+    check("concrete: honours named weight", "4 bags of 60 lb" in r)
+    check("concrete: does not add unasked weights", "80 lb" not in r)
+
+    # ROUNDING IS UP, ALWAYS. 8 in x 2.5 ft = 0.8727 cu ft is 1.45 bags of 80 — rounding to
+    # nearest gives 1 bag and a hole that does not get filled.
+    r = ans("cal concrete for a 8 inch by 30 inch hole")
+    check("concrete: rounds up, never nearest", "2 bags of 80 lb" in r)
+    check("concrete: singular/plural", "1 bags" not in r)
+
+    # Units are REQUIRED on both numbers. "12 by 4" is 12 in x 4 ft or 12 ft x 4 ft, and those
+    # differ by 144x — the one thing this handler must never do is pick one.
+    check("concrete: refuses undimensioned hole",
+          ans("cal concrete for a 12 by 4 post hole") is None)
+
+    # Trigger is a successful bounded parse, not "mentions concrete".
+    check("concrete: no dimensions, no answer", ans("cal is concrete expensive") is None)
+    check("concrete: not hijacked by unrelated dimensions",
+          ans("cal 12 inch by 4 foot deck") is None)
+
+    # Bounds: outside the shape of a post hole the parse is likelier wrong than the hole is real.
+    check("concrete: absurd diameter refused", ans("cal concrete for a 90 inch by 4 ft hole") is None)
+    check("concrete: absurd depth refused", ans("cal concrete for a 12 inch by 40 ft hole") is None)
+
+    # Precedence: concrete sits ahead of bare arithmetic, which would otherwise find the digits.
+    _, meta = C.try_answer("cal how many bags of concrete for a 12 inch by 4 foot post hole")
+    check("concrete: wins over arith", meta.get("handler") == "concrete")
+
     # ---- 9. constants are the exact defined values ------------------------------------------
     check("foot exact", C.FT_M == Decimal("0.3048"))
     check("mile exact", C.MI_M == Decimal("1609.344"))
     check("acre exact", C.ACRE_SQFT == Decimal("43560"))
     check("c exact", C.C_MS == Decimal("299792458"))
+    # Pinned on the CONSTANT, not through an answer, and deliberately so: 3.14 vs pi is 0.05%,
+    # and no hole of a size this handler accepts is changed by it — the volume rounds the same
+    # and so does every bag count. The mutation "pi flattened to 3.14" SURVIVED the behaviour
+    # assertions above, which is the honest result, so the guard goes where the difference
+    # actually lives. A constant that no output can distinguish still has to be right, because
+    # the next handler to use it may not be so forgiving.
+    check("pi to full working precision", C.PI > Decimal("3.14159265358979"))
 
     # ---- 10. never raises to the caller -----------------------------------------------------
     for t in (None, "", "?" * 200, "cal " + "9" * 300, "cal ((((", "cal 1/0/0/0"):
@@ -825,6 +920,22 @@ MUTATIONS = [
      lambda: setattr(C, "_embedded_expr",
                      lambda s: next((m.group(0).strip(" ,.") for m in C._EMBED_RUN.finditer(s)
                                      if C._UNAMBIG.search(m.group(0))), None))),
+    # session 132 — concrete. Each is a plausible way to get this wrong, and each would air a
+    # number a reader would act on.
+    ("bag yields derived instead of published",
+     lambda: setattr(C, "BAG_YIELD_CUFT", {80: Decimal("0.65"), 60: Decimal("0.5"),
+                                           50: Decimal("0.4")})),
+    ("nominal lumber treated as actual (4x4 = 4 in)",
+     lambda: setattr(C, "POST_ACTUAL_IN", {"4x4": Decimal("4"), "6x6": Decimal("6"),
+                                           "2x4": Decimal("2"), "4x6": Decimal("4"),
+                                           "8x8": Decimal("8")})),
+    ("pi flattened to 3.14",
+     lambda: setattr(C, "PI", Decimal("3.14"))),
+    ("antenna end-effect factor removed",
+     lambda: setattr(C, "ANTENNA_K", Decimal("1"))),
+    ("imperial rendering reverted to centimetres",
+     lambda: setattr(C, "_imp_len",
+                     lambda meters, places=1: C.fmt(Decimal(meters) * 100, places) + " cm")),
     ("embedded look runs by default, not on opt-in",
      lambda: setattr(C, "try_answer",
                      lambda text, max_chars=160, trigger="cal", embedded=False:
@@ -837,7 +948,8 @@ _ORIG_TRY = C.try_answer
 def self_test():
     originals = {n: getattr(C, n) for n in
                  ("_ALLOWED_NODES", "MAX_EXP", "MAX_ABS", "AMBIGUOUS", "FT_M", "ACRE_SQFT",
-                  "money", "_NUM", "_UNAMBIG", "_embedded_expr", "try_answer")}
+                  "money", "_NUM", "_UNAMBIG", "_embedded_expr", "try_answer",
+                  "BAG_YIELD_CUFT", "POST_ACTUAL_IN", "PI", "ANTENNA_K", "_imp_len")}
     print("negative controls — each mutation MUST be caught:")
     all_caught = True
     for name, mutate in MUTATIONS:

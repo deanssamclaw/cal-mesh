@@ -229,6 +229,29 @@ def convert_length(value, frm, to):
     return value * _LEN[frm] / _LEN[to]
 
 
+def _imp_len(meters, places=1):
+    """Length in US customary, the convention this module already states for _LEN. Inches below
+    3 ft, feet at or above -- a 915 MHz whip is cut against a tape marked in inches, and a 40 m
+    dipole is not. Airing centimetres to a mesh that measures antennas in inches makes the
+    reader do the conversion, and the reader is the one holding the hacksaw."""
+    inches = Decimal(meters) / IN_M
+    if inches < 36:
+        return fmt(inches, places) + " in"
+    return fmt(inches / 12, places) + " ft"
+
+
+PI = Decimal("3.14159265358979323846")
+
+# Published yields, not derived: a bag of mix does not yield its weight divided by a density,
+# because the yield depends on how much water it takes up. Quikrete prints these on the bag.
+BAG_YIELD_CUFT = {80: Decimal("0.60"), 60: Decimal("0.45"), 50: Decimal("0.375")}
+
+# Nominal lumber is not actual lumber. A "4x4" is 3.5 in on a side, and using 4 in overstates
+# the post by 31% of its own volume -- which is the difference between five bags and six.
+POST_ACTUAL_IN = {"4x4": Decimal("3.5"), "6x6": Decimal("5.5"), "2x4": Decimal("1.5"),
+                  "4x6": Decimal("3.5"), "8x8": Decimal("7.5")}
+
+
 def area_acres(a_ft, b_ft):
     return (a_ft * b_ft) / ACRE_SQFT
 
@@ -297,14 +320,23 @@ def _h_wavelength(t, trig=None):
     lam = wavelength_m(hz)
     quarter = lam / 4
     label = num + " " + _FREQ_CASE[unit]
-    # If the asker said "antenna" they are cutting metal, not doing physics. A real wire is
-    # electrically longer than free space (end effect); ARRL's 234/f_MHz implies ~0.95. Airing
-    # only the free-space figure answers the wrong question by ~5%.
-    if "antenna" in t or "cut" in t:
-        return "%s: quarter-wave %s cm free space, cut about %s cm (end effect)" % (
-            label, fmt(quarter * 100, 1), fmt(quarter * ANTENNA_K * 100, 1))
-    return "%s: wavelength %s cm, quarter-wave %s cm (free space)" % (
-        label, fmt(lam * 100, 1), fmt(quarter * 100, 1))
+    # Someone asking about a QUARTER WAVE is cutting metal, not doing physics; a real element is
+    # electrically longer than free space (end effect), and ARRL's 234/f_MHz implies ~0.95, so
+    # the free-space figure alone answers the wrong question by ~5%.
+    #
+    # The trigger is the ASK, not the noun. This branch used to key on `"antenna" in t`, and on
+    # 2026-08-21 a live question spelled it "anyenna" -- so the guard was false, the cut length
+    # never aired, and what went out was the free-space number with no hint anything was
+    # missing. A misspelled noun is the normal case over a radio keyboard. "quarter wave" is
+    # already required by the regex above for this shape of question, so keying on it cannot
+    # miss the way a single noun can; the nouns stay as additional ways in, not the only one.
+    cutting = ("quarter" in t or "antenna" in t or "whip" in t
+               or "dipole" in t or "element" in t or "cut" in t)
+    if cutting:
+        return "%s: quarter-wave %s free space, cut about %s (end effect)" % (
+            label, _imp_len(quarter), _imp_len(quarter * ANTENNA_K))
+    return "%s: wavelength %s, quarter-wave %s (free space)" % (
+        label, _imp_len(lam), _imp_len(quarter))
 
 
 def _h_fspl(t, trig=None):
@@ -382,6 +414,68 @@ def _h_acres(t, trig=None):
     sqft = a * b
     return "%s ft x %s ft = %s sq ft, %s acres" % (fmt(a, 2), fmt(b, 2), fmt(sqft, 2),
                                                    fmt(area_acres(a, b), 3))
+
+
+def _h_concrete(t, trig=None):
+    """Bags of mix for a round post hole.
+
+    Built because the model answered this live on 2026-08-21 with "Five to six bags should
+    work." That is not wrong, and it is still unusable: the number turns entirely on a bag size
+    it never named. The same hole is 6 bags of 80 lb and 7 of 60 lb, and someone standing in
+    front of a pallet of 60s goes home a bag short. So this handler's contract is that every
+    figure it airs carries the assumption that produced it -- bag weight always, and whether a
+    post was subtracted always. A hedge that hides two well-defined answers is worse than
+    either of them.
+    """
+    if "concrete" not in t and "post hole" not in t and "posthole" not in t and "cement" not in t:
+        return None
+    # diameter then depth. Units are required on BOTH: "12 by 4" is a hole nobody can size --
+    # 12 in x 4 ft and 12 ft x 4 ft differ by a factor of 144, so guessing is not an option.
+    m = re.search(_NUM + r"\s*(in|inch|inches|ft|foot|feet)\b[^0-9]{0,20}?" + _NUM +
+                  r"\s*(in|inch|inches|ft|foot|feet)\b", t)
+    if not m:
+        return None
+    dia_in = _dec(m.group(1)) * _LEN[m.group(2)] / IN_M
+    depth_ft = _dec(m.group(3)) * _LEN[m.group(4)] / FT_M
+    if dia_in <= 0 or depth_ft <= 0:
+        raise CalcError("hole must be positive")
+    # Bounds are the shape of a post hole, not of arithmetic. Outside them the parse is far more
+    # likely to be wrong than the hole is to be real, and a refusal beats a confident number.
+    if dia_in > 48 or depth_ft > 20:
+        raise CalcError("hole out of range")
+    radius_ft = dia_in / 24
+    hole = PI * radius_ft * radius_ft * depth_ft
+    # A named post displaces mix. Unnamed, nothing is subtracted -- and the reply SAYS so, since
+    # the difference between 3.14 and 2.80 cu ft here is a whole bag.
+    post = None
+    pm = re.search(r"\b(\d)\s*(?:x|by)\s*(\d)\b", t)
+    if pm and "post" in t:
+        key = pm.group(1) + "x" + pm.group(2)
+        if key in POST_ACTUAL_IN:
+            side_ft = POST_ACTUAL_IN[key] / 12
+            post = side_ft * side_ft * depth_ft
+    net = hole - post if post else hole
+    if net <= 0:
+        raise CalcError("post fills the hole")
+    # Which bag weights to quote. A named weight is answered on its own; otherwise both common
+    # ones, because that is exactly the ambiguity this handler exists to stop hiding.
+    wm = re.search(r"\b(80|60|50)\s*(?:lb|lbs|pound|pounds)\b", t)
+    weights = [int(wm.group(1))] if wm else [80, 60]
+    # Bags round UP, always. You cannot buy 4.7 bags, and rounding to nearest sends someone back
+    # to the store mid-pour. Spelled out rather than as -(-a//b): Decimal floor-division
+    # TRUNCATES TOWARD ZERO where int floor-division rounds down, so that idiom -- correct for
+    # ints, and the first thing written here -- quietly returned 5 bags for 5.24.
+    bags = []
+    for w in weights:
+        exact = net / BAG_YIELD_CUFT[w]
+        n = int(exact)
+        if exact > n:
+            n += 1
+        bags.append((w, n))
+    which = " or ".join("%d bag%s of %d lb" % (n, "" if n == 1 else "s", w) for w, n in bags)
+    where = ("less a %s post" % pm.group(0).replace(" ", "") if post else "hole only, no post")
+    return "%s in x %s ft %s = %s cu ft: %s" % (
+        fmt(dia_in, 0), fmt(depth_ft, 2), where, fmt(net, 2), which)
 
 
 def _h_convert(t, trig=None):
@@ -793,7 +887,12 @@ def _h_distance(t, trig=None):
 # The commit that added it claimed navigation "adds ZERO new arbitration surface" — the opposite
 # was true, and worse for being invisible: BECAUSE calc wins outright over the other capabilities,
 # a loose handler inside calc silently outranks everything, with no arbitration to inspect.
-HANDLERS = (_h_wavelength, _h_fspl, _h_dbm, _h_ohm, _h_acres, _h_convert,
+# Concrete sits FIRST on the same principle that puts navigation last: precedence follows how
+# tight the trigger is, not how important the handler feels. It fires only on "concrete",
+# "cement" or "post hole" AND two dimensioned numbers, which is narrower than every handler
+# below it -- and it must outrank _h_arith, which would otherwise find digits in the sentence
+# and answer a question nobody asked.
+HANDLERS = (_h_concrete, _h_wavelength, _h_fspl, _h_dbm, _h_ohm, _h_acres, _h_convert,
             _h_fraction, _h_percent, _h_grid, _h_distance, _h_arith)
 
 
