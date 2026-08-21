@@ -441,8 +441,12 @@ def build_learning(top=6, runs=20):
     corrections = [{"ask": k, "ts": co.get("ts"), "what": co.get("what")}
                    for k, v in sorted(tr.items()) if isinstance(v, dict)
                    for co in v.get("corrections", [])]
+    # tail_jsonl returns NEWEST FIRST (it reverses). So the scoreboard reads hist[0], and the
+    # series is reversed back into file order for plotting. Taking hist[-1] here reads the
+    # OLDEST run in the window — which looks correct for as long as the numbers stay equal and
+    # goes silently stale the moment they move, which is the moment anyone would care.
     hist = tail_jsonl(LHISTORY, runs)
-    last = hist[-1] if hist else {}
+    last = hist[0] if hist else {}
     return {
         "scoreboard": {
             "untriaged": last.get("untriaged", len(untriaged)),
@@ -456,7 +460,7 @@ def build_learning(top=6, runs=20):
         "corrections": corrections[-top:],
         "history": [{"ts": h.get("ts"), "new_gaps": h.get("new_gaps", 0),
                      "untriaged": h.get("untriaged", 0), "armed": h.get("armed", 0)}
-                    for h in hist],
+                    for h in reversed(hist)],
         "last_run": last.get("ts"),
     }
 

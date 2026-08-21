@@ -68,7 +68,12 @@ TRIAGE = {
                                          "what": "gated on the literal word 'antenna'"}]},
 }
 
-HISTORY = [{"ts": "2026-08-21T19:22:00Z", "new_gaps": 2, "untriaged": 1, "armed": 1,
+# TWO runs, with DIFFERENT numbers and in file order (oldest first). One record cannot tell
+# "newest" from "oldest" apart, and the first version of this fixture had exactly one — while
+# build_learning read the wrong end of tail_jsonl, which returns newest-first.
+HISTORY = [{"ts": "2026-08-20T06:15:00Z", "new_gaps": 9, "untriaged": 9, "armed": 0,
+            "recurred": 0, "corrections": 0, "by_loop": 0, "by_hand": 0},
+           {"ts": "2026-08-21T19:22:00Z", "new_gaps": 2, "untriaged": 1, "armed": 1,
             "recurred": 0, "corrections": 1, "by_loop": 0, "by_hand": 2}]
 
 
@@ -113,6 +118,16 @@ L2 = with_fixtures(triage={ARMED_ASK: dict(TRIAGE[ARMED_ASK], armed="2026-08-21T
 check("gap after arming flags recurrence", L2["armed"][0]["recurred"], True)
 check("gap before arming does not", L["armed"][0]["recurred"], False)
 
+# ------------------------------------------------------ the scoreboard reads the NEWEST run
+# tail_jsonl returns newest-FIRST, so the last element of what it hands back is the oldest
+# record in the window. Reading it looks right forever while the numbers happen to be equal,
+# and goes quietly stale the moment they move.
+check("scoreboard reads the newest run", L["scoreboard"]["untriaged"], 1)
+check("last_run is the newest timestamp", L["last_run"], "2026-08-21T19:22:00Z")
+check("corrections count from the newest run", L["scoreboard"]["corrections"], 1)
+check("history is chronological for plotting",
+      [h["ts"] for h in L["history"]], ["2026-08-20T06:15:00Z", "2026-08-21T19:22:00Z"])
+
 # --------------------------------------------------------------------------------- PRIVACY
 blob = json.dumps(with_fixtures())
 check("node ids never reach the page", NODE_A in blob, False)
@@ -136,6 +151,8 @@ MUTATIONS = [
      lambda: setattr(dash, "build_learning", _no_pushed)),
     ("froms carried through to the page",
      lambda: setattr(dash, "build_learning", _leaks_froms)),
+    ("scoreboard reads the oldest run in the window",
+     lambda: setattr(dash, "build_learning", _oldest_run)),
 ]
 
 _ORIG = dash.build_learning
@@ -163,6 +180,15 @@ def _leaks_froms(top=6, runs=20):
     clusters = (dash.read_json(dash.LEDGER, {}) or {}).get("clusters", {})
     for q in out["untriaged"]:
         q["froms"] = clusters.get(q["ask"], {}).get("froms", [])
+    return out
+
+
+def _oldest_run(top=6, runs=20):
+    out = _ORIG(top, runs)
+    h = dash.tail_jsonl(dash.LHISTORY, runs)
+    last = h[-1] if h else {}
+    out["scoreboard"] = {k: last.get(k, 0) for k in out["scoreboard"]}
+    out["last_run"] = last.get("ts")
     return out
 
 
