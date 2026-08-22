@@ -4385,12 +4385,24 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
    never resolve a selector against the markup. The stat row is the page's own .tiles/.tile,
    not a second component that looks like it. */
 #pane-learn .lsec h3{margin:0;padding:16px 16px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent)}
-#pane-learn .lnote{margin:0;padding:0 16px 8px;font-size:11.5px;color:var(--dim);line-height:1.5;max-width:80ch}
+#pane-learn .lnote{margin:0;padding:0 16px 8px;font-size:11.5px;color:var(--dim);line-height:1.55;max-width:80ch}
 #pane-learn .tiles{padding:4px 16px 0;margin-bottom:8px}
-#pane-learn .lrow{padding:9px 16px 9px 19px;border-top:1px solid var(--line);border-left:3px solid transparent}
+/* 3px reserved gutter + 13px = the 16px left edge every other element in this pane sits on.
+   Written as 19 first, which kicked every row 6px right of its own heading while the empty
+   state stayed at 16 — so a section changed alignment depending on whether it had content. */
+#pane-learn .lrow{padding:9px 16px 9px 13px;border-top:1px solid var(--line);border-left:3px solid transparent}
 #pane-learn .lrow.bad{border-left-color:var(--bad)}
-#pane-learn .lask{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;word-break:break-word}
-#pane-learn .lmeta{font-size:11.5px;color:var(--dim);margin-top:2px}
+/* Monospace because this is NOT the sentence somebody sent. It is the cluster key: lowercased,
+   trigger word dropped, punctuation stripped, so two spellings of one question collapse into a
+   single row. Setting it in the body sans at the size the exchange list uses would present a
+   derived string as a quotation. The row caption says so, since the key looks enough like prose
+   to be mistaken for it. Measure capped to match the ask/meta pair in the exchange stream. */
+#pane-learn .lask{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;word-break:break-word;max-width:78ch}
+#pane-learn .lmeta{font-size:11px;color:var(--dim);margin-top:2px;max-width:78ch}
+/* A .tile at the top of the page is white on the body's grey and reads as raised. In here the
+   card behind it is also white, so the same component was white on white with a hairline doing
+   all the work. Recessed against the card instead — the surface changed, not the component. */
+#pane-learn .tile{background:var(--card2)}
 #pane-learn .lsha{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent);text-decoration:none}
 #pane-learn .lsha:hover{text-decoration:underline}
 #pane-learn .lwarn{color:var(--warn);font-weight:600}
@@ -4653,6 +4665,9 @@ details.tr[open]>summary:hover{border-color:#4478ad;
      <p class="lnote">Nothing is built from these until someone decides what the right answer is
      measured against. A doer graded only by its own test suite is a guess with a green check
      next to it.</p>
+     <p class="lnote">Each row is a <i>cluster key</i>, not a quotation: lowercased, the trigger
+     word dropped and punctuation stripped, so two spellings of one question count once. That is
+     why they are set in the machine face rather than the reading one.</p>
      <div id="lrn-queue"></div></div>
     <div class="lsec"><h3>Corrections after arming</h3>
      <p class="lnote">The counter-metric, itemised. Kept in view on purpose &mdash; a loop scored
