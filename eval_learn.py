@@ -158,6 +158,34 @@ check("too old is still filtered", learn.classify(
 check("no reason recorded is filtered", learn.classify(rec(matched=False), OUR), "FILTERED")
 check("throttled clusters into the queue", "THROTTLED" in learn.CLUSTERED, True)
 
+print("\nstream() — three streams, and one that is honestly unknown")
+# A message on Cal's own PSK'd channel is addressed ^all exactly like a public one, so `to`
+# alone cannot separate them. From the moment that channel was armed the ledger ranked a
+# question asked in the working channel as though a stranger had shouted it in public.
+CH = 1
+check("a DM is a DM whatever channel it rode", learn.stream(
+      rec(to=OUR, channel=CH), OUR, CH), "dm")
+check("Cal's channel", learn.stream(rec(channel=CH), OUR, CH), "cal")
+check("the public channel", learn.stream(rec(channel=0), OUR, CH), "pub")
+check("some other channel is not Cal's", learn.stream(rec(channel=2), OUR, CH), "pub")
+# Disarmed: everything that is not a DM is public, exactly as before the split.
+check("disarmed, a broadcast is public", learn.stream(rec(channel=1), OUR, -1), "pub")
+check("disarmed, a DM is still a DM", learn.stream(rec(to=OUR, channel=1), OUR, -1), "dm")
+# ABSENT IS NOT PUBLIC. Records written before the responder carried `channel` are known not to
+# be DMs and NOT known to be public; calling them public is a guess dressed as a measurement,
+# which is the absent-reads-as-known trap this repo has hit three times.
+check("no channel recorded is unsplit, not public", learn.stream(rec(), OUR, CH), "pre")
+check("but only while a private channel exists", learn.stream(rec(), OUR, -1), "pub")
+
+print("\nintent_total() — a keyed channel ranks like a DM")
+check("dm and cal both count as intent",
+      learn.intent_total({"streams": {"dm": 2, "cal": 3, "pub": 9}}), 5)
+check("public does not", learn.intent_total({"streams": {"pub": 9}}), 0)
+# A ledger written before the split has no streams dict; DM was the only high-intent stream
+# then, so that is what it falls back to rather than reading as zero.
+check("pre-split cluster falls back to its dm count",
+      learn.intent_total({"dm_counts": {"GAP": 4}}), 4)
+
 # MUTATION-BOUNDARY — the self-test replays everything ABOVE this line under each
 # mutation. Sliced on this sentinel rather than a run of dashes, which is miscounted
 # by eye and then keeps the file's own exit block.
@@ -166,7 +194,14 @@ check("throttled clusters into the queue", "THROTTLED" in learn.CLUSTERED, True)
 # broken is worth nothing. Each mutation below is this session's change reverted.
 _ORIG_CLASSIFY = learn.classify
 
+_ORIG_STREAM = learn.stream
+
 MUTATIONS = [
+    ("an unrecorded channel reads as public, inventing a measurement",
+     lambda: setattr(learn, "stream", lambda rec, our, own: "dm" if learn.is_dm(rec, our)
+                     else ("cal" if own >= 0 and rec.get("channel") == own else "pub"))),
+    ("Cal's own channel is not weighted like a DM",
+     lambda: setattr(learn, "intent_total", lambda c: (c.get("streams") or {}).get("dm", 0))),
     ("throttling read as a filter, so overload is invisible",
      lambda: setattr(learn, "classify", lambda rec, our:
                      "FILTERED" if not rec.get("matched") else _ORIG_CLASSIFY(rec, our))),

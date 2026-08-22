@@ -1209,7 +1209,12 @@ def main():
                     if rec is not None:
                         gates = []
                         should, reason, dest, ch = evaluate(cfg, st, rec, ours, trace=gates)
+                        # `channel` rides along because `to` alone cannot separate the streams:
+                        # a message on Cal's own PSK'd channel is addressed ^all exactly like one
+                        # on the public channel, so the distiller counted them as one population
+                        # the moment the private channel was armed.
                         d = {"ts": now(), "from": rec.get("from"), "to": rec.get("to"),
+                             "channel": rec.get("channel", 0),
                              "text": rec.get("text", ""), "matched": should,
                              "reason": reason, "reply": None, "gates": gates}
                         if should:

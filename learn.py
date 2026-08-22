@@ -69,9 +69,16 @@ watermark (max ts seen) advances across runs and the aggregate in `gap-ledger.js
 rotation. Re-running is idempotent from the watermark: only records newer than last run are
 folded in. That makes it safe to put on a loop.
 
-DM WEIGHT. A DM to Cal (to == our node id) is authenticated, private, and high-intent — it is
-where the real questions land. Gaps seen over DM are weighted and flagged, because a stranger's
-broadcast "what's up" and Dean's DM "list what you know" are not the same signal.
+STREAMS. Three of them, and they are not one population. A DM to Cal (to == our node id) is
+authenticated and high-intent. Cal's OWN CHANNEL is a keyed two-node link — arriving there means
+the sender holds a PSK we chose — so it carries the same weight as a DM for the same reason. The
+public channel is everyone else.
+
+Splitting on `to` alone cannot see this: a message on Cal's channel is addressed ^all exactly
+like one on the public channel, so from the moment that channel was armed the ledger ranked a
+question asked in the working channel as though a stranger had shouted it in public. The record
+carries `channel` now, and CAL_CHANNEL says which index is ours. Unset means two streams, which
+is what every record written before 2026-08-22 has.
 
 PRIVACY. Output carries inbound text and Cal's replies, including DM content. This repo is
 public; `gap-ledger.json`, `gap-ledger.md` and `learn-state.json` are gitignored alongside
@@ -151,6 +158,40 @@ def classify(rec, our):
     return "OTHER"
 
 
+def cal_channel():
+    """Cal's own channel index from the live config, or -1. Read here rather than passed in so a
+    ledger rebuilt later classifies old records the same way the live responder did."""
+    try:
+        for ln in open(os.path.join(BASE, "config")):
+            k, _, v = ln.partition("=")
+            if k.strip() == "CAL_CHANNEL":
+                n = int(v.strip())
+                return n if 0 <= n <= 7 else -1
+    except Exception:
+        pass
+    return -1
+
+
+def stream(rec, our, own_ch):
+    """Which of the three a record belongs to: 'dm', 'cal' or 'pub'.
+
+    A DM outranks the channel it arrived on -- it is addressed to us by node, which is the
+    stronger statement. `own_ch < 0` means the private channel is disarmed, and then everything
+    that is not a DM is public, exactly as it was before."""
+    if is_dm(rec, our):
+        return "dm"
+    if own_ch < 0:
+        return "pub"        # no private channel exists, so every broadcast is the public one
+    ch = rec.get("channel")
+    if ch is None:
+        # Written before the responder carried `channel`. We know it was a broadcast and we do
+        # NOT know which one. Calling it public would be a guess dressed as a measurement --
+        # the same absent-reads-as-a-known-value trap this codebase has been bitten by three
+        # times. It gets its own column and drains to nothing as new records arrive.
+        return "pre"
+    return "cal" if ch == own_ch else "pub"
+
+
 def is_dm(rec, our):
     return rec.get("to") == our
 
@@ -193,6 +234,16 @@ def total(c, bucket=None):
     return sum(c["counts"].values())
 
 
+def intent_total(c):
+    """Times this ask arrived on a channel only a key-holder can reach — a DM, or Cal's own
+    channel. Both mean the same thing for ranking: somebody who holds a key we issued asked
+    this, which is a different signal from a stranger shouting it on the public channel."""
+    st = c.get("streams") or {}
+    if st:
+        return st.get("dm", 0) + st.get("cal", 0)
+    return dm_total(c)      # pre-split ledger: DM was the only high-intent stream
+
+
 def dm_total(c, bucket=None):
     if "dm_counts" not in c:
         return c.get("dm_count", 0) if bucket in (None, "GAP") else 0
@@ -229,6 +280,7 @@ def fold(reset=False):
     agg, migrated = migrate(agg)
     totals = agg.setdefault("totals", {})
     clusters = agg.setdefault("clusters", {})
+    own_ch = cal_channel()
     watermark = state.get("last_ts", "")
     new_watermark = watermark
 
@@ -240,13 +292,16 @@ def fold(reset=False):
         if ts > new_watermark:
             new_watermark = ts
         bucket = classify(rec, our)
-        dm = is_dm(rec, our)
+        strm = stream(rec, our, own_ch)
+        dm = strm == "dm"
         run["processed"] += 1
         run["buckets"][bucket] = run["buckets"].get(bucket, 0) + 1
         # cumulative totals, split by DM/broadcast
         totals[bucket] = totals.get(bucket, 0) + 1
-        key_dm = bucket + ("_dm" if dm else "_bc")
-        totals[key_dm] = totals.get(key_dm, 0) + 1
+        # ONE key per record. Writing the legacy _dm/_bc pair alongside the three-way keys
+        # double-counted every DM, because "dm" is the name in both schemes -- GAP read 27 total
+        # against 24 dm and 15 public. The legacy readers below tolerate the key being absent.
+        totals[bucket + "_" + strm] = totals.get(bucket + "_" + strm, 0) + 1
 
         # Three buckets cluster, not one. A GAP that becomes a CLARIFY is progress and has to be
         # visible as such; a NO_TABLE is a request for a capability by name. Counting only GAPs
@@ -258,9 +313,11 @@ def fold(reset=False):
         run["new_" + bucket.lower()] = run.get("new_" + bucket.lower(), 0) + 1
         key = normalize(rec.get("text", "")) or "(empty)"
         c = clusters.setdefault(key, {
-            "counts": {}, "dm_counts": {}, "examples": [], "replies": [],
+            "counts": {}, "dm_counts": {}, "streams": {}, "examples": [], "replies": [],
             "froms": [], "first_ts": ts, "last_ts": ts, "last_by_bucket": {},
             "generic_smell": False})
+        c.setdefault("streams", {})
+        c["streams"][strm] = c["streams"].get(strm, 0) + 1
         c["counts"][bucket] = c["counts"].get(bucket, 0) + 1
         if dm:
             c["dm_counts"][bucket] = c["dm_counts"].get(bucket, 0) + 1
@@ -290,7 +347,10 @@ def rank(clusters):
     queue reads top-down."""
     def score(kv):
         _, c = kv
-        return (total(c) + dm_total(c), total(c), c["last_ts"])
+        # High-intent asks count double. That used to mean DM only; Cal's own channel earns the
+        # same weight on the same argument, and NOT giving it to that channel ranked a question
+        # asked in the working channel as though a passer-by had shouted it.
+        return (total(c) + intent_total(c), total(c), c["last_ts"])
     return sorted(clusters.items(), key=score, reverse=True)
 
 
@@ -333,6 +393,9 @@ def _cluster_lines(i, key, c, v, lines):
     for b in CLUSTERED:
         if total(c, b):
             bits.append(f"{b.lower()} {total(c, b)}×")
+    strm = c.get("streams") or {}
+    if strm:
+        bits.append("via " + ", ".join(f"{k} {v}" for k, v in sorted(strm.items())))
     dm = dm_total(c)
     flag = " ⚠️ **answered as generic Claude**" if c["generic_smell"] else ""
     if recurred(c, v):
@@ -410,12 +473,19 @@ def render_md(agg, state, tr):
 
     lines.append("## Buckets (cumulative)")
     lines.append("")
-    lines.append("| bucket | total | dm | broadcast |")
-    lines.append("|---|---:|---:|---:|")
+    lines.append("| bucket | total | dm | cal ch | public | unsplit |")
+    lines.append("|---|---:|---:|---:|---:|---:|")
     for b in ("HIT", "GAP", "CLARIFY", "NO_TABLE", "THROTTLED", "REFUSED", "GREETING",
               "FILTERED", "OTHER"):
         if t.get(b):
-            lines.append(f"| {b} | {t.get(b,0)} | {t.get(b+'_dm',0)} | {t.get(b+'_bc',0)} |")
+            # Records written before the split have no _cal/_pub key. They show under public
+            # with a marker rather than being silently redistributed into a stream nobody
+            # observed them on.
+            lines.append(f"| {b} | {t.get(b,0)} | {t.get(b+'_dm',0)} | {t.get(b+'_cal',0)} "
+                         f"| {t.get(b+'_pub',0)} | {t.get(b+'_pre',0)} |")
+    lines.append("")
+    lines.append("_unsplit: broadcasts logged before the responder recorded which channel "
+                 "they arrived on. Known not to be DMs, not known to be public._")
     lines.append("")
 
     for title, group, blurb in (
