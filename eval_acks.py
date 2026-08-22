@@ -167,6 +167,11 @@ bridge.remember_ack(FakePkt(779), DEST, "corrupt")
 bridge.PENDING_ACK[0]["ts"] = "not-a-time"
 check("corrupt ts expires", bridge.match_ack(779), None)
 
+# MUTATION-BOUNDARY — the self-test replays everything ABOVE this line under each
+# mutation. Sliced on this sentinel rather than on a run of dashes: a miscounted dash
+# run keeps the file's own exit block, so the first mutation re-runs the whole eval and
+# raises SystemExit — not an Exception, so it escapes the handler and kills the harness
+# after one mutation while printing a plausible-looking list of CAUGHTs.
 # ------------------------------------------------------------------------------- MUTATIONS
 # Each mutation is a plausible way to write this wrong. Every one must be CAUGHT by the
 # assertions above — a mutation that survives means the assertion above it is decorative.
@@ -194,9 +199,7 @@ def run_self_test():
     """Re-run every assertion under each mutation; each must produce at least one failure."""
     import copy
     src = open(os.path.join(HERE, "eval_acks.py")).read()
-    body = src.split("# ---------------------------------------------------------------- classify_ack")[1]
-    body = body.split("# ------------------------------------------------------------------------------- MUTATIONS")[0]
-    body = "# ---" + body
+    body = src[src.index("# ---", src.index('"""', 3)):src.index("# MUTATION-BOUNDARY")]
     survived = []
     for name, mutate in MUTATIONS:
         saved = {"classify_ack": bridge.classify_ack, "ACK_TTL_S": bridge.ACK_TTL_S,

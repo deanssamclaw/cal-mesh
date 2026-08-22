@@ -143,6 +143,11 @@ junk = with_fixtures(triage={ARMED_ASK: "derivable"})
 check("a malformed verdict is not a verdict", [q["ask"] for q in junk["untriaged"]],
       [OPEN_ASK, ARMED_ASK])
 
+# MUTATION-BOUNDARY — the self-test replays everything ABOVE this line under each
+# mutation. Sliced on this sentinel rather than on a run of dashes: a miscounted dash
+# run keeps the file's own exit block, so the first mutation re-runs the whole eval and
+# raises SystemExit — not an Exception, so it escapes the handler and kills the harness
+# after one mutation while printing a plausible-looking list of CAUGHTs.
 # ------------------------------------------------------------------------------- MUTATIONS
 MUTATIONS = [
     ("corrections gathered per-cluster (drops doers that never gapped)",
@@ -194,9 +199,7 @@ def _oldest_run(top=6, runs=20):
 
 def run_self_test():
     src = open(os.path.join(HERE, "eval_learning.py")).read()
-    body = src.split("L = with_fixtures()", 1)[1]
-    body = "L = with_fixtures()" + body.split("# ---------------------------------------------"
-                                              "---------------------------------- MUTATIONS")[0]
+    body = src[src.index("L = with_fixtures()"):src.index("# MUTATION-BOUNDARY")]
     survived = []
     for name, mutate in MUTATIONS:
         globals()["failures"], globals()["checked"] = [], 0
