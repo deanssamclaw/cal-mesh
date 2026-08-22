@@ -52,7 +52,8 @@ import weather                    # Level 3 Stage 1 capability (harness-fetched,
 import calc                       # Level 3 COMPUTE doer (Python owns every digit)
 import sunmoon                    # COMPUTE doer: closed-form astronomy, offline-resilient
 import capabilities               # FIXED doer: what is armed, composed from the flags
-import dm_memory                  # per-identity DM memory on the pinned unlock tier (default OFF)
+import dm_memory
+import sigreport                  # per-identity DM memory on the pinned unlock tier (default OFF)
 from zoneinfo import ZoneInfo
 
 OUR_ID_FALLBACK = "!xxxxxxxx"   # Cal HT
@@ -135,6 +136,32 @@ DEFAULTS = {
     "GREET_MAX_PER_DAY": "6",         # global amplification budget. Per-node limits fall to
                                       # ID spoofing, so the GLOBAL cap is the real control.
     "GREET_SENDER_COOLDOWN_S": "86400",   # one ack per node per day
+    # --- SIGREPORT: a range/signal test gets what the receiver measured (sigreport.py) ---
+    # Dean, 2026-08-22: "any kind of range test or signal test deserves a response if we can
+    # successfully make that work." Open to OFF-LIST senders by design, like the greeting ack:
+    # a range test is a request addressed to whoever can hear it, and the allow list exists to
+    # gate GENERATED prose, which this path never produces.
+    "SIGREPORT_ENABLED": "false",
+    # NOT one per node per day. A real range test is somebody walking: the live log has one
+    # node sending four in ten minutes, 22 dB apart end to end, and a daily cooldown would
+    # answer the first and go silent for exactly the walk being measured.
+    #
+    # THIRTY SECONDS, AND THE NUMBER CAME FROM THE LOG RATHER THAN FROM TASTE. Sixty was the
+    # first value; replaying the armed gate over the real corpus showed it swallowing the
+    # FOURTH test of that walk, sent 33 s after the third — the one message in the set most
+    # likely to be the interesting one, since it is the point the sender had moved furthest.
+    # The global cap is what bounds abuse; this only bounds a stuck client.
+    "SIGREPORT_SENDER_COOLDOWN_S": "30",
+    # The global cap is the real control, because node ids are spoofable and a per-node limit
+    # is only as good as the id it keys on.
+    "SIGREPORT_MAX_PER_DAY": "20",
+    "SIGREPORT_MAX_CHARS": "64",
+    # The firmware's own polite threshold (airtime.h:71 polite_channel_util_percent = 25), the
+    # same constant the traceroute gate uses. Adding airtime to a busy channel to tell someone
+    # their signal is fine is the one case where the courteous act is silence. UNKNOWN channel
+    # state FAILS CLOSED — a stale or missing status file means no report.
+    "SIGREPORT_MAX_CH_UTIL": "25",
+    "SIGREPORT_STATUS_MAX_AGE_S": "600",
     # --- P1 content unlock on an authenticated DM (channel-trust-and-agency.md §4). ---
     # CONTENT only: longer, context-aware replies to Dean. Tools stay locked exactly as on the
     # public channel — P2 never rides on mesh auth alone. Forge-tolerant by construction: the
@@ -1135,6 +1162,110 @@ def plan_greeting(cfg, st, rec, ours, ts=None):
     return True, "greeting_ack", "^all", ch, text, gates
 
 
+def channel_busy(cfg, ts=None):
+    """(busy, util, why). UNKNOWN FAILS CLOSED — busy=True when we cannot tell.
+
+    Read from status.json rather than the radio: the bridge owns the interface, and a doer
+    that reaches for it would be a second writer on the same serial/TCP link. The freshness
+    bound is the point of the file — a status written an hour ago describes an hour-old
+    channel, and treating that as quiet is how a polite gate becomes decorative.
+    """
+    ts = time.time() if ts is None else ts
+    try:
+        with open(STATUS) as f:
+            st = json.load(f)
+    except Exception:
+        return True, None, "status_unreadable"
+    util = (st.get("metrics") or {}).get("chUtil")
+    if util is None or isinstance(util, bool):
+        return True, None, "util_absent"
+    try:
+        util = float(util)
+    except (TypeError, ValueError):
+        return True, None, "util_not_a_number"
+    if util != util or util < 0:
+        return True, None, "util_not_a_number"
+    mtime = None
+    try:
+        mtime = os.path.getmtime(STATUS)
+    except OSError:
+        return True, util, "status_age_unknown"
+    age = ts - mtime
+    if age > _int_cfg(cfg, "SIGREPORT_STATUS_MAX_AGE_S", DEFAULTS["SIGREPORT_STATUS_MAX_AGE_S"]):
+        return True, util, "status_stale"
+    limit = _int_cfg(cfg, "SIGREPORT_MAX_CH_UTIL", DEFAULTS["SIGREPORT_MAX_CH_UTIL"])
+    return (util >= limit), util, ("busy" if util >= limit else "quiet")
+
+
+def plan_sigreport(cfg, st, rec, ours, ts=None):
+    """Decide whether a range/signal test gets a measured signal report.
+
+    Same contract as plan_greeting: pure, returns (should, reason, dest, ch, text, gates),
+    mutates nothing, and re-checks every gate it cannot inherit rather than trusting the
+    ladder that called it.
+
+    Mounted at TWO sites — the doer ladder for allowed senders and the off-list branch for
+    everyone else — so this function is the single place the decision is made. Two mount
+    points and one decision, rather than two decisions that drift.
+    """
+    ts = time.time() if ts is None else ts
+    ch = rec.get("channel", 0)
+    sender = rec.get("from")
+    gates = []
+
+    def mark(name, ok):
+        gates.append({"gate": name, "pass": bool(ok)})
+        return ok
+
+    if not mark("sigreport_enabled", cfg.get("SIGREPORT_ENABLED", "false").lower() == "true"):
+        return False, "sigreport_disabled", None, ch, None, gates
+    if not mark("not_self", sender != ours):
+        return False, "self", None, ch, None, gates
+    # A TAPBACK IS NOT A TEST, for the same reason it is not a greeting: `reaction` is the
+    # sending client's own flag, and a 👍 on somebody's range test is not a range test. Absent
+    # reads as a real message (older records predate the field); anything that is not None or
+    # False refuses, so a hand-edited "reaction": "true" fails the safe way.
+    if not mark("not_a_reaction", rec.get("reaction") in (None, False)):
+        return False, "sigreport_is_reaction", None, ch, None, gates
+    m = sigreport.match(rec.get("text", ""), trigger=cfg.get("TRIGGER_WORD", "cal"))
+    if not mark("is_a_test", m is not None):
+        return False, "not_a_test", None, ch, None, gates
+    # THE REPORT IS BUILT BEFORE THE BUDGET IS CHECKED, and that order matters: a record with
+    # no measurements must cost nothing. Spending a daily slot to discover there was nothing
+    # to say would let a stream of unmeasured packets exhaust the budget in silence.
+    text, meta = sigreport.report(rec, max_chars=_int_cfg(cfg, "SIGREPORT_MAX_CHARS",
+                                                         DEFAULTS["SIGREPORT_MAX_CHARS"]))
+    if not mark("has_measurements", text is not None):
+        return False, "sigreport_" + (meta.get("refused") or "nothing_measured"), None, ch, None, gates
+    busy, util, why = channel_busy(cfg, ts=ts)
+    if not mark("channel_quiet", not busy):
+        return False, "sigreport_channel_" + why, None, ch, None, gates
+    last = (st.get("sig_per_sender") or {}).get(sender, 0)
+    if not mark("sender_cooldown", ts - last >= _int_cfg(cfg, "SIGREPORT_SENDER_COOLDOWN_S",
+                                                         DEFAULTS["SIGREPORT_SENDER_COOLDOWN_S"])):
+        return False, "sigreport_sender_cooldown", None, ch, None, gates
+    day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+    used = (st.get("sig_day") or {}).get(day, 0)
+    if not mark("daily_budget", used < _int_cfg(cfg, "SIGREPORT_MAX_PER_DAY",
+                                                DEFAULTS["SIGREPORT_MAX_PER_DAY"])):
+        return False, "sigreport_budget_spent", None, ch, None, gates
+    # The report goes back where the test was sent. A test on the open channel is a public
+    # question and its answer is useful to everyone listening; a DM test gets a DM.
+    dest = sender if rec.get("to") not in ("^all", None) else "^all"
+    return True, "sigreport", dest, ch, text, gates
+
+
+def commit_sigreport(st, sender, ts=None):
+    """Spend the budget. Separate from plan_sigreport so a send that fails costs nothing."""
+    ts = time.time() if ts is None else ts
+    st.setdefault("sig_per_sender", {})[sender] = ts
+    day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+    st.setdefault("sig_day", {})[day] = (st.get("sig_day") or {}).get(day, 0) + 1
+    # Keep the day map from growing without bound; the cooldown map is bounded by node count.
+    for d in [k for k in st["sig_day"] if k < day][:-6]:
+        st["sig_day"].pop(d, None)
+
+
 def commit_greeting(st, sender, ts=None):
     """Spend the budget. Separate from plan_greeting so a send that fails costs nothing."""
     ts = time.time() if ts is None else ts
@@ -1217,6 +1348,35 @@ def main():
                              "channel": rec.get("channel", 0),
                              "text": rec.get("text", ""), "matched": should,
                              "reason": reason, "reply": None, "gates": gates}
+                        # SIGREPORT sits AHEAD of both ladders, and it is the only doer that
+                        # does. Every other capability answers a question the sender chose to
+                        # ask Cal; a range test is addressed to whoever can hear it, so the
+                        # allow list — which exists to gate GENERATED prose — is the wrong
+                        # question to ask about it. One mount point rather than two (a doer
+                        # branch for Dean and an off-list branch for strangers) because two
+                        # branches are two decisions, and they drift.
+                        #
+                        # Pre-empting the ladders is safe only because the matcher is narrow,
+                        # and that is a MEASUREMENT, not a hope: replayed over all 112 real
+                        # inbound messages it fires 9 times, every one of them an actual test,
+                        # and collides with calc, weather, sun/moon, capabilities and the
+                        # greeting ack zero times. Re-run that replay before widening it.
+                        s_ok, s_reason, s_dest, s_ch, s_text, s_gates = plan_sigreport(
+                            cfg, st, rec, ours)
+                        if s_gates and s_gates[0]["pass"]:
+                            d["sigreport_gates"] = s_gates
+                        if s_ok:
+                            enqueue(s_text, s_dest, s_ch)
+                            commit_sigreport(st, rec.get("from"))
+                            save_state(st)
+                            d.update({"matched": True, "reason": s_reason, "reply": s_text,
+                                      "dest": s_dest, "capability": "sigreport",
+                                      "prompt_kind": "fixed", "gen_status": "fixed_sigreport"})
+                            log(f"SIGREPORT {rec.get('from')} -> {s_dest}: {s_text!r}")
+                            record_decision(d)
+                            st["inbox_offset"] = new_off
+                            save_state(st)
+                            continue
                         if should:
                             # P1: does this DM clear the authenticated-sender bar? Content only —
                             # the tool lockdown in _claude_argv is unconditional either way.
