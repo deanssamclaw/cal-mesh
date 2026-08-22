@@ -374,6 +374,92 @@ if "--self-test" in sys.argv:
         if not caught:
             failures.append(f"MUTATION SURVIVED: {name} — the checks above cannot detect it")
 
+# --- the channel chip -------------------------------------------------------------------
+#
+# WHY THIS IS HERE AND NOT IN eval_channel.py. That file guards the RESPONDER's channel gate --
+# whether a message arriving on Cal's own channel counts as addressed, and the fail-open value
+# that would drop the trigger requirement for every node at once. This is the other end: what
+# the PAGE draws once that decision has been made. Different module, different failure.
+#
+# The failure this exists to catch is a chip that says one channel and is coloured as another.
+# Colour here is reinforcement -- the chip spells out "ch0"/"ch1" -- so a mismatch is not a
+# safety bug, it is a page that quietly lies about which traffic was public. The neutral case
+# is the one worth stating aloud: records written before the responder recorded a channel have
+# no channel at all, and they must NOT be painted as either one.
+CH_CASES = [
+    ("open channel",      0,      ' class="tag ch c0"', ['c1', 'ch?']),
+    ("Cal's own channel", 1,      ' class="tag ch c1"', ['c0', 'ch?']),
+    ("some other index",  4,      ' class="tag ch"',    ['c0', 'c1']),
+    ("channel not recorded", None, ' class="tag ch"',   ['c0', 'c1']),
+]
+
+
+def render_ch(scr):
+    driver = ("const CH={};"
+              + "".join(f"CH[{json.dumps(n)}]=chTag({json.dumps(v)});" for n, v, _, _ in CH_CASES)
+              + "console.log(JSON.stringify(CH));")
+    r = run(scr, driver)
+    if r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except Exception:                                          # noqa: BLE001
+        return None
+
+
+ch = render_ch(script)
+if ch is None:
+    failures.append("chTag threw or produced nothing when EXECUTED")
+else:
+    for name, val, must, mustnt in CH_CASES:
+        html = ch[name]
+        checked += 1
+        if must not in html:
+            failures.append(f"[chip:{name}] missing {must!r} in {html!r}")
+        for tok in mustnt:
+            checked += 1
+            if tok in html:
+                failures.append(f"[chip:{name}] must not contain {tok!r} — got {html!r}")
+    # The label is the discriminator that survives any colour decision, so assert it directly.
+    for name, val, _, _ in CH_CASES:
+        checked += 1
+        want = "ch?" if val is None else f"ch{val}"
+        if want not in ch[name]:
+            failures.append(f"[chip:{name}] label should read {want!r} — got {ch[name]!r}")
+
+if "--self-test" in sys.argv:
+    print("\n--- self-test: channel chip mutations must be CAUGHT ---")
+    CH_MUT = [
+        ("every chip painted as the open channel",
+         "const cls = c===0 ? ' c0' : c===1 ? ' c1' : '';", "const cls = ' c0';"),
+        ("unknown channel painted as Cal's own",
+         "const cls = c===0 ? ' c0' : c===1 ? ' c1' : '';",
+         "const cls = c===0 ? ' c0' : ' c1';"),
+        ("the two channels swapped",
+         "const cls = c===0 ? ' c0' : c===1 ? ' c1' : '';",
+         "const cls = c===0 ? ' c1' : c===1 ? ' c0' : '';"),
+        ("missing channel renders a bare chip again",
+         "ch${c==null?'?':esc(c)}", "ch${esc(c)}"),
+    ]
+    for name, orig, mut in CH_MUT:
+        if orig not in script:
+            print(f"  ?? {name}: anchor not found — this control is stale")
+            failures.append(f"self-test anchor missing: {name}")
+            continue
+        m = render_ch(script.replace(orig, mut, 1))
+        if m is None:
+            print(f"  ok {name}: CAUGHT (threw)")
+            continue
+        caught = False
+        for cname, val, must, mustnt in CH_CASES:
+            h = m.get(cname, "")
+            want = "ch?" if val is None else f"ch{val}"
+            if must not in h or any(t in h for t in mustnt) or want not in h:
+                caught = True
+        print(f"  {'ok' if caught else 'XX'} {name}: {'CAUGHT' if caught else 'SURVIVED'}")
+        if not caught:
+            failures.append(f"MUTATION SURVIVED: {name}")
+
 for f in failures:
     print("FAIL " + f)
 print(f"\n{checked} assertion(s) over {len(CASES)} rendered record shapes; {len(failures)} problem(s)")

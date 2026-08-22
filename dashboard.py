@@ -4234,6 +4234,19 @@ color:var(--dim);text-transform:uppercase;letter-spacing:.6px;display:flex;gap:8
 .tag{padding:1px 7px;border-radius:5px;font-size:11px;font-weight:600}
 .tag.tx{background:#f3eefc;color:var(--tx)} .tag.rx{background:#dafbe1;color:var(--rx)}
 .tag.ch{background:#ddf4ff;color:var(--accent)} .tag.auto{background:#fff8c5;color:var(--warn)}
+/* CHANNEL IS CATEGORICAL, NOT ORDERED. ch0 is the open KC Mesh channel every node hears;
+   ch1 is Cal's own PSK'd channel. Two distinct hues is correct here -- the single-hue ramp
+   rule stated in the trace panel governs ORDERED quantities, and a channel index is a name,
+   not a magnitude. Blue stays on ch0 because that is what every existing screenshot shows.
+   Teal for ch1 was picked by MEASUREMENT, not taste: 6.38:1 text against its own chip (the
+   panel's own bar is 6.0, AA needs 4.5), and it is the one candidate that stays separable
+   from blue under deuteranopia AND protanopia -- teal desaturates toward grey while blue
+   stays blue, ~112 apart in both simulations, where magenta collapses toward it. Amber and
+   orange were ruled out by COLLISION rather than contrast: in this same meta row they
+   already mean OFF-LIST and auto. Purple and green are TX and RX for the same reason.
+   The chip still spells out "ch0"/"ch1", so colour is reinforcement, never the sole carrier. */
+.tag.ch.c0{background:#ddf4ff;color:var(--accent)}
+.tag.ch.c1{background:#c9ede6;color:#0b5b4f}
 .tag.offlist{background:#fff8c5;color:var(--warn);border:1px solid #d4a72c}
 .tag.quiet{background:#eef1f5;color:var(--dim)}
 /* --- tabbed streams: one card, two streams, so the page does not grow by one full
@@ -4870,6 +4883,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-22</span><b>The open channel and Cal&rsquo;s own channel are now different colours.</b> Every exchange already carried a <code>ch0</code> or <code>ch1</code> chip, both in the same blue, so telling the KC Mesh open channel apart from Cal&rsquo;s private one meant reading the digit on every row. <code>ch0</code> keeps the blue; <code>ch1</code> is teal. The pair was chosen by measurement rather than taste: the teal holds 6.38:1 against its own chip, and it is the one candidate that stays clearly apart from the blue under both common forms of colour blindness &mdash; teal desaturates toward grey while blue stays blue, where a magenta collapses toward it. Amber and orange were ruled out for a different reason: in this same row they already mean <i>off-list</i> and <i>auto</i>, and a colour that already has a meaning cannot be given a second one. The chip still spells out which channel it was, so the colour only ever reinforces a label that was already there.</div>
       <div class="ci"><span class="cd">2026-08-21</span><b>v5 &mdash; what Cal <i>cannot</i> answer is now a tab, next to what it did.</b> A distiller reads every exchange once a day and files the ones that reached the model instead of a capability. That list used to live in a file on the machine that nobody opened, which is indistinguishable from the thing not running. It sits in the tab strip now, beside Open Exchanges and Direct Messages, because it is made <i>of</i> them &mdash; the same traffic, read for what it could not answer. Three things are published that a capability list would not tell you. <b>The queue itself</b>, which is what this node still gets wrong. <b>The commit</b> that armed each answer, linked, and whether that commit has actually been pushed &mdash; a sha sitting only on the machine that made it is work nobody can see, and "armed" would overstate it. And <b>corrections</b>: doers that had to be fixed <i>after</i> they were armed, itemised rather than counted, because a loop scored only on what it builds will build. The number worth watching is the one at the end of that row: how many of these the distiller found versus how many a person spotted. It currently reads zero to three. Nothing is built from the queue until someone decides what the right answer would be measured against &mdash; every answer that has held up here was pinned to something outside this repo, and a doer graded only by its own test suite is a guess with a green check next to it.</div>
       <div class="ci"><span class="cd">2026-08-19</span><b>v4 &mdash; the trace is dark, and only the trace.</b> The page around it is unchanged: same tiles, same streams, same light palette it moved to on 12 August. What changed is that opening a <b>trace</b> now drops you onto a dark instrument panel instead of a lighter shade of the same page. The reason is that these are two different things to look at. The page is a board you <i>scan</i> &mdash; is the radio up, what came in, which nodes are near. A trace is one record you <i>read</i>, and it is drawn with boxes, wires and dots that have nowhere to sit when their ground is the same white as the list they came out of. It also keeps v3&rsquo;s elevation honest. On a light page a raised surface is whiter than what it sits on; on a dark one it is lighter than what it sits on. Inverting the ground without inverting that rule would have left the well and the raised planes reading backwards, so the recessed panel is now the darkest thing on screen and every box lifted off it is lighter, which is the same hierarchy stated the other way round. The colour ramp under the gauges follows the same logic: still one hue, still never a rainbow, but running dark-to-bright, because "light to dark" is an instruction about the background as much as the ink. Two colours had to be re-picked by hand rather than swapped, and they are the <i>same two places</i> that had to be re-picked when this page went light &mdash; the link diagram&rsquo;s colours are written into the drawing code, and the "nothing was looked up" box carries its colour inline, so neither of them can ever be reached by changing a palette. Contrast was measured rather than judged: every piece of text in the panel clears the AA threshold with room to spare, and the borders, the spine rail and the gauge track were each brightened until they clear the separate, stricter bar that applies to a line carrying meaning. That last part is a real change and not a formality &mdash; a hairline that reads fine at 1.2:1 on white is simply not there on black.</div>
       <div class="ci"><span class="cd">2026-08-12</span><b>The step where Cal decides what a message is about is now shown.</b> The chain jumped straight from the question to the observation, which left the most important join unexplained: <i>how</i> did a sentence become a decision to go and read a particular weather station? It is not a model, and it is not clever — Cal matches <b>plain words</b>. One strong word such as <code>temperature</code> or <code>heat index</code> is enough on its own; failing that it takes two weather words together, or one plus a question mark. The trace now shows that as its own step, including <b>which words actually matched</b> and which of those three rules fired. This is the exact place a defect hid on 2026-08-11: "whats the heat index?" matched nothing, so the weather capability never ran at all, and there was nothing on the page that could have shown why. The reason is recorded by the same call that makes the decision, so what is displayed and what happened cannot drift apart. Older exchanges predate the field and say so rather than guessing.</div>
@@ -5384,18 +5398,28 @@ const OPEN=new Set();
 // shows a stale copy of a record that has since changed.
 const XBYKEY=new Map();
 function xkey(x){return (x.ts||'')+'|'+(x.from||x.dest||'');}
+// ONE CHOKE POINT for the channel chip, so the two call sites cannot drift apart -- the
+// same reason the DM and open streams share a renderer. A channel index that is neither 0
+// nor 1, or that is missing entirely, keeps the NEUTRAL base chip: the page must not imply
+// a message arrived on Cal's own channel when it was never told which channel it arrived on.
+// Records written before the responder began recording the channel are exactly that case,
+// and they render "ch?" rather than a bare "ch" (esc(undefined) is the empty string).
+function chTag(c){
+  const cls = c===0 ? ' c0' : c===1 ? ' c1' : '';
+  return `<span class="tag ch${cls}">ch${c==null?'?':esc(c)}</span>`;
+}
 function exchangeHtml(x){
   if(x.kind==='unprompted') return `
     <div class="xc unprompted"><div class="meta"><span class="tag tx">TX</span>
       <span>${daystamp(x.ts)} ${hhmmss(x.ts)}</span><span>→ ${esc(x.dest)}</span>
-      <span class="tag ch">ch${esc(x.channel)}</span><span>${esc(x.transport)}</span>
+      ${chTag(x.channel)}<span>${esc(x.transport)}</span>
       <span class="tag quiet">${x.source==='responder'?'UNPAIRED':'MANUAL'}</span></div>
     <div class="ask">${esc(x.text)}</div>
     <div class="norep">↳ not a reply — Cal transmitted this with no inbound ask${x.source==='responder'?', or the ask is older than the window shown':''}</div></div>`;
   return `
     <div class="xc"><div class="meta"><span class="tag rx">RX</span>
       <span>${daystamp(x.ts)} ${hhmmss(x.ts)}</span><span>${x.from?esc(x.from):'unknown sender'} → ${esc(x.to)}</span>
-      <span class="tag ch">ch${esc(x.channel)}</span>${x.snr!=null?`<span>snr ${esc(x.snr)}</span>`:''}
+      ${chTag(x.channel)}${x.snr!=null?`<span>snr ${esc(x.snr)}</span>`:''}
       ${verdictTag(x)}</div>
     <div class="ask">${esc(x.text)}</div>
     ${x.verdict==='replied'&&x.reply
