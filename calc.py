@@ -72,9 +72,14 @@ class AskFor(Exception):
     asks is a doer that is half-built, and under the old classifier it was indistinguishable
     from a clean HIT."""
 
-    def __init__(self, reply):
+    def __init__(self, reply, want=None):
         super().__init__(reply)
         self.reply = reply
+        # The SLOT this is asking to fill, when the answer to it would not be self-describing.
+        # "5" means nothing spliced onto the original question; "grade 5" parses. The doer is the
+        # only thing that knows which word is missing, so it says, rather than the caller
+        # guessing from the shape of a reply.
+        self.want = want
 
 
 class NoTable(Exception):
@@ -582,7 +587,7 @@ def _h_torque(t, trig=None):
     if frac is None:
         raise AskFor("Which size? SAE torque needs the diameter, e.g. 1/2 in.")
     if grade is None:
-        raise AskFor("Which grade -- 2, 5 or 8? Torque changes by more than 2x.")
+        raise AskFor("Which grade -- 2, 5 or 8? Torque changes by more than 2x.", want="grade")
     tpi = _explicit_tpi(t, frac)
     if tpi == -1:
         raise AskFor("That pitch is not standard for %s. Coarse or fine?" % frac)
@@ -1141,6 +1146,7 @@ def _dispatch(t, meta, max_chars, trig=None):
             # a missing capability counts as working-as-built.
             meta["handler"] = h.__name__[3:]
             meta["outcome"] = "clarify" if isinstance(e, AskFor) else "no_table"
+            meta["want"] = getattr(e, "want", None)
             if len(e.reply) > max_chars:
                 meta["refused"] = "too long"
                 return None, meta

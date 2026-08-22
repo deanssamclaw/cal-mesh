@@ -86,6 +86,14 @@ DEFAULTS = {
     "COOLDOWN_S": "8",
     "MAX_AGE_S": "300",
     "GEN_TIMEOUT_S": "90",
+    # --- follow-up to a doer's own question (default OFF) ---
+    # A doer that asks "which grade -- 2, 5 or 8?" has committed to a two-turn exchange. Without
+    # this, the answer to its own question is a message like any other: "Cal 5" fell through the
+    # whole ladder to the model on 2026-08-21 and came back "Received loud and clear, what do you
+    # need?" after 22.7 s. The asker then retyped the entire question, which is the friction the
+    # clarify existed to remove.
+    "CLARIFY_FOLLOWUP_ENABLED": "false",
+    "CLARIFY_TTL_S": "180",
     # --- Level 3 Stage 1: weather capability (default OFF) ---
     "WEATHER_ENABLED": "false",
     "WEATHER_POINT": "",            # 'lat,lon' default public reference point (set at arm time)
@@ -521,8 +529,53 @@ def _calc_collision(cfg, clean, out):
     return True
 
 
+def splice_followup(pending, followup, trig):
+    """The original question with the follow-up folded into the slot the doer named.
+
+    Two things have to happen or the splice parses as nonsense. The trigger word is dropped from
+    BOTH halves — it sits at the front of every message here, so a naive join puts it in the
+    middle ("... bolt grade cal 5") and the grade regex sees a word where it needs digits. And
+    the named slot is inserted before the answer, because a bare "5" carries no meaning of its
+    own; "grade 5" does. When the doer names no slot the answer is already self-describing
+    ("1/2 inch"), and a plain join is right."""
+    strip = lambda t: re.sub(r"\b" + re.escape(trig) + r"\b", " ", t, flags=re.I).strip()
+    text, want = pending.get("text", ""), pending.get("want")
+    parts = [strip(text), want or "", strip(followup)]
+    return re.sub(r"\s+", " ", " ".join(p for p in parts if p)).strip()
+
+
+def _ts(v):
+    """A stored timestamp, or 0. A corrupt value must read as ANCIENT so the entry expires —
+    never as 0-seconds-ago, which would make a malformed record permanently live."""
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
+
+
+def take_pending(st, sender, ttl_s):
+    """The live clarify for `sender`, removed as it is read.
+
+    One-shot by construction. Leaving it in place would let an answer arrive minutes and several
+    messages later and still splice — and the failure would be silent and confidently wrong,
+    which is the exact class of defect the doers exist to remove."""
+    pend = (st.get("clarify") or {}).pop(sender, None)
+    if not isinstance(pend, dict):
+        return None
+    if time.time() - _ts(pend.get("ts")) > max(0, ttl_s):
+        return None
+    return pend if isinstance(pend.get("text"), str) and pend["text"] else None
+
+
+def put_pending(st, sender, pend):
+    st.setdefault("clarify", {})[sender] = dict(pend, ts=time.time())
+    # Bounded. One entry per node that has ever been asked something would otherwise grow with
+    # the mesh, and only the newest few can still be inside the TTL anyway.
+    c = st["clarify"]
+    if len(c) > 16:
+        for k in sorted(c, key=lambda k: _ts(c[k].get("ts")))[:len(c) - 16]:
+            c.pop(k, None)
+
+
 def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_context=None,
-                  dm_authed=False):
+                  dm_authed=False, pending=None):
     """PURE decision (no subprocess, no I/O beyond the injectable weather fetch): sanitize the
     inbound, run any capability, and decide whether we emit a FIXED fail-safe reply or a
     GENERATE prompt. Separated from side effects so the whole path is offline-testable."""
@@ -532,7 +585,8 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
            "weather_meta": {}, "forecast_asked": False, "match": None,
            "sunmoon_match": None, "sunmoon_meta": None,
            "persona": None, "unlocked": False, "max_chars": None,
-           "fixed_kind": None, "calc_meta": None, "caps_match": None}
+           "fixed_kind": None, "calc_meta": None, "caps_match": None,
+           "clarify_pending": None}
     # P1: an authenticated DM from Dean gets the private persona and injected context — but the
     # DOERS RUN FIRST. This used to short-circuit here at the top, which meant an unlocked DM
     # skipped calc/sunmoon/weather entirely and a computable ask ("5 mi in km") got a model
@@ -543,9 +597,30 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
     # anything that is not a calculation returns None here and the weather path is unaffected.
     # No model is involved on this path: Python formats the reply and we emit it as fixed.
     if cfg.get("CALC_ENABLED", "false").lower() == "true":
-        c_reply, c_meta = calc.try_answer(clean, max_chars=_int_cfg(cfg, "CALC_MAX_CHARS", DEFAULTS["CALC_MAX_CHARS"]),
-                                          trigger=cfg.get("TRIGGER_WORD", "cal"))
+        _cmax = _int_cfg(cfg, "CALC_MAX_CHARS", DEFAULTS["CALC_MAX_CHARS"])
+        _trig = cfg.get("TRIGGER_WORD", "cal")
+        c_reply, c_meta = calc.try_answer(clean, max_chars=_cmax, trigger=_trig)
+        # ANSWERING THE DOER'S OWN QUESTION. Only when this message did not already answer on its
+        # own, and only against a clarify this sender was actually given, within its TTL.
+        #
+        # The adjudicator is the doer, not a guess about what the message looks like: the splice
+        # is kept ONLY if it parses all the way to a real answer. A follow-up that is really a new
+        # question fails that test and falls through untouched, so there is no heuristic here to
+        # be wrong about. Trying the message alone FIRST is what makes that safe — a complete
+        # question always wins over being read as somebody's leftover answer.
+        if (pending and c_meta.get("outcome") != "answered"
+                and cfg.get("CLARIFY_FOLLOWUP_ENABLED", "false").lower() == "true"):
+            s_reply, s_meta = calc.try_answer(splice_followup(pending, clean, _trig),
+                                              max_chars=_cmax, trigger=_trig)
+            if s_reply and s_meta.get("outcome") == "answered":
+                c_reply, c_meta = s_reply, s_meta
+                # Recorded so the trace shows a two-turn answer as two turns. A reply that
+                # silently used words from an earlier message would be unreadable on the page.
+                c_meta["resolved_from"] = pending
         out["calc_meta"] = c_meta
+        # Remember the ask, not the question we sent: the next turn is spliced onto the original.
+        if c_meta.get("outcome") == "clarify":
+            out["clarify_pending"] = {"text": clean, "want": c_meta.get("want")}
         # NAVIGATION YIELDS TO A SUN/MOON ASK. calc wins outright over the capabilities below it,
         # which is right for arithmetic — a sum is a sum — and wrong for navigation, whose
         # triggers ("grid", "distance", "bearing") are the loosest in the module. "sunrise at grid
@@ -1083,9 +1158,18 @@ def main():
                             if unl:
                                 dm_ctx = dm_memory.combine(
                                     load_dm_context(cfg), dm_memory.recall(cfg, rec))
+                            # A clarify this sender was given, if it is still live. Consumed
+                            # ONE-SHOT: removed here whether or not the splice works, so a stale
+                            # answer can never be grafted onto a question two exchanges later.
+                            pend = take_pending(st, rec.get("from"),
+                                                _int_cfg(cfg, "CLARIFY_TTL_S",
+                                                         DEFAULTS["CLARIFY_TTL_S"]))
                             plan = plan_response(cfg, rec.get("from"), rec.get("text", ""),
                                                  unlocked=unl, dm_authed=lng,
-                                                 dm_context=dm_ctx)
+                                                 dm_context=dm_ctx, pending=pend)
+                            if plan.get("clarify_pending"):
+                                put_pending(st, rec.get("from"), plan["clarify_pending"])
+                            save_state(st)
                             # the public decision trace: how this reply came to exist. Machinery
                             # only — inputs, gates, the injected fact. No model introspection:
                             # generation is `--output-format text`, there is no reasoning to show,
