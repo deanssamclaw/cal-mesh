@@ -440,6 +440,14 @@ ACK_TTL_S = 300          # a routing packet arriving later than this is not that
 PENDING_ACK = []
 
 
+def packet_id(pkt):
+    """The id sendText assigned, or None. Cleartext on air (RadioInterface.h:34-54), so this is
+    not a secret -- but it is forgery material for anyone who cannot hear the radio, which is
+    why it belongs in the local log and never in the published decision trace."""
+    pid = getattr(pkt, "id", None) if pkt is not None else None
+    return pid if isinstance(pid, int) else None
+
+
 def remember_ack(pkt, dest, text):
     """Record the packet id of a wantAck send, so its routing reply can be matched to it.
 
@@ -583,6 +591,17 @@ def on_receive(packet=None, interface=None):
                # let a different value read as an ordinary message.
                "reaction": bool(_u32(d.get("emoji"))),
                "reply_to": _u32(d.get("replyId")) or None,
+               # The RADIO's arrival timestamp, distinct from `ts` above, which is when THIS
+               # process read the packet. They differ in the case that matters: store-and-forward
+               # replays a held message with its ORIGINAL rx_time preserved
+               # (StoreForwardModule.cpp:257), while `ts` is stamped fresh here — so a replay of
+               # any age currently reads as brand new to the responder's freshness gate.
+               #
+               # Recorded, not yet gated on, and deliberately so. It is the radio's clock, and
+               # getValidTime returns 0 outright when the RTC is unsynced (RTC.cpp:455-458), so
+               # rejecting on it before measuring how far it drifts from this Mac would trade a
+               # latent bug for a live one that drops good traffic.
+               "rx_time": _u32(packet.get("rxTime")) or None,
                "pki": pki,
                # A node's public key is public by design (it is broadcast in NodeInfo), but the
                # full value is not useful here and the dashboard is public — keep a short
@@ -724,7 +743,15 @@ def drain_outbox(iface, transport):
             COUNTS["tx"] += 1
             # Only a wantAck send can produce a receipt. A broadcast never does -- there is no
             # single destination to answer -- so remembering one would only ever expire.
-            pid = remember_ack(pkt, dest, text) if ack and dest != "^all" else None
+            # The id goes on EVERY send. The pending-ack table stays wantAck-DM only -- a
+            # broadcast has no one destination to answer -- but the id itself is what lets
+            # anything downstream tie a reply to the message it answers. The dashboard is
+            # currently pairing replies to inbounds by matching exact text within 300 s, and
+            # that heuristic is already strained: "Cal whats the torque for a 1/2 inch bolt"
+            # appears verbatim twice, six hours apart.
+            pid = packet_id(pkt)
+            if ack and dest != "^all":
+                remember_ack(pkt, dest, text)
             rec = {"ts": now(), "dest": dest, "channel": ch, "text": text,
                    "wantAck": ack, "transport": transport, "bytes": len(text.encode()),
                    "source": source}
