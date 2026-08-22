@@ -137,10 +137,39 @@ check("unknown key has no verdict", learn.verdict({}, "anything"), None)
 check("malformed entry is not a verdict", learn.verdict({"k": "derivable"}, "k"), None)
 check("a real entry reads back", learn.verdict({"k": ARMED}, "k"), ARMED)
 
+print("\nclassify() — our own limit refusing a legitimate question")
+# A throttled message bucketed as FILTERED until 2026-08-22 — the same bin as 44 strangers'
+# chatter. But sender_allowed and addressed both sit ABOVE the rate gate, so these reasons can
+# only be reached by a real question from an allowed node that Cal chose not to answer. That is
+# demand exceeding capacity, and it is the one bucket saying the LIMITS need looking at rather
+# than a new capability.
+check("rate limit is not a filter", learn.classify(
+      rec(matched=False, reason="rate_limited"), OUR), "THROTTLED")
+check("cooldown is not a filter either", learn.classify(
+      rec(matched=False, reason="cooldown"), OUR), "THROTTLED")
+# The reasons that genuinely are not about us stay FILTERED.
+check("off-list is still filtered", learn.classify(
+      rec(matched=False, reason="sender_not_allowed"), OUR), "FILTERED")
+check("not addressed is still filtered", learn.classify(
+      rec(matched=False, reason="not_addressed"), OUR), "FILTERED")
+check("too old is still filtered", learn.classify(
+      rec(matched=False, reason="too_old"), OUR), "FILTERED")
+# An unmatched record with no reason at all must not be promoted into the build queue.
+check("no reason recorded is filtered", learn.classify(rec(matched=False), OUR), "FILTERED")
+check("throttled clusters into the queue", "THROTTLED" in learn.CLUSTERED, True)
+
+# MUTATION-BOUNDARY — the self-test replays everything ABOVE this line under each
+# mutation. Sliced on this sentinel rather than a run of dashes, which is miscounted
+# by eye and then keeps the file's own exit block.
 # ------------------------------------------------------------------------------- MUTATIONS
 # The classifier is the product, so a passing eval that would also pass with the classifier
 # broken is worth nothing. Each mutation below is this session's change reverted.
+_ORIG_CLASSIFY = learn.classify
+
 MUTATIONS = [
+    ("throttling read as a filter, so overload is invisible",
+     lambda: setattr(learn, "classify", lambda rec, our:
+                     "FILTERED" if not rec.get("matched") else _ORIG_CLASSIFY(rec, our))),
     ("classifier ignores the doer's outcome (the pre-loop behaviour)",
      lambda: setattr(learn, "classify", lambda rec, our:
                      "FILTERED" if not rec.get("matched") else
@@ -165,9 +194,7 @@ MUTATIONS = [
 def self_test():
     import io, contextlib
     src = open(__file__).read()
-    body = src.split('print("classify()', 1)[1]
-    body = 'print("classify()' + body.split("# ---------------------------------------------"
-                                            "---------------------------------- MUTATIONS")[0]
+    body = src[src.index('print("classify()'):src.index("# MUTATION-BOUNDARY")]
     saved = {n: getattr(learn, n) for n in ("classify", "migrate", "recurred", "verdict")}
     survived = []
     for name, mutate in MUTATIONS:

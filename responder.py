@@ -890,6 +890,30 @@ def rate_ok(cfg, st, sender, ts):
     return True, None
 
 
+def charge(st, sender, ts, fixed):
+    """Bill a reply that just went out. Pure and separately testable, because it used to be four
+    lines inside the send branch of the main loop where nothing could reach it.
+
+    COOLDOWN IS CHARGED FOR EVERY REPLY. It paces airtime, and a deterministic answer occupies
+    the same slot on the same frequency as any other -- a PSK'd channel changes who may read a
+    packet, never who must wait while it transmits.
+
+    THE WINDOW IS CHARGED ONLY FOR MODEL REPLIES. RATE_MAX guards cost and runaway loops, and a
+    doer reply carries neither: no tokens, ~40 characters, and it can only fire on a question
+    that already parsed, so it cannot invent a reason to keep talking. Measured on the live
+    torque exchange of 2026-08-22 -- three replies burned three of five slots in 81 seconds and
+    two of them were 0 ms doer answers. Under this rule that exchange costs one.
+
+    HONEST LIMIT: the gate runs BEFORE planning, so it cannot know what a message will cost.
+    Once the window holds RATE_MAX model replies everything is throttled, doers included. That
+    is the conservative direction and it is deliberate: the alternative is moving the rate gate
+    below the ladder, which would let a message reach the doers before anything had established
+    it was allowed to be answered at all."""
+    st["last_reply_ts"] = ts
+    if not fixed:
+        st.setdefault("per_sender", {}).setdefault(sender, []).append(ts)
+
+
 def evaluate(cfg, st, rec, ours, trace=None):
     """Run the gate ladder. `trace`, if given a list, receives one {gate, pass} entry per gate
     ACTUALLY evaluated — the ladder short-circuits, so a gate after the failing one is absent
@@ -1289,8 +1313,7 @@ def main():
                             if reply:
                                 enqueue(reply, dest, ch)
                                 ts = time.time()
-                                st["last_reply_ts"] = ts
-                                st["per_sender"].setdefault(rec.get("from"), []).append(ts)
+                                charge(st, rec.get("from"), ts, plan["mode"] == "fixed")
                                 d["reply"] = reply
                                 d["dest"] = dest
                                 d["gen_ms"] = gen_ms

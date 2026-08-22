@@ -17,7 +17,14 @@ stable while correctness churned. So this is a reader, not a writer, of everythi
 
 CLASSIFICATION. Each decision record lands in exactly one bucket, by priority:
 
-    FILTERED   matched=false. Dropped upstream (off-list sender, not addressed). Not a gap.
+    FILTERED   matched=false, and dropped for a reason that is not about us: an off-list
+               sender, or a message never addressed to Cal. Not a gap.
+    THROTTLED  matched=false because OUR OWN limit refused it -- rate window or cooldown. The
+               sender was allowed and the message WAS addressed to Cal; both of those gates
+               passed before this one. So it is a question Cal was asked and chose not to
+               answer, which is demand that exceeded capacity and the single record most worth
+               having. It bucketed as FILTERED until 2026-08-22 -- the same bin as 44 strangers'
+               chatter -- so the loop was structurally blind to being overloaded.
     REFUSED    a designed fixed non-answer (forecast refusal). Working as built.
     GREETING   a fixed greeting ack. Working as built.
     HIT        a real doer answered from a fact (weather / calc / sunmoon / nav).
@@ -114,6 +121,11 @@ def normalize(text):
 def classify(rec, our):
     """One bucket per record, by priority. Returns a bucket name from the docstring set."""
     if not rec.get("matched"):
+        # Read the REASON, not just the flag. sender_allowed and addressed both sit above the
+        # rate gate in the ladder, so these two reasons can only be reached by a legitimate
+        # question from an allowed node.
+        if rec.get("reason") in ("rate_limited", "cooldown"):
+            return "THROTTLED"
         return "FILTERED"
     gen = rec.get("gen_status") or ""
     if gen == "fixed_forecast_refused":
@@ -165,7 +177,9 @@ def iter_decisions():
                 continue
 
 
-CLUSTERED = ("GAP", "CLARIFY", "NO_TABLE")
+# THROTTLED clusters with the rest: a question refused for capacity is still an ask, and it is
+# the one bucket that says the limits themselves need looking at rather than a new capability.
+CLUSTERED = ("GAP", "CLARIFY", "NO_TABLE", "THROTTLED")
 SCHEMA = 2
 
 
@@ -398,7 +412,8 @@ def render_md(agg, state, tr):
     lines.append("")
     lines.append("| bucket | total | dm | broadcast |")
     lines.append("|---|---:|---:|---:|")
-    for b in ("HIT", "GAP", "CLARIFY", "NO_TABLE", "REFUSED", "GREETING", "FILTERED", "OTHER"):
+    for b in ("HIT", "GAP", "CLARIFY", "NO_TABLE", "THROTTLED", "REFUSED", "GREETING",
+              "FILTERED", "OTHER"):
         if t.get(b):
             lines.append(f"| {b} | {t.get(b,0)} | {t.get(b+'_dm',0)} | {t.get(b+'_bc',0)} |")
     lines.append("")
@@ -580,6 +595,7 @@ def main():
     print(f"buckets this run: {run['buckets']}")
     print(f"cumulative: HIT={t.get('HIT',0)} GAP={t.get('GAP',0)} "
           f"CLARIFY={t.get('CLARIFY',0)} NO_TABLE={t.get('NO_TABLE',0)} "
+          f"THROTTLED={t.get('THROTTLED',0)} "
           f"REFUSED={t.get('REFUSED',0)} GREETING={t.get('GREETING',0)} "
           f"FILTERED={t.get('FILTERED',0)} OTHER={t.get('OTHER',0)}")
     print()
