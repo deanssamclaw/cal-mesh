@@ -94,6 +94,17 @@ DEFAULTS = {
     # clarify existed to remove.
     "CLARIFY_FOLLOWUP_ENABLED": "false",
     "CLARIFY_TTL_S": "180",
+    # --- a channel that means "this is for Cal" (default OFF, and -1 not 0) ---
+    # On a shared channel the trigger word is the only thing separating a question for Cal from
+    # a sentence about him, so it has to stay. A PSK'd channel carries that meaning in the
+    # transport instead: `p->channel` is assigned only AFTER the payload decrypts and parses to
+    # a valid Data with a known portnum (Router.cpp:482-515), so the index is a cryptographic
+    # assertion that the sender holds a key we chose -- unlike `from`, which is cleartext, or a
+    # reply id, which anyone holding the public channel's default PSK can forge.
+    #
+    # -1 IS THE DISARMED VALUE, not 0. Zero is the public channel: a fail-open default here
+    # would drop the trigger requirement for all 250-odd nodes at once.
+    "CAL_CHANNEL": "-1",
     # --- Level 3 Stage 1: weather capability (default OFF) ---
     "WEATHER_ENABLED": "false",
     "WEATHER_POINT": "",            # 'lat,lon' default public reference point (set at arm time)
@@ -544,6 +555,19 @@ def splice_followup(pending, followup, trig):
     return re.sub(r"\s+", " ", " ".join(p for p in parts if p)).strip()
 
 
+def cal_channel(cfg):
+    """Cal's own channel index, or -1 for disarmed.
+
+    Anything unparseable reads as DISARMED. The failure that matters is the other direction:
+    a value that quietly becomes 0 turns the public channel into Cal's channel and drops the
+    trigger requirement for the whole mesh at once."""
+    try:
+        v = int(str(cfg.get("CAL_CHANNEL", "-1")).strip())
+    except Exception:
+        return -1
+    return v if 0 <= v <= 7 else -1
+
+
 def _ts(v):
     """A stored timestamp, or 0. A corrupt value must read as ANCIENT so the entry expires —
     never as 0-seconds-ago, which would make a malformed record permanently live."""
@@ -898,7 +922,13 @@ def evaluate(cfg, st, rec, ours, trace=None):
     trigger = (cfg["TRIGGER_WORD"] or "").strip()
     is_dm = (to == ours)
     kw = bool(trigger) and re.search(r"\b" + re.escape(trigger) + r"\b", text, re.I) is not None
-    if not mark("addressed", is_dm or kw):
+    # A message arriving on Cal's own channel is addressed to Cal by virtue of arriving there.
+    # Every message on it is for him, so no trigger word, no conversation window, no ring of
+    # remembered ids, no TTL and no clock -- which is what "fail closed on unknown state"
+    # actually wants. See CAL_CHANNEL in DEFAULTS for why the disarmed value is -1.
+    own_ch = cal_channel(cfg)
+    on_cal_ch = own_ch >= 0 and ch == own_ch
+    if not mark("addressed", is_dm or kw or on_cal_ch):
         return False, "not_addressed", None, ch
     ok, why = rate_ok(cfg, st, sender, time.time())
     if not mark("within_rate", ok):
