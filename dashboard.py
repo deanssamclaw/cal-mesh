@@ -4399,6 +4399,11 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
    to be mistaken for it. Measure capped to match the ask/meta pair in the exchange stream. */
 #pane-learn .lask{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;word-break:break-word;max-width:78ch}
 #pane-learn .lmeta{font-size:11px;color:var(--dim);margin-top:2px;max-width:78ch}
+/* A queue row is one short key and one short count. Stacked, it used the left third of the card
+   and left the rest blank; the count sits at the far end instead and the row reads across.
+   Only the queue: an armed row's metadata is two full lines and belongs under its key. */
+#pane-learn .lrow.split{display:flex;gap:24px;align-items:baseline;justify-content:space-between}
+#pane-learn .lrow.split .lmeta{margin-top:0;white-space:nowrap;flex:none}
 /* A .tile at the top of the page is white on the body's grey and reads as raised. In here the
    card behind it is also white, so the same component was white on white with a hairline doing
    all the work. Recessed against the card instead — the surface changed, not the component. */
@@ -4663,11 +4668,10 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     <div class="lsec"><h3>Armed</h3><div id="lrn-armed"></div></div>
     <div class="lsec"><h3>Waiting on an oracle</h3>
      <p class="lnote">Nothing is built from these until someone decides what the right answer is
-     measured against. A doer graded only by its own test suite is a guess with a green check
-     next to it.</p>
-     <p class="lnote">Each row is a <i>cluster key</i>, not a quotation: lowercased, the trigger
-     word dropped and punctuation stripped, so two spellings of one question count once. That is
-     why they are set in the machine face rather than the reading one.</p>
+     measured against &mdash; a doer graded only by its own test suite is a guess with a green
+     check next to it. Each row is a <i>cluster key</i> rather than a quotation, which is why it
+     is set in the machine face: lowercased, trigger word dropped, punctuation stripped, so two
+     spellings of one question count once.</p>
      <div id="lrn-queue"></div></div>
     <div class="lsec"><h3>Corrections after arming</h3>
      <p class="lnote">The counter-metric, itemised. Kept in view on purpose &mdash; a loop scored
@@ -5538,7 +5542,7 @@ function renderLearning(L){
     +`</div></div>`).join(''):'<div class="empty">nothing armed from the queue yet</div>';
   const Q=L.untriaged||[];
   $('#lrn-queue').innerHTML=Q.length?Q.map(q=>
-    `<div class="lrow"><div class="lask">${esc(q.ask)}</div>`
+    `<div class="lrow split"><div class="lask">${esc(q.ask)}</div>`
     +`<div class="lmeta">seen ${q.count}×${q.last?' · last '+daystamp(q.last):''}</div></div>`
    ).join(''):'<div class="empty">queue is empty — every ask has a verdict</div>';
   const C=L.corrections||[];
