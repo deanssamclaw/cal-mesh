@@ -140,6 +140,28 @@ check("armed: a stale message is still stale",
       R.evaluate(cfg(**ARM), state(), dict(rec("whats the torque", 1),
                  ts="2020-01-01T00:00:00+00:00"), OURS, trace=[])[1], "too_old")
 
+# --------------------------------------------------- the trace says WHICH route addressed it
+# Without this the public page shows `addressed: pass` against a message containing no trigger
+# word and no explanation — an unexplained gate on a page whose whole job is showing mechanism.
+# It names the ROUTE, never the key.
+def via(text, ch=0, to="^all", **over):
+    t = []
+    R.evaluate(cfg(**over), state(), rec(text, ch, to), OURS, trace=t)
+    g = [x for x in t if x["gate"] == "addressed"]
+    return g[0].get("via") if g else "no-gate"
+
+
+check("trigger is named", via("cal whats the torque"), "trigger")
+check("dm is named", via("whats the torque", to=OURS), "dm")
+check("channel is named", via("whats the torque", ch=1, CAL_CHANNEL="1"), "channel")
+# A DM that also carries the trigger is still a DM — one route, reported once, most specific.
+check("dm wins over a trigger in the text", via("cal whats the torque", to=OURS), "dm")
+# On Cal's channel WITH the trigger, the trigger is the honest answer: it would have been
+# addressed either way, and crediting the channel overstates what the channel proved.
+check("trigger wins over the channel", via("cal whats the torque", ch=1, CAL_CHANNEL="1"), "trigger")
+# A refusal carries no route — there was none.
+check("a refused message names no route", via("whats the torque"), None)
+
 # MUTATION-BOUNDARY — the self-test replays everything ABOVE this line under each mutation.
 # ------------------------------------------------------------------------------- MUTATIONS
 MUTATIONS = [

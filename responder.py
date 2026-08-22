@@ -930,6 +930,13 @@ def evaluate(cfg, st, rec, ours, trace=None):
     on_cal_ch = own_ch >= 0 and ch == own_ch
     if not mark("addressed", is_dm or kw or on_cal_ch):
         return False, "not_addressed", None, ch
+    # WHICH of the three ways it was addressed, on the record. Without this the public trace
+    # shows `addressed: pass` against a message containing no trigger word and no explanation --
+    # an unexplained gate on a page that exists to show mechanism, which is the same defect as
+    # a reply whose reasoning cannot be checked. Names the ROUTE, never the key: the index is
+    # local to each device and the channel's secret is the PSK, which lives nowhere near here.
+    if trace is not None and trace:
+        trace[-1]["via"] = "dm" if is_dm else ("trigger" if kw else "channel")
     ok, why = rate_ok(cfg, st, sender, time.time())
     if not mark("within_rate", ok):
         return False, why, None, ch

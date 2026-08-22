@@ -35,7 +35,12 @@ if [ -n "$IDS" ]; then
 else
   echo "  scrub: no new node ids"
 fi
-SEC=$(git diff --cached | grep -oiE 'sk-ant-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|BEGIN [A-Z ]*PRIVATE KEY' || true)
+# Channel keys. A Meshtastic channel URL carries the PSK in its fragment, so pasting one into a
+# comment, a doc, a fixture or an example command publishes the key to everyone reading this
+# repo -- and a channel is only worth anything while its key is secret. The mechanism here is
+# meant to be copied; the key never is. Added before the first channel was created, deliberately:
+# a guard that arrives after the paste is not a guard.
+SEC=$(git diff --cached | grep -oiE 'sk-ant-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|BEGIN [A-Z ]*PRIVATE KEY|meshtastic\.org/e/#[A-Za-z0-9_+/=-]{8,}|\bpsk["'\'']?\s*[:=]\s*["'\'']?[A-Za-z0-9+/_-]{16,}={0,2}' || true)
 if [ -n "$SEC" ]; then echo "  SCRUB FAIL: credential-shaped string"; FAIL=1; else echo "  scrub: no credential shapes"; fi
 [ "$FAIL" -eq 0 ] && echo "  scrub: PASS" || echo "  scrub: BLOCKED"
 exit "$FAIL"
