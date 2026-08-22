@@ -37,8 +37,10 @@ def cfg(**over):
     return c
 
 
-def rec(text, to="^all", frm="!e0000003"):
-    return {"from": frm, "to": to, "text": text, "channel": 0}
+def rec(text, to="^all", frm="!e0000003", **extra):
+    r = {"from": frm, "to": to, "text": text, "channel": 0}
+    r.update(extra)
+    return r
 
 
 OURS = "!c0000001"
@@ -299,5 +301,35 @@ check("a bare wave passes the greeting gate", _ok, True)
 check("and the ack it would send is a wave", _t, "\U0001F44B")
 
 print()
+# ---------------------------------------------------------------- a tapback is not a greeting
+# LIVE, 2026-08-21T23:16. A stranger tapped 👋 on Cal's own "Hey there" and Cal answered it with
+# a 👋 of his own — all six gates passed, because none of them asked whether the message was a
+# reaction. The flag was in the record the whole time, one field from `reply_to`, unread.
+print("\nreactions")
+st_r = {}
+ok, why, _, _, _, gates = R.plan_greeting(cfg(), st_r, rec("👋", reaction=True), OURS)
+check("a tapback is refused", ok, False)
+check("and says why", why, "greeting_is_reaction")
+check("the gate is in the trace", any(g["gate"] == "not_a_reaction" for g in gates), True)
+# The same character TYPED by a person is still a greeting — which is exactly why text shape
+# cannot make this call and the protocol flag has to.
+ok2, _, _, _, t2, _ = R.plan_greeting(cfg(), {}, rec("👋"), OURS)
+check("the same wave typed is still acked", ok2, True)
+check("and still gets a reply", bool(t2), True)
+ok3, _, _, _, _, _ = R.plan_greeting(cfg(), {}, rec("👋", reaction=False), OURS)
+check("an explicit false is not a reaction", ok3, True)
+# Older records predate the field entirely; absent must read as "not a reaction".
+ok4, _, _, _, _, _ = R.plan_greeting(cfg(), {}, rec("Good morning"), OURS)
+check("absent field does not block an ordinary greeting", ok4, True)
+# A malformed value fails toward silence: not acking costs nothing, acking a reaction is the
+# defect being fixed.
+ok5, why5, _, _, _, _ = R.plan_greeting(cfg(), {}, rec("👋", reaction="true"), OURS)
+check("a malformed flag refuses", ok5, False)
+check("malformed refuses for the right reason", why5, "greeting_is_reaction")
+# A reaction must not consume the daily budget or a sender's cooldown — the caller commits
+# only on send, so the refusal has to happen before anything is spent.
+check("a refused tapback spends nothing", st_r, {})
+
+
 print("eval_greeting: %d passed, %d failed" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

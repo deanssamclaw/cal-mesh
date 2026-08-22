@@ -1040,6 +1040,21 @@ def plan_greeting(cfg, st, rec, ours, ts=None):
     # greeting was. A DM ack to a stranger is a stranger thing to receive.
     if not mark("broadcast", rec.get("to") in ("^all", None)):
         return False, "greeting_not_broadcast", None, ch, None, gates
+    # A TAPBACK IS NOT A GREETING. `emoji` is a protocol flag set by the sending client when a
+    # message is a reaction to another message, and the bridge has recorded it as `reaction`
+    # since the capture was written -- unread by anything until now. On 2026-08-21T23:16 a
+    # stranger tapped 👋 on Cal's own "Hey there" and Cal answered it with a 👋 of his own: all
+    # six gates passed, because none of them asked this question. eval_greeting reasons about
+    # exactly this case by TEXT SHAPE, which cannot distinguish a wave somebody typed from a
+    # wave the client attached to a message -- while the authoritative answer sat in the same
+    # record one field away. Absent must read as "not a reaction", since older records predate
+    # the field and a real greeting carries no emoji flag.
+    # Absent or explicitly false is a real message; ANYTHING else is treated as a reaction.
+    # `is not True` was the first spelling and it fails OPEN — a corrupted or hand-edited
+    # `"reaction": "true"` sails through and gets acked. The costs are lopsided: refusing a
+    # greeting is silence, acking a tapback is the defect. So the unknown value refuses.
+    if not mark("not_a_reaction", rec.get("reaction") in (None, False)):
+        return False, "greeting_is_reaction", None, ch, None, gates
     if not mark("bare_greeting", text is not None):
         return False, "not_a_greeting", None, ch, None, gates
     # No text-matching loop guard, deliberately. Mirroring means the ack IS the greeting, so
