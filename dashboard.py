@@ -4645,7 +4645,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
    <div class="tabs" role="tablist" id="xtabs">
     <button class="tab" role="tab" id="tab-open" aria-controls="pane-open" aria-selected="true">💬 Open Exchanges <span class="badge" id="xc-n">0</span></button>
     <button class="tab" role="tab" id="tab-dm" aria-controls="pane-dm" aria-selected="false">🔒 Direct Messages <span class="badge" id="dm-n">0</span></button>
-    <button class="tab" role="tab" id="tab-learn" aria-controls="pane-learn" aria-selected="false">🔧 Build Queue <span class="badge" id="lrn-untriaged">0</span></button>
+    <button class="tab" role="tab" id="tab-learn" aria-controls="pane-learn" aria-selected="false">🔁 Learning Loops <span class="badge" id="lrn-untriaged">0</span></button>
    </div>
    <div class="pane" id="pane-open" role="tabpanel" aria-labelledby="tab-open"><div id="exchanges"></div></div>
    <div class="pane" id="pane-dm" role="tabpanel" aria-labelledby="tab-dm" hidden>
