@@ -70,7 +70,24 @@ _WHOLE = (
 _WHOLE_RE = re.compile(r"^(?:" + r"|".join(_WHOLE) + r")$", re.I)
 
 # The head-word rule. Deliberately NOT anchored on a qualifier — see above.
-_TAIL_RE = re.compile(r"^(?:[\w'/-]+\s+){0,%d}(?:test|check)$" % (_MAX_WORDS_TAIL - 1), re.I)
+#
+# A NUMBERED TEST IS THE COMMONEST SHAPE AND THE FIRST DRAFT MISSED IT. On 2026-08-23 at
+# 21:59:57Z, ten hours after this module was armed, Dean sent `Test 12` on Cal's own channel.
+# `is_a_test` returned false, the message fell through to the model, and the model answered
+# "Cal HT copies test 12 loud clear" in 9.2 seconds — an invented signal report, which is the
+# precise failure this module exists to prevent, produced by the module meant to prevent it.
+#
+# The rule was written as "ends in test", because every example in the log ended there. Running
+# a SEQUENCE puts the index last instead, and a sequence is what a range test actually is:
+# `Test 1`, `Test 2`, `Test 12`. The word leads and a counter follows.
+#
+# The index is bounded to three digits and captured, not just tolerated — see report(), which
+# echoes it so a reply can be matched to its test when several are in flight. Nothing else from
+# the inbound text is ever echoed: the capture group is digits only, so there is no path from
+# sender-controlled prose into a transmitted reply.
+_INDEX = r"(?:\s+#?(?P<idx>\d{1,3}))?"
+_TAIL_RE = re.compile(r"^(?:[\w'/-]+\s+){0,%d}(?:test|check)%s$"
+                      % (_MAX_WORDS_TAIL - 1, _INDEX), re.I)
 
 
 def _normalize(text):
@@ -98,11 +115,13 @@ def match(text, trigger="cal"):
         # "Cal" alone, once stripped, leaves nothing. That is a hail, not a test.
         if not s:
             return None
-    if _WHOLE_RE.match(s):
-        return {"via": "phrase", "text": s}
-    if _TAIL_RE.match(s):
+    mw = _WHOLE_RE.match(s)
+    if mw:
+        return {"via": "phrase", "text": s, "index": None}
+    mt = _TAIL_RE.match(s)
+    if mt:
         # A bare "test" is still a test — one word, ends in test.
-        return {"via": "tail", "text": s}
+        return {"via": "tail", "text": s, "index": mt.group("idx")}
     return None
 
 
@@ -140,7 +159,7 @@ def hops_of(rec):
     return d if d >= 0 else None
 
 
-def report(rec, max_chars=64):
+def report(rec, max_chars=64, index=None):
     """Build the reply, or (None, meta) when there is nothing measured to report.
 
     Field-by-field degradation: a malformed snr costs the snr and nothing else. Only the
@@ -173,15 +192,23 @@ def report(rec, max_chars=64):
     if hops is not None:
         parts.append("direct" if hops == 0 else f"{hops} hop" + ("s" if hops != 1 else ""))
     meta["parts"] = list(parts)
-    text = "Copy: " + ", ".join(parts)
+    # The index is echoed so a reply can be matched to its test when a sequence is in flight —
+    # `Test 12` is answered `Copy 12:`. Re-derived from digits here rather than passed through
+    # as text: whatever the sender wrote, what goes on air is at most three of their digits.
+    meta["index"] = None
+    if index is not None:
+        d = re.sub(r"\D", "", str(index))[:3]
+        meta["index"] = d or None
+    head = f"Copy {meta['index']}: " if meta["index"] else "Copy: "
+    text = head + ", ".join(parts)
     if len(text) > max_chars:
         # Drop from the RIGHT, which sheds routing before it sheds signal: the two numbers are
         # the report, the hop count is context. Never mid-field — a truncated "RSSI -3" is a
         # different and better-looking measurement than "RSSI -32", and every wrong answer this
         # codebase has aired took exactly that shape.
-        while len(parts) > 1 and len("Copy: " + ", ".join(parts)) > max_chars:
+        while len(parts) > 1 and len(head + ", ".join(parts)) > max_chars:
             parts.pop()
-        text = "Copy: " + ", ".join(parts)
+        text = head + ", ".join(parts)
         meta["parts"] = list(parts)
         if len(text) > max_chars:
             meta["refused"] = "too_long"
@@ -194,6 +221,6 @@ def try_answer(text, rec, max_chars=64, trigger="cal"):
     m = match(text, trigger=trigger)
     if not m:
         return None, {"matched": False}
-    reply, meta = report(rec, max_chars=max_chars)
+    reply, meta = report(rec, max_chars=max_chars, index=m.get("index"))
     meta.update({"matched": True, "via": m["via"]})
     return reply, meta

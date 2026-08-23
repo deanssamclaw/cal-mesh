@@ -1233,8 +1233,16 @@ def plan_sigreport(cfg, st, rec, ours, ts=None):
     # THE REPORT IS BUILT BEFORE THE BUDGET IS CHECKED, and that order matters: a record with
     # no measurements must cost nothing. Spending a daily slot to discover there was nothing
     # to say would let a stream of unmeasured packets exhaust the budget in silence.
+    # The index rides from the MATCH into the REPORT. It has to be threaded explicitly because
+    # this path calls match() and report() separately, where sigreport.try_answer() joins them
+    # for callers that want one call. That difference cost a live defect on 2026-08-23: the
+    # echo was written, evaluated through try_answer, and green — while the only code that
+    # actually transmits went through the two-call path and dropped it. A guard that ships is
+    # the only kind that counts, so eval_sigreport now grades THIS function, not just the
+    # convenience wrapper.
     text, meta = sigreport.report(rec, max_chars=_int_cfg(cfg, "SIGREPORT_MAX_CHARS",
-                                                         DEFAULTS["SIGREPORT_MAX_CHARS"]))
+                                                         DEFAULTS["SIGREPORT_MAX_CHARS"]),
+                                  index=m.get("index"))
     if not mark("has_measurements", text is not None):
         return False, "sigreport_" + (meta.get("refused") or "nothing_measured"), None, ch, None, gates
     busy, util, why = channel_busy(cfg, ts=ts)
