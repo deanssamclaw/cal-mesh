@@ -204,6 +204,40 @@ CASES = {
 }
 
 # (case, must-contain, must-NOT-contain, why it exists)
+# SIGREPORT — added 2026-08-23 after the panel published a false account of itself. With no
+# branch, a range test fell through to the WEATHER story and the public page reported `Test 15`
+# as "a weather question" whose "lookup failed — the weather service could not be reached".
+# Every claim in that sentence was untrue of the message. 101 assertions over 15 shapes did not
+# catch it for the only reason that matters: none of the shapes was a sigreport.
+CASES["sigreport_relayed"] = rec(
+    text="Test 15", reply="Copy 15: 1 hop via MDNO, last leg RSSI -61, SNR 7.0",
+    # hops on the RECORD as well as in the meta: they come from the same packet in real life,
+    # and the link diagram above the flow reads the record. A fixture where they disagree
+    # renders "relayed 1 hop" beside "heard direct" — which is how this line got written.
+    capability="sigreport", gen_ms=None, channel="1", hops=1,
+    trace=dict(gates=GATES_OK, prompt_kind="fixed", dest="^all", gen_status="fixed_sigreport",
+               sigreport=dict(hops=1, snr=7.0, rssi=-61, relay_name="MDNO",
+                              parts=["1 hop via MDNO", "last leg RSSI -61", "SNR 7.0"])))
+CASES["sigreport_direct"] = rec(
+    text="Test 16", reply="Copy 16: direct, RSSI -35, SNR 6.0",
+    capability="sigreport", gen_ms=None,
+    trace=dict(gates=GATES_OK, prompt_kind="fixed", dest="^all", gen_status="fixed_sigreport",
+               sigreport=dict(hops=0, snr=6.0, rssi=-35, relay_name=None,
+                              parts=["direct", "RSSI -35", "SNR 6.0"])))
+# THE FOUR RECORDS ALREADY ON THE PUBLIC PAGE have no meta — they were written before the
+# responder kept it. An absent hop count must not read as "direct": that is the same
+# absent-reads-as-present failure the module itself was fixed for twice.
+CASES["sigreport_legacy"] = rec(
+    text="Test 12", reply="Copy: SNR 5.8, RSSI -63, 2 hops", capability="sigreport",
+    gen_ms=None, hops=2,
+    trace=dict(gates=GATES_OK, prompt_kind="fixed", dest="^all", gen_status="fixed_sigreport"))
+
+# AND THE GENERAL CASE OF THAT BUG: a capability this page has never heard of. The default must
+# be to say what is known, not to assert the nearest mechanism it has prose for.
+CASES["unknown_capability"] = rec(
+    text="whatever", reply="something", capability="somethingnew", gen_ms=None,
+    trace=dict(gates=GATES_OK, prompt_kind="fixed", dest="^all"))
+
 CHECKS = [
     # ---- the fixed-path cluster: the layout was chosen from injected_fact ----
     ("forecast", ["what Cal sent", "no model ran", "nothing"],
@@ -217,6 +251,25 @@ CHECKS = [
      "the capability path must keep its boundary, its attribution and its source"),
     ("general", ["sanitized, then given"], ["only this crosses", "what the software recognised"],
      "with no lookup the message really is what the model got — the picture must invert"),
+    # The words the false trace used are the ones that must never appear on this path.
+    ("sigreport_relayed",
+     ["what Cal measured", "no model ran", "last leg only", "MDNO", "received on air"],
+     ["a weather question", "the lookup failed", "weather service", "National Weather Service",
+      "what Cal looked up", "only this crosses"],
+     "a range test was published as a weather question whose lookup failed — none of it true"),
+    ("sigreport_relayed", ["relayed 1 hop"], ["heard direct"],
+     "a relayed packet must not be described as heard direct"),
+    ("sigreport_direct",
+     ["heard direct", "the sender&rsquo;s own signal", "what Cal measured"],
+     ["last leg only", "a weather question", "the lookup failed"],
+     "a direct packet IS the sender's signal — the last-leg qualifier would be wrong here"),
+    ("sigreport_legacy", ["what Cal measured", "cannot be shown here"],
+     ["The packet arrived direct", "last leg only", "a weather question"],
+     "a record with no measurement meta must not claim the packet arrived direct"),
+    ("unknown_capability",
+     ["no trace panel written", "the trace is missing, not the mechanism", "somethingnew"],
+     ["a weather question", "the lookup failed", "what Cal looked up", "trigger_match"],
+     "an unrecognised capability must say what is known, never assert the nearest mechanism"),
     ("skipped", [], ["1 &middot; the question", "class=\"flow\""],
      "nothing was generated, so there is no chain to draw"),
     # ---- absent is not failed ----
@@ -354,6 +407,14 @@ if "--self-test" in sys.argv:
          "const fstate = ok?'ok':'FAILED';"),
         ("legacy sanitize guesses content",
          "(q.sentence_trimmed?'unknown':'none')", "(q.sentence_trimmed?'content':'none')"),
+        ("sigreport falls through to the weather story again",
+         "if(x.capability==='sigreport'){", "if(false){"),
+        ("an unknown capability is described as weather",
+         "if(capName!=='weather'){", "if(false){"),
+        ("unknown hops claims the packet arrived direct",
+         "+(hops==null", "+(false"),
+        ("a relayed report claims the sender's own signal",
+         "const relayed=(hops!=null&&hops>0);", "const relayed=false;"),
         ("null hops draws as direct",
          "  if(hops==null) stops.push({lab:'?', sub:'routing not recorded', dim:true, dash:true});\n",
          ""),

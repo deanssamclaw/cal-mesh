@@ -1264,18 +1264,18 @@ def plan_sigreport(cfg, st, rec, ours, ts=None):
         return ok
 
     if not mark("sigreport_enabled", cfg.get("SIGREPORT_ENABLED", "false").lower() == "true"):
-        return False, "sigreport_disabled", None, ch, None, gates
+        return False, "sigreport_disabled", None, ch, None, gates, None
     if not mark("not_self", sender != ours):
-        return False, "self", None, ch, None, gates
+        return False, "self", None, ch, None, gates, None
     # A TAPBACK IS NOT A TEST, for the same reason it is not a greeting: `reaction` is the
     # sending client's own flag, and a 👍 on somebody's range test is not a range test. Absent
     # reads as a real message (older records predate the field); anything that is not None or
     # False refuses, so a hand-edited "reaction": "true" fails the safe way.
     if not mark("not_a_reaction", rec.get("reaction") in (None, False)):
-        return False, "sigreport_is_reaction", None, ch, None, gates
+        return False, "sigreport_is_reaction", None, ch, None, gates, None
     m = sigreport.match(rec.get("text", ""), trigger=cfg.get("TRIGGER_WORD", "cal"))
     if not mark("is_a_test", m is not None):
-        return False, "not_a_test", None, ch, None, gates
+        return False, "not_a_test", None, ch, None, gates, None
     # THE REPORT IS BUILT BEFORE THE BUDGET IS CHECKED, and that order matters: a record with
     # no measurements must cost nothing. Spending a daily slot to discover there was nothing
     # to say would let a stream of unmeasured packets exhaust the budget in silence.
@@ -1291,23 +1291,26 @@ def plan_sigreport(cfg, st, rec, ours, ts=None):
                                   index=m.get("index"),
                                   relay_name=resolve_relay(rec.get("relay_byte")))
     if not mark("has_measurements", text is not None):
-        return False, "sigreport_" + (meta.get("refused") or "nothing_measured"), None, ch, None, gates
+        return False, "sigreport_" + (meta.get("refused") or "nothing_measured"), None, ch, None, gates, None
     busy, util, why = channel_busy(cfg, ts=ts)
     if not mark("channel_quiet", not busy):
-        return False, "sigreport_channel_" + why, None, ch, None, gates
+        return False, "sigreport_channel_" + why, None, ch, None, gates, None
     last = (st.get("sig_per_sender") or {}).get(sender, 0)
     if not mark("sender_cooldown", ts - last >= _int_cfg(cfg, "SIGREPORT_SENDER_COOLDOWN_S",
                                                          DEFAULTS["SIGREPORT_SENDER_COOLDOWN_S"])):
-        return False, "sigreport_sender_cooldown", None, ch, None, gates
+        return False, "sigreport_sender_cooldown", None, ch, None, gates, None
     day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
     used = (st.get("sig_day") or {}).get(day, 0)
     if not mark("daily_budget", used < _int_cfg(cfg, "SIGREPORT_MAX_PER_DAY",
                                                 DEFAULTS["SIGREPORT_MAX_PER_DAY"])):
-        return False, "sigreport_budget_spent", None, ch, None, gates
+        return False, "sigreport_budget_spent", None, ch, None, gates, None
     # The report goes back where the test was sent. A test on the open channel is a public
     # question and its answer is useful to everyone listening; a DM test gets a DM.
     dest = sender if rec.get("to") not in ("^all", None) else "^all"
-    return True, "sigreport", dest, ch, text, gates
+    # meta rides out as a 7th element so the public trace can say what was MEASURED rather than
+    # describing a mechanism. Appended, never inserted: the first six positions are pinned by
+    # eval_sigreport and by the call site.
+    return True, "sigreport", dest, ch, text, gates, meta
 
 
 def commit_sigreport(st, sender, ts=None):
@@ -1416,8 +1419,8 @@ def main():
                         # inbound messages it fires 9 times, every one of them an actual test,
                         # and collides with calc, weather, sun/moon, capabilities and the
                         # greeting ack zero times. Re-run that replay before widening it.
-                        s_ok, s_reason, s_dest, s_ch, s_text, s_gates = plan_sigreport(
-                            cfg, st, rec, ours)
+                        (s_ok, s_reason, s_dest, s_ch, s_text,
+                         s_gates, s_meta) = plan_sigreport(cfg, st, rec, ours)
                         if s_gates and s_gates[0]["pass"]:
                             d["sigreport_gates"] = s_gates
                         if s_ok:
@@ -1426,7 +1429,10 @@ def main():
                             save_state(st)
                             d.update({"matched": True, "reason": s_reason, "reply": s_text,
                                       "dest": s_dest, "capability": "sigreport",
-                                      "prompt_kind": "fixed", "gen_status": "fixed_sigreport"})
+                                      "prompt_kind": "fixed", "gen_status": "fixed_sigreport",
+                                      # what was MEASURED, so the public trace can report the
+                                      # readback instead of describing a mechanism.
+                                      "sigreport": s_meta})
                             log(f"SIGREPORT {rec.get('from')} -> {s_dest}: {s_text!r}")
                             record_decision(d)
                             st["inbox_offset"] = new_off

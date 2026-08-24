@@ -273,7 +273,7 @@ def correlate(inbox, sent, decisions):
                          "weather_ok", "gen_status", "injection_flagged", "dest",
                          "obs_station", "obs_age_s", "forecast_asked", "trigger_match",
                          "greeting_gates", "greeting_reason", "calc",
-                         "sunmoon_match", "sunmoon",
+                         "sunmoon_match", "sunmoon", "sigreport",
                          # authenticated-DM path: so the trace can say the model also got the
                          # injected context + remembered thread, not just the message.
                          "dm_unlock", "dm_memory_stored")
@@ -5223,6 +5223,48 @@ function flowHtml(x,t){
       +`ambiguous (a gallon is not the same on both sides of the Atlantic) or falls outside `
       +`what can be answered exactly, Cal says nothing rather than guess.</div>`;
   }
+  // SIGREPORT. Added 2026-08-23 after this panel published a FALSE ACCOUNT of itself: with no
+  // branch of its own, a range test fell through to the weather story below and the public page
+  // told everyone that `Test 15` was "a weather question" whose "lookup failed — the weather
+  // service could not be reached". No weather was involved, no lookup was attempted, and
+  // nothing failed. A trace that invents a mechanism is worse than no trace, because it is
+  // read as the record.
+  if(x.capability==='sigreport'){
+    const sg=t.sigreport||{};
+    const hops=(sg.hops==null)?null:Number(sg.hops);
+    const relayed=(hops!=null&&hops>0);
+    const what=(hops==null)?'a signal test'
+      :(relayed?`a signal test, relayed ${hops} hop${hops===1?'':'s'}`:'a signal test, heard direct');
+    const g1=`<div class="fb b1"><div class="fk">1 &middot; the question</div><div class="fv">${inTxt}</div>`
+      +`<div class="fn"><span class="onair">&#10003; received on air</span> — a range or signal `
+      +`test, which is a message explicitly asking whoever can hear it to answer</div></div>`;
+    const g2=`<div class="fb bx"><div class="fk">2 &middot; what the software recognised</div>`
+      +`<div class="fv">${esc(what)}</div>`
+      +`<div class="fn">matched by <b>shape, not vocabulary</b> — a short message ending in `
+      +`&ldquo;test&rdquo; or &ldquo;check&rdquo;, with an optional index. No model involved.</div></div>`;
+    const g3=`<div class="fb bx"><div class="fk">3 &middot; what Cal measured</div>`
+      +`<div class="fv">${esc(sg.parts&&sg.parts.length?sg.parts.join(', '):"the radio's own reading")}</div>`
+      +`<div class="fn"><b>nothing was fetched, computed or invented.</b> These are the receiver&rsquo;s `
+      +`own numbers for <b>this very packet</b>, recorded on arrival.`
+      +(hops==null
+        ? ` This record predates Cal keeping the measurement alongside the reply, so whether the `
+          +`packet arrived direct or was relayed <b>cannot be shown here</b> — the reply itself `
+          +`says which.`
+        : relayed
+          ? ` They describe the <b>last leg only</b>${sg.relay_name?' — the hop from '+esc(sg.relay_name)+' into Cal':''}, `
+            +`not the whole journey, which is why the reply says so rather than letting them read `
+            +`as the sender&rsquo;s own signal.`
+          : ` The packet arrived direct, so they are the sender&rsquo;s own signal.`)
+      +`</div></div>`;
+    const g4=`<div class="fb b3"><div class="fk">4 &middot; what Cal sent</div><div class="fv">${outTxt}</div>`
+      +`<div class="fn"><span class="onair">&#10003; sent on air to ${esc(t.dest||'')}</span></div></div>`;
+    return `<div class="flow gen">${g1}${arrow('')}${g2}${arrow('')}${g3}${arrow('')}${g4}</div>`
+      +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
+      +`A signal report is a readback: the radio reports what it heard when the packet landed, and `
+      +`the software formats those numbers. If the record carries no measurements at all, Cal says `
+      +`nothing rather than something reassuring.</div>`;
+  }
+
   if(!capability){
     // An authenticated DM from Dean is the same "no lookup, model ran" shape, but the model did
     // NOT see only the message — the harness also injected Cal's saved context and, when present,
@@ -5238,6 +5280,24 @@ function flowHtml(x,t){
     return `<div class="flow gen">${b1}${arrow('sanitized, then given<br>to the model')}${b3}</div>`
       +`<div class="flowcap">Nothing was looked up for this one, so the model was given `
       +`<b>the message itself</b> and wrote a reply from it.</div>`;
+  }
+  // EVERYTHING BELOW IS THE WEATHER STORY, AND IT NOW HAS TO SAY SO. Until 2026-08-23 this was
+  // the fall-through for any capability without a branch of its own, so adding a capability and
+  // forgetting this function published a confident, detailed, false account of it: a range test
+  // was rendered as "a weather question" whose "lookup failed — the weather service could not be
+  // reached". Nothing here was true of that message. The default is now to say what is known
+  // rather than to assert a mechanism, because a wrong trace is read as the record.
+  // `capability` above is a BOOLEAN, and reading it as a name was the first version of this
+  // guard — which sent every weather record into the panel below and broke the four cases the
+  // eval already had. The weather story is entered by NAME, or by a legacy record that carries
+  // a trigger match and no capability field at all.
+  const capName = x.capability || (t.trigger_match && t.trigger_match.via ? 'weather' : '');
+  if(capName!=='weather'){
+    return `<div class="flow gen">${b1}${arrow('')}${b3}</div><div class="flowcap">`
+      +`This reply came from <b>${esc(capName||'an unnamed capability')}</b>, a capability with no trace panel written `
+      +`for it yet. Rather than describe machinery that may not be what ran, this page says only `
+      +`what it can stand behind: the message arrived on air and the reply went out. `
+      +`<b>If you are seeing this, the trace is missing, not the mechanism.</b></div>`;
   }
   // The step between the question and the lookup: plain word-matching that decides WHICH
   // capability runs. No model is involved, and it is where a 2026-08-11 defect hid — a question

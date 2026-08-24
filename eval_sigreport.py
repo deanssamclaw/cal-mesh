@@ -316,6 +316,22 @@ for bad, want in (("MD<script>", None), ("../../etc", None), ("MDNO EXTRA", None
        f"clean_name({bad!r}) should be {want!r}, got {sigreport.clean_name(bad)!r}")
 ck(plan(r=rec(text="Test 12"))[1] == "sigreport", "a numbered test is claimed by the doer")
 ck(plan(r=rec(text="Test 12"))[3] == 0, "the report answers on the channel it arrived on")
+# THE 7th ELEMENT IS THE PUBLIC TRACE'S EVIDENCE. Without it the dashboard has nothing to show
+# but a mechanism it would have to describe from memory — which is exactly how a range test came
+# to be published as "a weather question" whose lookup failed.
+m7 = plan(r=rec(text="Test 12"))[6]
+ck(isinstance(m7, dict), f"the gate must return its measurement meta: {m7!r}")
+ck(m7.get("parts") == ["2 hops", "last leg RSSI -32", "SNR 6.0"], f"meta parts: {m7.get('parts')}")
+ck(m7.get("hops") == 2 and m7.get("snr") == 6.0 and m7.get("rssi") == -32, "meta carries the numbers")
+ck(plan(r=rec(text="Test 12", relay_byte=198))[6].get("relay_name") == "MDNO",
+   "meta carries the resolved relay for the trace")
+# Every refusal returns the same arity, or the caller unpacks a different shape depending on
+# which gate said no — a crash that only happens on the failing path.
+for r_ in (rec(text="Range test", reaction=True), rec(text="not a test"),
+           rec(text="Range test", **{"from": "!cccccccc"})):
+    ck(len(plan(r=r_)) == 7, f"every return is a 7-tuple: {r_.get('text')!r}")
+ck(len(responder.plan_sigreport({}, {}, rec(text="Range test"), "!cccccccc")) == 7,
+   "including the disabled path")
 ck(plan(r=rec(text="Test 12", channel=1))[3] == 1, "including Cal's own channel")
 
 # CHANNEL STATE: unknown must FAIL CLOSED, in every one of its flavours.
