@@ -4453,6 +4453,15 @@ box-shadow:inset 0 2px 5px rgba(22,27,34,.05),0 1px 0 #fff}
 .flow{display:grid;align-items:center;margin:2px 0 4px;
 grid-template-columns:minmax(0,1fr) 62px minmax(0,.92fr) 74px minmax(0,.86fr) 104px minmax(0,1fr)}
 .flow.gen{grid-template-columns:minmax(0,1fr) 150px minmax(0,1fr)}
+/* A COLUMN TEMPLATE PER BOX COUNT. `.flow.gen` defines THREE columns, and three branches --
+   calc, sun/moon and sigreport -- were passing FOUR boxes and three arrows through it. Seven
+   children in a three-column grid do not overflow, they WRAP: the chain silently rearranged
+   into a two-row block with one box squeezed into a narrow column and its note running a
+   dozen lines tall. It rendered, so nothing failed; it was simply wrong, and it stayed wrong
+   from the day calc was armed. The count now picks the template, at one choke point. */
+.flow.gen.g2{grid-template-columns:minmax(0,1fr) 150px minmax(0,1fr)}
+.flow.gen.g3{grid-template-columns:minmax(0,1fr) 84px minmax(0,1fr) 84px minmax(0,1fr)}
+.flow.gen.g4{grid-template-columns:minmax(0,1fr) 60px minmax(0,.96fr) 60px minmax(0,.96fr) 60px minmax(0,1fr)}
 .fb{position:relative;z-index:1;border:1px solid var(--line);border-radius:11px;padding:10px 13px;
 background:linear-gradient(180deg,#fff,#fbfcfe);
 box-shadow:0 1px 2px rgba(22,27,34,.05),0 6px 16px -8px rgba(22,27,34,.22)}
@@ -4530,7 +4539,7 @@ box-shadow:0 0 0 2px #fff,0 1px 3px rgba(22,27,34,.4);transition:left .7s cubic-
 .tp.anim .stg>.sdot,.tp.anim .arw,.tp.anim .cross .bl{animation:none;opacity:1;transform:none}
 .track .mk{transition:none}}
 @media(max-width:700px){
-.flow,.flow.gen{grid-template-columns:minmax(0,1fr)}
+.flow,.flow.gen,.flow.gen.g2,.flow.gen.g3,.flow.gen.g4{grid-template-columns:minmax(0,1fr)}
 .arw,.cross{display:none}}
 /* ==================== v4: the trace is a dark instrument well ====================
    The page stays light. The trace panel — and ONLY the trace panel — is dark.
@@ -5149,6 +5158,14 @@ function flowHtml(x,t){
   // The capability branch is weather-shaped ("what Cal looked up"); the general branch says
   // the model was handed the message. Here nothing was fetched AND no model ran: plain word
   // matching selected a sentence written in advance. Drawn as exactly that.
+  // ONE CHOKE POINT for the chain row, so a branch cannot pick the wrong grid again. The
+  // template is chosen from the NUMBER OF BOXES rather than remembered per branch, which is
+  // what three of them got wrong. `labels[i]` is the arrow between box i and box i+1.
+  const flowRow=(boxes,labels)=>{
+    const out=[];
+    boxes.forEach((b,i)=>{ out.push(b); if(i<boxes.length-1) out.push(arrow((labels&&labels[i])||'')); });
+    return `<div class="flow gen g${boxes.length}">${out.join('')}</div>`;
+  };
   if(x.capability==='greeting'){
     const g1=`<div class="fb b1"><div class="fk">1 · what they said</div><div class="fv">${inTxt}</div>`
       +`<div class="fn"><span class="onair">✓ received on air</span> — from a node that is `
@@ -5160,7 +5177,7 @@ function flowHtml(x,t){
     const g3=`<div class="fb b3"><div class="fk">3 · what Cal sent</div><div class="fv">${outTxt}</div>`
       +`<div class="fn"><span class="onair">✓ sent on air to ${esc(t.dest||'^all')}</span> — the `
       +`greeting mirrored back, and only once per node per day</div></div>`;
-    return `<div class="flow gen">${g1}${arrow('')}${g2}${arrow('')}${g3}</div>`
+    return flowRow([g1,g2,g3])
       +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
       +`Cal answers questions only from known nodes, but staying silent when a stranger says `
       +`hello reads as a snub — so a greeting gets one back, to say it was heard. Which line `
@@ -5194,7 +5211,7 @@ function flowHtml(x,t){
       +`</div></div>`;
     const s4=`<div class="fb b3"><div class="fk">4 &middot; what Cal sent</div><div class="fv">${outTxt}</div>`
       +`<div class="fn"><span class="onair">&#10003; sent on air to ${esc(t.dest||'')}</span></div></div>`;
-    return `<div class="flow gen">${s1}${arrow('')}${s2}${arrow('')}${s3}${arrow('')}${s4}</div>`
+    return flowRow([s1,s2,s3,s4])
       +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
       +`Python computes the time and formats the sentence. Where the event does not occur at all `
       +`— a polar day, or a twilight the sun never reaches — Cal says which one is missing rather `
@@ -5216,7 +5233,7 @@ function flowHtml(x,t){
       +`and formatted by the software itself</div></div>`;
     const c4=`<div class="fb b3"><div class="fk">4 · what Cal sent</div><div class="fv">${outTxt}</div>`
       +`<div class="fn"><span class="onair">✓ sent on air to ${esc(t.dest||'')}</span></div></div>`;
-    return `<div class="flow gen">${c1}${arrow('')}${c2}${arrow('')}${c3}${arrow('')}${c4}</div>`
+    return flowRow([c1,c2,c3,c4])
       +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
       +`The model is not in the number path at all — Python parses the question, computes the `
       +`answer from exact defined constants, and formats the sentence. Where a value is `
@@ -5236,29 +5253,25 @@ function flowHtml(x,t){
     const what=(hops==null)?'a signal test'
       :(relayed?`a signal test, relayed ${hops} hop${hops===1?'':'s'}`:'a signal test, heard direct');
     const g1=`<div class="fb b1"><div class="fk">1 &middot; the question</div><div class="fv">${inTxt}</div>`
-      +`<div class="fn"><span class="onair">&#10003; received on air</span> — a range or signal `
-      +`test, which is a message explicitly asking whoever can hear it to answer</div></div>`;
+      +`<div class="fn"><span class="onair">&#10003; received on air</span> — a test is a message `
+      +`asking whoever hears it to answer</div></div>`;
     const g2=`<div class="fb bx"><div class="fk">2 &middot; what the software recognised</div>`
       +`<div class="fv">${esc(what)}</div>`
       +`<div class="fn">matched by <b>shape, not vocabulary</b> — a short message ending in `
-      +`&ldquo;test&rdquo; or &ldquo;check&rdquo;, with an optional index. No model involved.</div></div>`;
+      +`&ldquo;test&rdquo; or &ldquo;check&rdquo;. <b>No model involved.</b></div></div>`;
     const g3=`<div class="fb bx"><div class="fk">3 &middot; what Cal measured</div>`
       +`<div class="fv">${esc(sg.parts&&sg.parts.length?sg.parts.join(', '):"the radio's own reading")}</div>`
-      +`<div class="fn"><b>nothing was fetched, computed or invented.</b> These are the receiver&rsquo;s `
-      +`own numbers for <b>this very packet</b>, recorded on arrival.`
+      +`<div class="fn"><b>nothing fetched, computed or invented</b> — the receiver&rsquo;s own `
+      +`numbers for <b>this very packet</b>.`
       +(hops==null
-        ? ` This record predates Cal keeping the measurement alongside the reply, so whether the `
-          +`packet arrived direct or was relayed <b>cannot be shown here</b> — the reply itself `
-          +`says which.`
+        ? ` Routing <b>not recorded</b> for this one; the reply says which.`
         : relayed
-          ? ` They describe the <b>last leg only</b>${sg.relay_name?' — the hop from '+esc(sg.relay_name)+' into Cal':''}, `
-            +`not the whole journey, which is why the reply says so rather than letting them read `
-            +`as the sender&rsquo;s own signal.`
-          : ` The packet arrived direct, so they are the sender&rsquo;s own signal.`)
+          ? ` The <b>last leg only</b>${sg.relay_name?', from '+esc(sg.relay_name):''} — not the whole journey.`
+          : ` Direct, so they are the sender&rsquo;s own signal.`)
       +`</div></div>`;
     const g4=`<div class="fb b3"><div class="fk">4 &middot; what Cal sent</div><div class="fv">${outTxt}</div>`
       +`<div class="fn"><span class="onair">&#10003; sent on air to ${esc(t.dest||'')}</span></div></div>`;
-    return `<div class="flow gen">${g1}${arrow('')}${g2}${arrow('')}${g3}${arrow('')}${g4}</div>`
+    return flowRow([g1,g2,g3,g4])
       +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
       +`A signal report is a readback: the radio reports what it heard when the packet landed, and `
       +`the software formats those numbers. If the record carries no measurements at all, Cal says `
@@ -5272,12 +5285,12 @@ function flowHtml(x,t){
     // once made a refused forecast claim the model was handed the message.
     if(t.dm_unlock){
       const mem=t.dm_memory_stored?' and the recent messages it remembers':'';
-      return `<div class="flow gen">${b1}${arrow('given to the model with<br>Cal\'s saved context')}${b3}</div>`
+      return flowRow([b1,b3],['given to the model with<br>Cal\'s saved context'])
         +`<div class="flowcap">This is an <b>authenticated direct message from Dean</b>, so the model was `
         +`given the message <b>plus Cal&rsquo;s saved context${mem}</b> — which is why the reply can be `
         +`longer and carry a thread. The context is the operator&rsquo;s public file; no secret crosses.</div>`;
     }
-    return `<div class="flow gen">${b1}${arrow('sanitized, then given<br>to the model')}${b3}</div>`
+    return flowRow([b1,b3],['sanitized, then given<br>to the model'])
       +`<div class="flowcap">Nothing was looked up for this one, so the model was given `
       +`<b>the message itself</b> and wrote a reply from it.</div>`;
   }
@@ -5293,7 +5306,7 @@ function flowHtml(x,t){
   // a trigger match and no capability field at all.
   const capName = x.capability || (t.trigger_match && t.trigger_match.via ? 'weather' : '');
   if(capName!=='weather'){
-    return `<div class="flow gen">${b1}${arrow('')}${b3}</div><div class="flowcap">`
+    return flowRow([b1,b3])+`<div class="flowcap">`
       +`This reply came from <b>${esc(capName||'an unnamed capability')}</b>, a capability with no trace panel written `
       +`for it yet. Rather than describe machinery that may not be what ran, this page says only `
       +`what it can stand behind: the message arrived on air and the reply went out. `

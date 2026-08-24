@@ -263,7 +263,7 @@ CHECKS = [
      ["heard direct", "the sender&rsquo;s own signal", "what Cal measured"],
      ["last leg only", "a weather question", "the lookup failed"],
      "a direct packet IS the sender's signal — the last-leg qualifier would be wrong here"),
-    ("sigreport_legacy", ["what Cal measured", "cannot be shown here"],
+    ("sigreport_legacy", ["what Cal measured", "Routing <b>not recorded</b>"],
      ["The packet arrived direct", "last leg only", "a weather question"],
      "a record with no measurement meta must not claim the packet arrived direct"),
     ("unknown_capability",
@@ -344,6 +344,25 @@ CHECKS = [
 failures, checked = [], 0
 
 
+def row_problem(html):
+    """The chain's declared column count vs the boxes it actually draws, or None.
+
+    Three legitimate shapes: the weather layout on the 7-column `.flow`, a `.flow.gen.g<N>`
+    chain, and no chain at all (a skipped message has no reply to draw). A `.flow.gen` with
+    NO count is the broken one, and it is broken silently -- it renders, it just wraps.
+    """
+    boxes = len(re.findall(r'class="fb\b', html))
+    m = re.search(r'class="flow gen g(\d)"', html)
+    if m:
+        if int(m.group(1)) != boxes:
+            return f"declares g{m.group(1)} but draws {boxes} boxes — the grid wraps the chain"
+        return None if boxes >= 2 else f"a chain needs at least two boxes, got {boxes}"
+    if re.search(r'class="flow gen"', html):
+        return f"a .flow.gen chain with no column count, drawing {boxes} boxes"
+    return None
+
+
+
 def run(script, extra):
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
         f.write(SHIM + script + "\n" + extra)
@@ -415,6 +434,9 @@ if "--self-test" in sys.argv:
          "+(hops==null", "+(false"),
         ("a relayed report claims the sender's own signal",
          "const relayed=(hops!=null&&hops>0);", "const relayed=false;"),
+        ("the four-box chain goes back into the three-column grid",
+         'return `<div class="flow gen g${boxes.length}">${out.join(\'\')}</div>`;',
+         'return `<div class="flow gen">${out.join(\'\')}</div>`;'),
         ("null hops draws as direct",
          "  if(hops==null) stops.push({lab:'?', sub:'routing not recorded', dim:true, dash:true});\n",
          ""),
@@ -430,7 +452,8 @@ if "--self-test" in sys.argv:
             print(f"  ok {name}: CAUGHT (threw: {merr[:60]})")
             continue
         caught = any((t not in mrend[c]) for c, ms, _, _ in CHECKS for t in ms if c in mrend) or \
-                 any((t in mrend[c]) for c, _, mn, _ in CHECKS for t in mn if c in mrend)
+                 any((t in mrend[c]) for c, _, mn, _ in CHECKS for t in mn if c in mrend) or \
+                 any(row_problem(h) for h in mrend.values())
         print(f"  {'ok' if caught else 'XX'} {name}: {'CAUGHT' if caught else 'SURVIVED'}")
         if not caught:
             failures.append(f"MUTATION SURVIVED: {name} — the checks above cannot detect it")
@@ -520,6 +543,18 @@ if "--self-test" in sys.argv:
         print(f"  {'ok' if caught else 'XX'} {name}: {'CAUGHT' if caught else 'SURVIVED'}")
         if not caught:
             failures.append(f"MUTATION SURVIVED: {name}")
+
+# --- the chain is ONE ROW ----------------------------------------------------------------
+# `.flow.gen` defines three grid columns. A branch passing four boxes and three arrows through
+# it does not overflow -- it WRAPS, into a two-row block with one box squeezed narrow and its
+# note running a dozen lines tall. It renders, nothing throws, and it was wrong from the day
+# calc was armed. So the box count and the declared column class are checked against each
+# other for every shape, which is the only way this stays fixed.
+for case, html in sorted(rendered.items()):
+    checked += 1
+    problem = row_problem(html)
+    if problem:
+        failures.append(f"[{case}] {problem}")
 
 for f in failures:
     print("FAIL " + f)
