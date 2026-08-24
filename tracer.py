@@ -61,6 +61,13 @@ DEFAULTS = {
     # away than that cannot answer even if it wants to, and counting that as a refusal would
     # poison the responder map with a routing fact.
     "TRACER_MAX_HOPS": "3",
+    # THE BUDGET COUNTS PROBES SENT, NOT PROBES QUEUED, and those are different numbers the
+    # moment the bridge starts holding for a busy channel. Entries then accumulate: this loop
+    # keeps seeing budget available, because nothing has been spent, while a backlog builds
+    # that will all go out at one per measurement window as soon as the air clears. A depth
+    # cap is the second half of the budget, and without it the politeness gate is a delay
+    # rather than a limit.
+    "TRACER_MAX_QUEUED": "2",
 }
 
 ID_RE = re.compile(r"^![0-9a-f]{8}$")
@@ -229,16 +236,53 @@ def spent_today(state, now):
                 if isinstance(p.get("ts"), (int, float)) and p["ts"] >= day_start])
 
 
-def plan(nodes, state, routes, ours, cfg, now=None):
+def pending(queue_dir):
+    """Queue entries the bridge has not yet consumed: (count, {node ids}).
+
+    Unreadable or malformed entries still COUNT toward depth -- they occupy the queue whether
+    or not we can read them, and a depth cap that only counts the files it understands is not
+    a cap.
+    """
+    ids = set()
+    n = 0
+    try:
+        names = [f for f in os.listdir(queue_dir) if not f.endswith(".tmp")]
+    except OSError:
+        return 0, ids
+    for f in names:
+        full = os.path.join(queue_dir, f)
+        if os.path.isdir(full):
+            continue
+        n += 1
+        try:
+            with open(full, encoding="utf-8") as fh:
+                d = json.load(fh)
+            if isinstance(d, dict) and isinstance(d.get("dest"), str):
+                ids.add(d["dest"])
+        except (OSError, ValueError):
+            continue
+    return n, ids
+
+
+def plan(nodes, state, routes, ours, cfg, now=None, queue_dir=None):
     """(target|None, reason, ranked, skipped). Never transmits, never writes."""
     now = time.time() if now is None else now
     if str(cfg.get("TRACER_ENABLED", "false")).lower() != "true":
         return None, "tracer_disabled", [], []
+    queued_n, queued_ids = pending(queue_dir) if queue_dir else (0, set())
+    depth = _int(cfg, "TRACER_MAX_QUEUED")
+    if queued_n >= depth:
+        return None, f"queue_backed_up_{queued_n}_of_{depth}", [], []
     used = spent_today(state, now)
     cap = _int(cfg, "TRACER_MAX_PER_DAY")
     if used >= cap:
         return None, f"budget_spent_{used}_of_{cap}", [], []
     ranked, skipped = score(nodes, state, routes, ours, cfg, now)
+    # A node already waiting in the queue is not a candidate: queueing it twice would spend
+    # two probes to answer one question, and the ranker cannot see the queue on its own.
+    if queued_ids:
+        ranked = [r for r in ranked if r["node"] not in queued_ids]
+        skipped = skipped + [{"node": n, "why": "already_queued"} for n in sorted(queued_ids)]
     if not ranked:
         return None, "no_candidates", ranked, skipped
     return ranked[0], "probe", ranked, skipped
@@ -298,7 +342,8 @@ def main(argv=None):
     if not ours:
         print("no node id in status.json — refusing to plan against an unknown self")
         return 1
-    target, reason, ranked, skipped = plan(nodes, state, routes, ours, cfg)
+    target, reason, ranked, skipped = plan(nodes, state, routes, ours, cfg,
+                                           queue_dir=os.path.join(base, "traceroute"))
     now = time.time()
     text = _ledger(ranked, skipped, responders(routes, ours), probe_history(state),
                    target, reason)

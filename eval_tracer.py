@@ -166,6 +166,35 @@ ck(not any(f.endswith(".tmp") for f in files), "the write is atomic — no .tmp 
 ck(json.load(open(path))["dest"] == A, "the entry names the node")
 ck(A.lstrip("!") in os.path.basename(path), "the filename is legible in the queue directory")
 
+# --- the queue depth cap: the second half of the budget --------------------------------
+# spent_today() counts probes SENT. While the bridge holds for a busy channel, nothing is
+# spent and entries pile up, so the daily cap alone would let a backlog build that all goes
+# out at one per measurement window once the air clears.
+qd = tempfile.mkdtemp()
+ck(tracer.pending(qd) == (0, set()), "an empty queue is empty")
+ck(tracer.pending(os.path.join(qd, "nope"))[0] == 0, "a missing queue directory is not a crash")
+tracer.enqueue(qd, {"node": A, "why": "x"}, now=NOW)
+ck(tracer.pending(qd)[0] == 1 and tracer.pending(qd)[1] == {A}, "one entry, one node")
+# A NODE ALREADY WAITING IS NOT A CANDIDATE. The ranker cannot see the queue by itself.
+t5, r5, ranked5, sk5 = tracer.plan([node(A), node(B)], {}, [], OURS, cfg(), now=NOW, queue_dir=qd)
+ck(t5 and t5["node"] == B, f"a queued node is not re-queued; got {t5 and t5['node']}")
+ck(any(s2["why"] == "already_queued" and s2["node"] == A for s2 in sk5),
+   "and the exclusion is explained")
+tracer.enqueue(qd, {"node": B, "why": "x"}, now=NOW + 1)
+t6, r6, _, _ = tracer.plan([node(A), node(B), node(C)], {}, [], OURS, cfg(), now=NOW,
+                           queue_dir=qd)
+ck(t6 is None and r6.startswith("queue_backed_up"), f"depth cap must hold: {r6}")
+ck(tracer.plan([node(C)], {}, [], OURS, cfg(TRACER_MAX_QUEUED=9), now=NOW,
+               queue_dir=qd)[0] is not None, "a raised depth cap releases it")
+# An unreadable entry still occupies the queue.
+with open(os.path.join(qd, "junk"), "w") as fh:
+    fh.write("not json")
+ck(tracer.pending(qd)[0] == 3, "a malformed entry still counts toward depth")
+# Without a queue_dir the cap is simply not applied — callers that do not pass one are not
+# silently told the queue is full.
+ck(tracer.plan([node(A)], {}, [], OURS, cfg(), now=NOW)[0] is not None,
+   "no queue_dir means no depth claim")
+
 if "--self-test" in sys.argv:
     print("\n--- self-test: each mutation must be CAUGHT ---")
     src = open(os.path.join(HERE, "tracer.py"), encoding="utf-8").read()
@@ -182,6 +211,9 @@ if "--self-test" in sys.argv:
          'if r.get("kind") != "response":'),
         ("discovery priority inverted", 'tier, why = 0, "never probed"',
          'tier, why = 9, "never probed"'),
+        ("queue depth cap ignored", "if queued_n >= depth:", "if False:"),
+        ("a queued node is queued again",
+         'ranked = [r for r in ranked if r["node"] not in queued_ids]', "pass"),
         ("queue write no longer atomic", "os.replace(tmp, path)",
          "os.rename(tmp, path) if False else __import__('shutil').copyfile(tmp, path)"),
     ]
@@ -224,6 +256,14 @@ if "--self-test" in sys.argv:
             d2 = tempfile.mkdtemp()
             m.enqueue(d2, {"node": A, "why": "x"}, now=NOW)
             if any(f.endswith(".tmp") for f in os.listdir(d2)):
+                caught = True
+            m.enqueue(d2, {"node": B, "why": "x"}, now=NOW + 1)
+            if m.plan([node(C)], {}, [], OURS, cfg(), now=NOW, queue_dir=d2)[0] is not None:
+                caught = True
+            d3 = tempfile.mkdtemp()
+            m.enqueue(d3, {"node": A, "why": "x"}, now=NOW)
+            tq = m.plan([node(A), node(B)], {}, [], OURS, cfg(), now=NOW, queue_dir=d3)[0]
+            if not tq or tq["node"] != B:
                 caught = True
         except Exception:                                      # noqa: BLE001
             caught = True
