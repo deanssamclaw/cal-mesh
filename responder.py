@@ -35,6 +35,7 @@ BASE      = os.path.expanduser("~/cal-mesh")
 INBOX     = os.path.join(BASE, "inbox.jsonl")
 OUTBOX    = os.path.join(BASE, "outbox")
 STATUS    = os.path.join(BASE, "status.json")
+NODES     = os.path.join(BASE, "nodes.json")
 CONFIG    = os.path.join(BASE, "config")
 STATE     = os.path.join(BASE, "responder-state.json")
 DECISIONS = os.path.join(BASE, "decisions.jsonl")
@@ -1197,6 +1198,51 @@ def channel_busy(cfg, ts=None):
     return (util >= limit), util, ("busy" if util >= limit else "quiet")
 
 
+_NODE_CACHE = {"mtime": None, "by_byte": {}}
+
+
+def resolve_relay(relay_byte):
+    """The short name of the node that last relayed a packet, or None.
+
+    A relay is identified by ONE BYTE of its node number (`relay_node`), so this can be
+    ambiguous by construction. It returns a name only when EXACTLY ONE known node matches:
+    two candidates means we do not know, and naming a guess on a public channel is worse than
+    saying nothing. It is also silent about a byte it cannot place at all -- a node Cal has
+    never heard of can share a last byte with one it has, so a single match is strong evidence
+    rather than proof, and the reply degrades to a bare hop count when it fails.
+
+    Reads the bridge's nodes.json, cached on mtime. Every failure is quiet: this decorates a
+    report, and a decoration must never be able to stop one being sent.
+    """
+    if relay_byte is None:
+        return None
+    try:
+        m = os.path.getmtime(NODES)
+    except OSError:
+        return None
+    if _NODE_CACHE["mtime"] != m:
+        by_byte = {}
+        try:
+            with open(NODES) as f:
+                data = json.load(f)
+            for n in (data.get("nodes") or []):
+                nid = (n or {}).get("id")
+                if not isinstance(nid, str) or not nid.startswith("!"):
+                    continue
+                try:
+                    num = int(nid[1:], 16)
+                except ValueError:
+                    continue
+                by_byte.setdefault(num & 0xFF, []).append(n.get("short"))
+        except Exception:                                      # noqa: BLE001
+            return None
+        _NODE_CACHE.update({"mtime": m, "by_byte": by_byte})
+    hits = _NODE_CACHE["by_byte"].get(int(relay_byte), [])
+    if len(hits) != 1:
+        return None
+    return sigreport.clean_name(hits[0])
+
+
 def plan_sigreport(cfg, st, rec, ours, ts=None):
     """Decide whether a range/signal test gets a measured signal report.
 
@@ -1242,7 +1288,8 @@ def plan_sigreport(cfg, st, rec, ours, ts=None):
     # convenience wrapper.
     text, meta = sigreport.report(rec, max_chars=_int_cfg(cfg, "SIGREPORT_MAX_CHARS",
                                                          DEFAULTS["SIGREPORT_MAX_CHARS"]),
-                                  index=m.get("index"))
+                                  index=m.get("index"),
+                                  relay_name=resolve_relay(rec.get("relay_byte")))
     if not mark("has_measurements", text is not None):
         return False, "sigreport_" + (meta.get("refused") or "nothing_measured"), None, ch, None, gates
     busy, util, why = channel_busy(cfg, ts=ts)

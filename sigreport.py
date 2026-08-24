@@ -159,11 +159,54 @@ def hops_of(rec):
     return d if d >= 0 else None
 
 
-def report(rec, max_chars=64, index=None):
+# Meshtastic short names are at most four characters, so this is a bound the protocol already
+# enforces rather than one invented here. Everything outside the set is dropped rather than
+# escaped: this string is chosen by a THIRD PARTY and transmitted on a public channel, and the
+# only safe rule for someone else's text going on our air is a whitelist.
+_NAME_OK = re.compile(r"[^A-Za-z0-9 _.\-]")
+
+
+def clean_name(name):
+    """A relay's short name if it is safe to transmit verbatim, else None.
+
+    REJECTS, IT DOES NOT REPAIR. The first version stripped disallowed characters and then
+    truncated, which turned `MD<script>` into `MDsc` — safe to transmit and belonging to
+    nobody. Inventing a node name is the same failure as inventing a measurement, and it is
+    worse here because it looks like identification. So anything that is not already a clean
+    short name is dropped, and the reply falls back to a bare hop count.
+
+    Four characters because that is the protocol's own limit on a short name; longer means the
+    field is not what we think it is.
+    """
+    if not isinstance(name, str):
+        return None
+    n = name.strip()
+    if not n or len(n) > 4 or _NAME_OK.search(n):
+        return None
+    return n
+
+
+def report(rec, max_chars=64, index=None, relay_name=None):
     """Build the reply, or (None, meta) when there is nothing measured to report.
 
     Field-by-field degradation: a malformed snr costs the snr and nothing else. Only the
     complete absence of every measurement refuses outright.
+
+    WHOSE SIGNAL IS THIS? The first version answered `Copy: SNR 6.0, RSSI -61, 2 hops`, and on
+    2026-08-23 that reading was got wrong by its own author. Dean ran four tests, three of them
+    from up to 28 miles out, and the numbers barely moved -- because `snr` and `rssi` describe
+    the LAST LEG INTO CAL, not the journey. All three relayed tests were last transmitted by
+    the same neighbour, so all three measured the same short local link, and the 28 miles never
+    appeared in the reply at all. Reported as a bare `RSSI -61` it reads as the sender's own
+    signal, which is a number that invites a wrong conclusion -- barely better than an invented
+    one, and worse in a way, because it looks like evidence.
+    So the shape now says whose measurement it is:
+        direct    ->  Copy 16: direct, RSSI -35, SNR 6.0
+        relayed   ->  Copy 12: 2 hops via MDNO, last leg RSSI -63, SNR 5.8
+        unknown   ->  Copy: RSSI -63, SNR 5.8          (no hop count -> no claim either way)
+    `relay_name` is resolved by the CALLER, because this module does no I/O and because the
+    resolution can be ambiguous: a relay is identified by ONE byte, so a name is passed only
+    when exactly one known node matches. Unresolved simply drops the `via`.
     """
     meta = {"snr": None, "rssi": None, "hops": None, "parts": [], "refused": None}
     snr = _num(rec.get("snr"))
@@ -179,18 +222,32 @@ def report(rec, max_chars=64, index=None):
         snr = None
     meta["snr"], meta["rssi"], meta["hops"] = snr, rssi, hops
 
-    parts = []
-    if snr is not None:
-        parts.append(f"SNR {snr:.1f}")
+    # ROUTING LEADS, because it is the field that actually moved. Across a walk from 28 miles
+    # in to the same room, the hop count went 2 -> 2 -> 1 -> direct while SNR moved 1.25 dB.
+    # It also matters under truncation, which sheds from the right: the old order kept the
+    # flattest number and dropped the most informative one.
+    rname = clean_name(relay_name)
+    meta["relay_name"] = rname
+    lead, sig_label = [], "RSSI"
+    if hops == 0:
+        lead.append("direct")
+    elif hops is not None:
+        lead.append(f"{hops} hop" + ("s" if hops != 1 else "") + (f" via {rname}" if rname else ""))
+        # The qualifier is the whole point of this shape: at more than zero hops these numbers
+        # belong to the relay, not to the sender.
+        sig_label = "last leg RSSI"
+    parts = list(lead)
+    sig = []
     if rssi is not None:
-        parts.append(f"RSSI {int(round(rssi))}")
-    if not parts:
+        sig.append(f"{sig_label} {int(round(rssi))}")
+    if snr is not None:
+        sig.append(f"SNR {snr:.1f}")
+    if not sig:
         # Hops alone is not a signal report. It says the packet arrived, which the sender can
         # already infer from getting an answer at all.
         meta["refused"] = "no_measurements"
         return None, meta
-    if hops is not None:
-        parts.append("direct" if hops == 0 else f"{hops} hop" + ("s" if hops != 1 else ""))
+    parts += sig
     meta["parts"] = list(parts)
     # The index is echoed so a reply can be matched to its test when a sequence is in flight —
     # `Test 12` is answered `Copy 12:`. Re-derived from digits here rather than passed through
@@ -202,10 +259,11 @@ def report(rec, max_chars=64, index=None):
     head = f"Copy {meta['index']}: " if meta["index"] else "Copy: "
     text = head + ", ".join(parts)
     if len(text) > max_chars:
-        # Drop from the RIGHT, which sheds routing before it sheds signal: the two numbers are
-        # the report, the hop count is context. Never mid-field — a truncated "RSSI -3" is a
-        # different and better-looking measurement than "RSSI -32", and every wrong answer this
-        # codebase has aired took exactly that shape.
+        # Drop from the RIGHT. With routing now leading, that sheds SNR first, then the signal
+        # figure, and the hop count is the last thing to go — which is the correct priority,
+        # because the hop count is the field that carries information. Never mid-field: a
+        # truncated "RSSI -3" is a different and better-looking measurement than "RSSI -32",
+        # and every wrong answer this codebase has aired took exactly that shape.
         while len(parts) > 1 and len(head + ", ".join(parts)) > max_chars:
             parts.pop()
         text = head + ", ".join(parts)
@@ -216,11 +274,12 @@ def report(rec, max_chars=64, index=None):
     return text, meta
 
 
-def try_answer(text, rec, max_chars=64, trigger="cal"):
+def try_answer(text, rec, max_chars=64, trigger="cal", relay_name=None):
     """match + report in one call. Returns (reply|None, meta)."""
     m = match(text, trigger=trigger)
     if not m:
         return None, {"matched": False}
-    reply, meta = report(rec, max_chars=max_chars, index=m.get("index"))
+    reply, meta = report(rec, max_chars=max_chars, index=m.get("index"),
+                         relay_name=relay_name)
     meta.update({"matched": True, "via": m["via"]})
     return reply, meta

@@ -149,7 +149,7 @@ for t, idx in (("Test 12", "12"), ("test 1", "1"), ("Range test 3", "3"), ("chec
     ck(m and m.get("index") == idx, f"index of {t!r} should be {idx!r}, got {m and m.get('index')}")
 ck(sigreport.match("test")["index"] is None, "an unnumbered test carries no index")
 # The counter is echoed so a reply can be matched to its test mid-sequence.
-ck(sigreport.try_answer("Test 12", rec())[0] == "Copy 12: SNR 6.0, RSSI -32, 2 hops",
+ck(sigreport.try_answer("Test 12", rec())[0] == "Copy 12: 2 hops, last leg RSSI -32, SNR 6.0",
    f"index must be echoed: {sigreport.try_answer('Test 12', rec())[0]!r}")
 ck(sigreport.try_answer("Test test", rec())[0].startswith("Copy: "),
    "no index means no number in the head")
@@ -176,20 +176,39 @@ ck(sigreport.match("Cal") is None, "a bare hail is not a test")
 ck(sigreport.match("test cal") is None, "trigger stripped from the front only")
 
 # --- 2. the report says only what was measured ----------------------------------------------
+# THE SHAPE SAYS WHOSE MEASUREMENT IT IS. `RSSI -63` on a relayed packet is the RELAY's
+# signal into Cal, not the sender's, and reported bare it reads as the sender's. That misread
+# was made by this module's own author against real 28-mile traffic before it was fixed.
 txt, meta = sigreport.report(rec())
-ck(txt == "Copy: SNR 6.0, RSSI -32, 2 hops", f"nominal report wrong: {txt!r}")
-ck(sigreport.report(rec(hops=0))[0].endswith("direct"), "hops 0 must read as direct")
-ck(sigreport.report(rec(hops=1))[0].endswith("1 hop"), "one hop must be singular")
+ck(txt == "Copy: 2 hops, last leg RSSI -32, SNR 6.0", f"nominal report wrong: {txt!r}")
+ck(sigreport.report(rec(hops=2), relay_name="MDNO")[0]
+   == "Copy: 2 hops via MDNO, last leg RSSI -32, SNR 6.0", "a resolved relay is named")
+ck(sigreport.report(rec(hops=0))[0] == "Copy: direct, RSSI -35, SNR 6.0".replace("-35", "-32"),
+   f"direct must claim the sender's own signal: {sigreport.report(rec(hops=0))[0]!r}")
+ck("last leg" not in sigreport.report(rec(hops=0))[0],
+   "a direct packet IS the sender's signal — no last-leg qualifier")
+ck("last leg" in sigreport.report(rec(hops=1))[0], "one hop is still a relayed measurement")
+ck(sigreport.report(rec(hops=1))[0].startswith("Copy: 1 hop,"), "one hop must be singular")
+# ROUTING LEADS. It is the field that moved across a 28-mile walk while SNR moved 1.25 dB.
+ck(sigreport.report(rec())[0].split(": ")[1].startswith("2 hops"), "hop count leads")
+# A relay is one byte, so an unresolved name must simply vanish, never become a guess.
+ck("via" not in sigreport.report(rec(hops=2), relay_name=None)[0], "unresolved relay is unnamed")
 
 # A MISSING HOP COUNT IS NOT 'DIRECT'. This is failure #2 in the docstring, and it is the one
 # the bridge's own history makes likely: hopLimit is omitted by MessageToDict when it is 0.
 t_nohop, _ = sigreport.report({"snr": 6.0, "rssi": -32})
 ck("direct" not in t_nohop and "hop" not in t_nohop,
    f"absent hops must be omitted, never rendered: {t_nohop!r}")
+# An unknown hop count means we cannot say whose signal it is, so the reply makes NO claim
+# either way — neither "direct" nor "last leg".
+ck("last leg" not in t_nohop, f"unknown routing must not claim a leg: {t_nohop!r}")
+ck(t_nohop == "Copy: RSSI -32, SNR 6.0", f"neutral shape wrong: {t_nohop!r}")
 
 # Field-by-field degradation. A bad field costs that field and nothing else.
-ck(sigreport.report(rec(snr=None))[0] == "Copy: RSSI -32, 2 hops", "missing snr costs only snr")
-ck(sigreport.report(rec(rssi=None))[0] == "Copy: SNR 6.0, 2 hops", "missing rssi costs only rssi")
+ck(sigreport.report(rec(snr=None))[0] == "Copy: 2 hops, last leg RSSI -32",
+   f"missing snr costs only snr: {sigreport.report(rec(snr=None))[0]!r}")
+ck(sigreport.report(rec(rssi=None))[0] == "Copy: 2 hops, SNR 6.0",
+   f"missing rssi costs only rssi: {sigreport.report(rec(rssi=None))[0]!r}")
 
 # JSON true converts to 1.0 and would ship as a plausible SNR. This exact shape aired once
 # already, as a heat index of 34F, and it pointed the reassuring direction.
@@ -213,11 +232,12 @@ short, smeta = sigreport.report(rec(), max_chars=22)
 # The EXACT value, not a property. "len <= 22 and no dangling -3" is satisfied by returning
 # None, so a mutation that truncates the string and then refuses the over-long result passed
 # a property test while destroying the behaviour. Naming the answer is what makes it fail.
-ck(short == "Copy: SNR 6.0", f"truncation must shed whole fields from the right: {short!r}")
-ck(smeta["parts"] == ["SNR 6.0"], f"meta must record what actually shipped: {smeta['parts']}")
+ck(short == "Copy: 2 hops", f"truncation must shed whole fields from the right: {short!r}")
+ck(smeta["parts"] == ["2 hops"], f"meta must record what actually shipped: {smeta['parts']}")
+# The hop count is now the LAST thing to go, because it is the field carrying information.
+ck("hops" in short, "routing survives truncation; the flat number does not")
 ck(len(short or "") <= 22, f"length budget not honoured: {short!r}")
 ck(not re.search(r"-3$", short or ""), f"truncated mid-field: {short!r}")
-ck("hop" not in (short or ""), "routing sheds before signal")
 # One field still over budget is a refusal, not a shaved string.
 ck(sigreport.report(rec(), max_chars=6)[0] is None, "an unfittable report refuses")
 
@@ -264,7 +284,7 @@ QUIET = {"metrics": {"chUtil": 5.0}}
 with_status(QUIET)
 ok = plan()
 ck(ok[0] is True and ok[1] == "sigreport", f"a clean range test should be answered: {ok[1]}")
-ck(ok[4] == "Copy: SNR 6.0, RSSI -32, 2 hops", f"gate returned {ok[4]!r}")
+ck(ok[4] == "Copy: 2 hops, last leg RSSI -32, SNR 6.0", f"gate returned {ok[4]!r}")
 ck(ok[2] == "^all", "a broadcast test is answered on the broadcast")
 ck(plan(r=rec(text="Range test", to="!aaaaaaaa"))[2] == "!aaaaaaaa", "a DM test gets a DM")
 
@@ -272,10 +292,28 @@ ck(plan(r=rec(text="Range test", to="!aaaaaaaa"))[2] == "!aaaaaaaa", "a DM test 
 # report() separately; try_answer() joins them. On 2026-08-23 the index echo was written and
 # green through try_answer while the transmitting path silently dropped it, because nothing
 # graded the two-call path. These four lines are that gap closed.
-ck(plan(r=rec(text="Test 12"))[4] == "Copy 12: SNR 6.0, RSSI -32, 2 hops",
+ck(plan(r=rec(text="Test 12"))[4] == "Copy 12: 2 hops, last leg RSSI -32, SNR 6.0",
    f"the transmitting path must echo the index: {plan(r=rec(text='Test 12'))[4]!r}")
-ck(plan(r=rec(text="Test test"))[4] == "Copy: SNR 6.0, RSSI -32, 2 hops",
+ck(plan(r=rec(text="Test test"))[4] == "Copy: 2 hops, last leg RSSI -32, SNR 6.0",
    "no index means no number in the head, on the transmitting path too")
+# The RELAY NAME reaches the air only through the resolver, and only unambiguously.
+ck(plan(r=rec(text="Test 12", relay_byte=198))[4]
+   == "Copy 12: 2 hops via MDNO, last leg RSSI -32, SNR 6.0",
+   f"a resolvable relay is named on the transmitting path: "
+   f"{plan(r=rec(text='Test 12', relay_byte=198))[4]!r}")
+ck("via" not in plan(r=rec(text="Test 12", relay_byte=7))[4],
+   "an unplaceable relay byte is never guessed at")
+ck(responder.resolve_relay(None) is None, "no relay byte, no name")
+# SOMEONE ELSE'S TEXT ON OUR AIR. A short name is chosen by a third party, so it is
+# whitelisted rather than escaped, and bounded to the four characters the protocol allows.
+# It REJECTS rather than repairs: stripping and truncating turned "MD<script>" into "MDsc",
+# a safe-looking name belonging to no node. Inventing an identity is the same class of failure
+# as inventing a measurement.
+for bad, want in (("MD<script>", None), ("../../etc", None), ("MDNO EXTRA", None),
+                  ("\n\nCal:", None), ("!!!!", None), ("", None), (None, None), (42, None),
+                  ("MDNO", "MDNO"), ("MDNO ", "MDNO"), ("MD", "MD"), ("M-1", "M-1")):
+    ck(sigreport.clean_name(bad) == want,
+       f"clean_name({bad!r}) should be {want!r}, got {sigreport.clean_name(bad)!r}")
 ck(plan(r=rec(text="Test 12"))[1] == "sigreport", "a numbered test is claimed by the doer")
 ck(plan(r=rec(text="Test 12"))[3] == 0, "the report answers on the channel it arrived on")
 ck(plan(r=rec(text="Test 12", channel=1))[3] == 1, "including Cal's own channel")
@@ -350,7 +388,7 @@ if "--self-test" in sys.argv:
          'if rssi is not None and rssi > 0:\n        rssi = None',
          'if False:\n        rssi = None'),
         ("no-measurement case answers anyway",
-         'if not parts:', 'if False:'),
+         'if not sig:', 'if False:'),
         ("truncation cuts mid-field",
          'while len(parts) > 1 and len(head + ", ".join(parts)) > max_chars:\n'
          '            parts.pop()',
@@ -363,6 +401,11 @@ if "--self-test" in sys.argv:
          '_INDEX = r"(?:\\s+#?(?P<idx>\\d{1,3}))?"', '_INDEX = r""'),
         ("index echoed as raw text instead of digits",
          'd = re.sub(r"\\D", "", str(index))[:3]', 'd = str(index)'),
+        ("relayed signal reported as the sender's own",
+         'sig_label = "last leg RSSI"', 'pass'),
+        ("relay name transmitted unfiltered",
+         'if not n or len(n) > 4 or _NAME_OK.search(n):\n        return None\n    return n',
+         'return n'),
         ("out-of-range snr aired",
          'if snr is not None and not (-30.0 <= snr <= 30.0):\n        snr = None',
          'if False:\n        snr = None'),
@@ -412,6 +455,12 @@ if "--self-test" in sys.argv:
             if mmod.try_answer("Test 12", rec())[0] != "Copy 12: SNR 6.0, RSSI -32, 2 hops":
                 caught = True
             if not mmod.report(rec(), index="12<script>")[0].startswith("Copy 12:"):
+                caught = True
+            if "last leg" not in (mmod.report(rec(hops=2))[0] or ""):
+                caught = True
+            if "last leg" in (mmod.report(rec(hops=0))[0] or ""):
+                caught = True
+            if mmod.clean_name("MD<script>") is not None:
                 caught = True
         except Exception:                                      # noqa: BLE001
             caught = True
