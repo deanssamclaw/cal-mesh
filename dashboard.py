@@ -11,6 +11,7 @@ Serves:
     /old-4       v4, retired 2026-08-21 (dark trace panel; the build queue as a loose card)
     /console     SUPPLEMENT: the instrument for the packets that are not conversations
     /capabilities SUPPLEMENT: one record per capability, with what each one refuses
+    /anatomy     SUPPLEMENT: a reply split into things that existed and things that ran
     /api/state   JSON aggregate of bridge status, transports, sent/recv logs, neighbors
     /api/snr     per-node SNR time series (last hour)
     /api/routes  harvested traceroute paths, split into ours vs overheard
@@ -23,6 +24,7 @@ just like the rflab mesh dashboard. Binds localhost for now.
 import os, json, http.server, socketserver, subprocess, threading, time
 import console
 import capability_records
+import anatomy
 from urllib.parse import urlparse
 
 BASE     = os.path.expanduser("~/cal-mesh")
@@ -282,6 +284,10 @@ def correlate(inbox, sent, decisions):
                          # readback's own ladder never reaches the page, so the trace can show
                          # the ladder that failed and not the one that answered.
                          "sigreport_gates",
+                         # same shape, same reason: the responder writes these on every DM
+                         # and the page dropped them, so a DM's trace could show the ladder
+                         # that failed and never the tier that actually governed it.
+                         "dm_unlock_gates", "dm_longer_gates",
                          "sunmoon_match", "sunmoon", "sigreport",
                          # authenticated-DM path: so the trace can say the model also got the
                          # injected context + remembered thread, not just the message.
@@ -4694,7 +4700,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
 <header>
   <div><h1>📻 cal-mesh <span class="sub">— live levers (v5)</span></h1>
   <div class="sub" id="sub">connecting…</div></div>
-  <span class="navlinks"><a class="faqlink" id="capslink" href="capabilities">Can &amp; cannot →</a><a class="faqlink" id="consolelink" href="console">The console →</a><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
+  <span class="navlinks"><a class="faqlink" id="anatlink" href="anatomy">Anatomy →</a><a class="faqlink" id="capslink" href="capabilities">Can &amp; cannot →</a><a class="faqlink" id="consolelink" href="console">The console →</a><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
   <span class="pill" id="conn">…</span>
 </header>
 <main>
@@ -4969,7 +4975,8 @@ const DIR=(function(){let p=location.pathname.replace(/\/(v2|v3|v4|old-\d+)\/?$/
 // the supplement lives beside this page, so it must be reached through DIR too --
 // a bare "console" href resolves against /cal-mesh as /console and leaves the funnel.
 (function(){const a=document.querySelector('#consolelink'); if(a) a.href=DIR+'console';
-            const b=document.querySelector('#capslink'); if(b) b.href=DIR+'capabilities';})();
+            const b=document.querySelector('#capslink'); if(b) b.href=DIR+'capabilities';
+            const c=document.querySelector('#anatlink'); if(c) c.href=DIR+'anatomy';})();
 let SNR={}, lastNodes=[], nodeSort={key:null,dir:1}, lastXsig=null, lastLsig=null;
 let ROUTES={me:null,ours:{},others:[]};
 let SELF={id:null,name:null};
@@ -5846,6 +5853,7 @@ LEGACY_ALIASES = set()
 SUPPLEMENT_PAGES = {
     "console": console.PAGE_CONSOLE,   # lane C -- the 99%+ of packets that are not text
     "capabilities": capability_records.PAGE_CAPABILITIES,   # lane A -- the model-card record
+    "anatomy": anatomy.PAGE_ANATOMY,                        # lane B -- entities vs activities
 }
 
 
@@ -5902,6 +5910,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, json.dumps(cached("console", 30, console.build_console)).encode(), "application/json")
             elif path == "/api/capabilities":
                 self._send(200, json.dumps(cached("caps", 30, capability_records.build_payload)).encode(), "application/json")
+            elif path == "/api/anatomy":
+                self._send(200, json.dumps(cached("anatomy", 30, anatomy.build_anatomy)).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
         finally:
