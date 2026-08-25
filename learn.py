@@ -41,6 +41,9 @@ CLASSIFICATION. Each decision record lands in exactly one bucket, by priority:
                record here: a labelled request for a capability, in the asker's own words.
                Bucketing it as a designed refusal — "working as built" — buried it.
 
+    OTHER is the tripwire, and it now has a second job: a reply the responder stamped `fixed_*`
+    whose doer this classifier does not know about. That is a doer armed without this file being
+    told, and it must be loud rather than counted as a gap.
     OTHER exists only as a tripwire: nothing should land here. If it does, the record has a
     shape the rules above did not anticipate and the classifier needs a look.
 
@@ -97,7 +100,11 @@ LEDGER_JSON = os.path.join(BASE, "gap-ledger.json")     # accumulated aggregate
 LEDGER_MD  = os.path.join(BASE, "gap-ledger.md")        # rendered human view
 
 OUR_ID_FALLBACK = "!xxxxxxxx"   # Cal HT (real id lives in gitignored status.json; read via our_id())
-DOER_CAPS = {"weather", "calc", "sunmoon", "nav", "navigation"}
+# Every doer whose answer counts as ANSWERED. sigreport was missing from this set, so the
+# signal readback's own correct replies were filed as gaps -- inflating the denominator of the
+# one metric this whole file exists to report. A hand-kept list drifts on every arming, so the
+# fall-through below turns the next omission into a tripwire instead of a silent gap.
+DOER_CAPS = {"weather", "calc", "sunmoon", "nav", "navigation", "sigreport", "capabilities"}
 
 # The tell that the model answered as a product instead of as this node. A GAP reply matching
 # any of these is the worst kind — it invents a self-description a stranger cannot check. These
@@ -150,9 +157,17 @@ def classify(rec, our):
     cap = rec.get("capability")
     if cap in DOER_CAPS and pk != "general":
         return "HIT"
+    # A `fixed_*` status is the RESPONDER'S OWN statement that a doer wrote this reply and no
+    # model ran. Reaching here means it is a doer this classifier cannot place -- which is what
+    # happened to sigreport: 4 correct readbacks filed as gaps, in the ledger's own words
+    # ("Cal said: Copy 16: SNR 6.0, RSSI -35, direct") while counted as reaching the model.
+    # Do not guess it into HIT, which would hide a doer that matched and could not answer, and
+    # do not leave it a GAP. OTHER is already documented as the tripwire; this is what trips it.
+    if gen.startswith("fixed_"):
+        return "OTHER"
     # Matched, but no doer / refusal / greeting claimed it: it reached the model. That is a
     # gap whether the record stamps prompt_kind='general' (current schema) or nothing at all
-    # (records before the field existed). OTHER is left only as a tripwire below.
+    # (records before the field existed).
     if rec.get("matched"):
         return "GAP"
     return "OTHER"

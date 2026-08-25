@@ -48,6 +48,25 @@ check("calc hit (fixed string)", learn.classify(rec(capability="calc", prompt_ki
 check("sunmoon hit", learn.classify(rec(capability="sunmoon", prompt_kind="sunmoon"), OUR), "HIT")
 
 # GAP: matched, reached the model. Two schema eras must BOTH land here.
+# The signal readback answers from code and its capability was missing from DOER_CAPS, so three
+# correct replies were filed as gaps -- the ledger printed the readback's own answer ("Cal said:
+# Copy 16: SNR 6.0, RSSI -35, direct") under a heading that said it had reached the model.
+check("sigreport is a HIT, not a gap", learn.classify(
+    rec(capability="sigreport", prompt_kind="fixed", gen_status="fixed_sigreport"), OUR), "HIT")
+# ...and `Test 12` is the control: it genuinely DID reach the model (that was the session-134
+# defect), so it must stay a GAP. Without this the check above passes by filing everything
+# test-shaped as answered, which is the same error pointing the other way.
+check("a test the model answered is still a gap", learn.classify(
+    rec(text="Test 12", prompt_kind="general", gen_status="ok",
+        model="claude-haiku-4-5-20251001"), OUR), "GAP")
+# A doer this file has never been told about must trip the tripwire, not inflate the gap count.
+# DOER_CAPS is hand-kept and drifts on every arming; this is the rule that makes the next
+# omission loud. It must NOT be classified HIT either -- that would hide a doer that matched
+# and could not answer.
+check("an unknown doer trips OTHER", learn.classify(
+    rec(capability="somethingnew", prompt_kind="fixed", gen_status="fixed_somethingnew"),
+    OUR), "OTHER")
+
 check("gap (current schema)", learn.classify(rec(prompt_kind="general", model="claude-haiku-4-5-20251001"), OUR), "GAP")
 check("gap (pre-prompt_kind schema)", learn.classify(rec(reason="addressed"), OUR), "GAP")
 check("gap over DM", learn.classify(rec(to=OUR, prompt_kind="general"), OUR), "GAP")
