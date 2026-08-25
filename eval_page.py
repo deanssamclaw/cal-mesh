@@ -32,6 +32,11 @@ dash = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dash)          # safe: the server only starts under __main__
 
 PAGES = [(n, getattr(dash, n)) for n in dir(dash) if re.fullmatch(r"PAGE_V\d+", n)]
+# Supplement pages are served from the same handler and carry their own inline script, so
+# they get the same escape/syntax check. They are NOT versions and are keyed by slug, so
+# they are discovered from the routing table rather than from a PAGE_Vn name pattern.
+PAGES += [("SUPPLEMENT:" + slug, html)
+          for slug, html in sorted(getattr(dash, "SUPPLEMENT_PAGES", {}).items())]
 SCRIPT_RE = re.compile(r"<script>(.*?)</script>", re.S)
 
 failures = []

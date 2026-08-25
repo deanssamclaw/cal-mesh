@@ -9,15 +9,18 @@ Serves:
     /old-2       v2, retired 2026-08-12 (exchanges + a flat decision trace)
     /old-3       v3, retired 2026-08-19 (the trace drawn with depth, all-light palette)
     /old-4       v4, retired 2026-08-21 (dark trace panel; the build queue as a loose card)
+    /console     SUPPLEMENT: the instrument for the packets that are not conversations
     /api/state   JSON aggregate of bridge status, transports, sent/recv logs, neighbors
     /api/snr     per-node SNR time series (last hour)
     /api/routes  harvested traceroute paths, split into ours vs overheard
     /api/stats   daily decision aggregates (replies, skips, gen latency)
+    /api/console port census, SNR distribution, hop reach, traceroute score, latency
 
 No third-party deps (stdlib only) so it's trivially exposable via Tailscale Funnel later,
 just like the rflab mesh dashboard. Binds localhost for now.
 """
 import os, json, http.server, socketserver, subprocess, threading, time
+import console
 from urllib.parse import urlparse
 
 BASE     = os.path.expanduser("~/cal-mesh")
@@ -4231,7 +4234,7 @@ PAGE_V5 = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<title>cal-mesh — levers (v4)</title>
+<title>cal-mesh — levers (v5)</title>
 <style>
 :root{--bg:#f6f8fa;--card:#ffffff;--card2:#eef1f5;--line:#d6dce4;--fg:#1a1f26;
 --dim:#5c6672;--accent:#0a63c9;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--tx:#6639ba;--rx:#1a7f37;}
@@ -4689,7 +4692,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
 <header>
   <div><h1>📻 cal-mesh <span class="sub">— live levers (v5)</span></h1>
   <div class="sub" id="sub">connecting…</div></div>
-  <span class="navlinks"><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
+  <span class="navlinks"><a class="faqlink" id="consolelink" href="console">The console →</a><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
   <span class="pill" id="conn">…</span>
 </header>
 <main>
@@ -4961,6 +4964,9 @@ details.tr[open]>summary:hover{border-color:#4478ad;
 const $=s=>document.querySelector(s);
 const DIR=(function(){let p=location.pathname.replace(/\/(v2|v3|v4|old-\d+)\/?$/,'/');
  return p.endsWith('/')?p:p+'/';})();
+// the supplement lives beside this page, so it must be reached through DIR too --
+// a bare "console" href resolves against /cal-mesh as /console and leaves the funnel.
+(function(){const a=document.querySelector('#consolelink'); if(a) a.href=DIR+'console';})();
 let SNR={}, lastNodes=[], nodeSort={key:null,dir:1}, lastXsig=null, lastLsig=null;
 let ROUTES={me:null,ours:{},others:[]};
 let SELF={id:null,name:null};
@@ -5829,6 +5835,15 @@ ALIAS_REDIRECTS = {"v2": "old-2", "v3": "old-3"}
 # out during the trial doesn't 404. Retire an alias when its version does.
 LEGACY_ALIASES = set()
 
+# --- supplements -------------------------------------------------------------------
+# A supplement is NOT a version. It is a deeper dive linked from the current page, it
+# lives at a stable named slug, and it is never renumbered or retired by a promotion --
+# when the main page moves to v6 these keep serving and keep their links. Retired
+# /old-N pages deliberately do NOT link here: an old-N slot records what the page WAS.
+SUPPLEMENT_PAGES = {
+    "console": console.PAGE_CONSOLE,   # lane C -- the 99%+ of packets that are not text
+}
+
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -5863,6 +5878,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if slug in RETIRED_PAGES:
             self._send(200, RETIRED_PAGES[slug].encode(), "text/html; charset=utf-8")
             return
+        if slug in SUPPLEMENT_PAGES:
+            self._send(200, SUPPLEMENT_PAGES[slug].encode(), "text/html; charset=utf-8")
+            return
         # API endpoints do file I/O — cap concurrency so a flood can't spawn unbounded work
         if not _SEM.acquire(blocking=False):
             self._send(503, b"busy", "text/plain")
@@ -5876,6 +5894,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, json.dumps(cached("routes", 10, build_routes)).encode(), "application/json")
             elif path == "/api/stats":
                 self._send(200, json.dumps(cached("stats", 10, build_decision_stats)).encode(), "application/json")
+            elif path == "/api/console":
+                self._send(200, json.dumps(cached("console", 30, console.build_console)).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
         finally:
