@@ -77,6 +77,26 @@ def explain_match(text, trigger="cal"):
     return {"via": None, "norm": norm}
 
 
+# ONE ROW PER ARMABLE DOER, keyed on the config flag. Three hand-written `if on(...)` blocks
+# stood here, and two armed doers were missing from them -- SIGREPORT and GREETING -- in a file
+# whose stated premise is that the flags compose the sentence. A list that must be edited in
+# lockstep with the config drifts exactly the way a hardcoded menu does; the difference is that
+# a row with an explicit None is a DECISION on the record, while a missing row is an accident.
+# eval_capabilities.py asserts every flag the live config arms has a row here.
+_MENU = (
+    # resilient-first: what works with no network comes first, which is the point of the node
+    ("CALC_ENABLED", "math, units, RF"),
+    ("SUNMOON_ENABLED", "sun and twilight times"),
+    ("WEATHER_ENABLED", "current weather"),
+    ("SIGREPORT_ENABLED", "signal reports on a test"),
+    # Armed, and deliberately NOT advertised. The ack is something Cal does TO a greeting, not
+    # a service anyone asks for, and "I say good morning back" spends a shared-airtime budget
+    # that the four above have a better claim on. Listed here so the omission is a decision
+    # somebody made rather than one nobody noticed.
+    ("GREETING_ENABLED", None),
+)
+
+
 def answer(cfg, max_chars=120):
     """Compose the reply FROM THE FLAGS. Never a stored string, so it cannot drift from
     what is actually armed. Ordered resilient-first: what works with no network comes
@@ -84,13 +104,7 @@ def answer(cfg, max_chars=120):
     def on(key):
         return str(cfg.get(key, "false")).lower() == "true"
 
-    parts = []
-    if on("CALC_ENABLED"):
-        parts.append("math, units, RF")
-    if on("SUNMOON_ENABLED"):
-        parts.append("sun and twilight times")
-    if on("WEATHER_ENABLED"):
-        parts.append("current weather")
+    parts = [phrase for flag, phrase in _MENU if phrase and on(flag)]
 
     if not parts:
         return "Nothing armed right now."

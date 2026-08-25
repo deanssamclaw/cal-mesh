@@ -1524,10 +1524,19 @@ def main():
                                 # falls to the else and the public trace states a CAUSE THAT DID
                                 # NOT HAPPEN — every sun/moon reply was logged as a weather
                                 # failure until a review caught it.
-                                why = {"calc": "fixed_calc",
-                                       "forecast_refused": "fixed_forecast_refused",
-                                       "sunmoon": "fixed_sunmoon",
-                                       }.get(kind, "fixed_weather_unavailable")
+                                # DERIVE the status from the kind instead of looking it up.
+                                # The lookup's default was "fixed_weather_unavailable", so a
+                                # kind nobody added a row for published a WEATHER FAILURE for
+                                # a reply that never touched the network -- the exact defect
+                                # the comment above records for sun/moon, and "capabilities"
+                                # had already been added without a row, so it was queued to
+                                # happen again the day that doer is armed. A missing kind can
+                                # no longer name the wrong mechanism, because no name is
+                                # written down for it to be wrong with.
+                                # kind=None IS the weather fallback: that path sets a fixed
+                                # reply and no kind, which is why it stays the empty case.
+                                why = ("fixed_weather_unavailable" if not kind
+                                       else "fixed_" + kind)
                             else:
                                 # The budget goes DOWN into run_claude so clean_reply applies
                                 # it once, on a word boundary. Clipping here as well would

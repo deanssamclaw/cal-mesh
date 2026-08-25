@@ -194,5 +194,32 @@ check("disarmed -> no claim", p_off["capability"], None)
 truthy("disarmed -> reaches model", p_off["prompt"] is not None)
 
 
+# ---- the menu must cover every doer the LIVE config arms ---------------------------------
+# The premise of this file is that the flags compose the sentence. Two armed doers were absent
+# from it -- so the sentence was correct about what it mentioned and silent about 40% of what
+# was running. Read the flags out of the real config rather than a list kept here, or this
+# check drifts the same way the thing it guards did.
+import os as _os
+_CFGP = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "config")
+_armed = set()
+if _os.path.exists(_CFGP):
+    for _ln in open(_CFGP):
+        _ln = _ln.strip()
+        if _ln.startswith("#") or "=" not in _ln:
+            continue
+        _k, _v = _ln.split("=", 1)
+        if _k.endswith("_ENABLED") and _v.strip().lower() == "true":
+            _armed.add(_k)
+# Only the flags that name a DOER are in scope. The rest arm transport, memory or the unlock.
+_DOER_FLAGS = {"CALC_ENABLED", "SUNMOON_ENABLED", "WEATHER_ENABLED", "SIGREPORT_ENABLED",
+               "GREETING_ENABLED", "CAPS_ENABLED"}
+_rows = {f for f, _ in C._MENU}
+for _f in sorted((_armed & _DOER_FLAGS) - {"CAPS_ENABLED"}):
+    check("menu has a row for %s" % _f, _f in _rows, True)
+# A row with an explicit None is a decision; a missing row is an accident. This distinguishes them.
+check("greeting is excluded ON PURPOSE, not by omission",
+      dict(C._MENU).get("GREETING_ENABLED", "MISSING"), None)
+check("sigreport is advertised", bool(dict(C._MENU).get("SIGREPORT_ENABLED")), True)
+
 print("eval_capabilities: %d passed, %d failed" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)
