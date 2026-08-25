@@ -196,6 +196,24 @@ CASES = {
     "othersender": rec(text="Cal, hows the link?", reply="Solid", **{"from": "!bbbbbbbb"},
                        trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="general",
                                   model="m", dest="^all")),
+    # An unanswered greeting whose MAIN ladder stopped at sender_allowed but whose GREETING
+    # ladder ran on past it (the ack is deliberately open to off-list senders) and stopped for
+    # its own reason. The published cause must be the one that actually governed the outcome.
+    "greetcooldown": rec(text="Morning", reply=None, verdict="skipped",
+                         reason="sender_not_allowed", gen_ms=None, trace=dict(
+                             gates=GATES_BLOCKED, greeting_reason="greeting_sender_cooldown",
+                             greeting_gates=[{"gate": "greeting_enabled", "pass": True},
+                                             {"gate": "not_self", "pass": True},
+                                             {"gate": "broadcast", "pass": True},
+                                             {"gate": "not_a_reaction", "pass": True},
+                                             {"gate": "bare_greeting", "pass": True},
+                                             {"gate": "sender_cooldown", "pass": False}])),
+    # A GENUINE generation failure. The negative control for the fix below: deleting the stop
+    # branch outright would make every "deterministic answer is not a failure" check pass while
+    # silently un-reporting the failures the branch exists for.
+    "genfail": rec(text="Cal, hows the link?", reply=None, verdict="replied", gen_ms=None,
+                   trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="general",
+                              model="claude-haiku-4-5-20251001", gen_status="gen_timeout")),
     # An attacker-shaped greeting: the ack is fixed, but their TEXT is still drawn.
     "greetxss": rec(text="<script>alert(1)</script>", reply="Good morning",
                     capability="greeting", reason="greeting_ack", gen_ms=None, trace=dict(
@@ -339,6 +357,48 @@ CHECKS = [
     ("general", ["measured path to this node"], [],
      "...while the sender that DOES have one still gets it, or the check above passes by "
      "the feature being broken"),
+
+    # ---- an answer written by code is not a failed generation --------------------------
+    # `gen_status` names WHICH PATH produced the reply; it is not a health field. Everything
+    # from a doer carries a fixed_* value, and the spine drew any non-"ok" status as a red
+    # stop stage — then drew "sent" underneath it. 21 real records rendered that way: every
+    # greeting ack, calc, sigreport and forecast refusal published as a breakdown.
+    ("calc", ["answered from code"], ["fixed_calc"],
+     "a computed answer was drawn as a stopped generation, with the internal status enum as "
+     "its summary, immediately above a green 'sent' stage"),
+    ("greeting", ["answered from code"], ["fixed_greeting_ack"],
+     "the greeting ack is the whole point of the deterministic path and it published as a failure"),
+    ("forecast", ["answered from code"], ["fixed_forecast_refused"],
+     "a deliberate refusal is a decision the code made, not a generation that broke"),
+    ("sigreport_direct", ["answered from code"], ["fixed_sigreport"],
+     "the readback never runs a model at all — there is no generation to fail"),
+    # ...and the branch must still report the failures it was written for.
+    ("genfail", ["class=\"stg stop\"", "gen_timeout"], ["answered from code"],
+     "a real generation failure must still stop the spine — deleting the branch would make "
+     "every check above pass while silently un-reporting the case it exists for"),
+
+    # ---- the ladder headline must not contradict the chips under it --------------------
+    # `stopped` is read off the verdict, so a MATCHED record with a failed gate printed
+    # "all N checks passed" (N counting only the passers) above a red cross. 10 real records:
+    # every off-list greeting ack, where the main ladder genuinely failed and the greeting
+    # ladder answered anyway — which is the interesting fact and was nowhere on the page.
+    # The wrong string is specific: GATES_BLOCKED is 3 passes and 1 failure, and the old
+    # headline counted the passers and called that number "all". Forbidding "checks passed"
+    # outright would also forbid the greeting ladder's own headline, which is CORRECT here --
+    # a blunt negative that fails on the fix is not a stronger check, it is a wrong one.
+    ("greeting", ["bare_greeting", "answered by another path", "the greeting path"],
+     ["all 3 checks passed"],
+     "the headline counted only the gates that passed, so a ladder with a red cross in it "
+     "announced that everything had passed -- and the ladder that DID answer was never drawn"),
+
+    # ---- name the cause that actually governed the outcome -----------------------------
+    # Assert the SENTENCE, not the word. "cooldown" also appears as a gate chip in the
+    # greeting ladder drawn just above, so a substring check here passed with the fix
+    # disabled -- the mutation harness caught that, which is what it is for.
+    ("greetcooldown", ["already been greeted inside the cooldown window"],
+     ["all 3 checks passed"],
+     "the greeting ack is deliberately open to off-list senders, so sender_allowed did not "
+     "decide this outcome — its own cooldown did, and the page named the other one"),
 ]
 
 failures, checked = [], 0
@@ -440,6 +500,17 @@ if "--self-test" in sys.argv:
         ("null hops draws as direct",
          "  if(hops==null) stops.push({lab:'?', sub:'routing not recorded', dim:true, dash:true});\n",
          ""),
+        # --- the four defects fixed 2026-08-25. Each mutation is the code as it actually
+        # shipped, so a regression to the live behaviour is what these catch.
+        ("a deterministic answer is published as a failed generation again",
+         "    if(/^fixed_/.test(t.gen_status))", "    if(false)"),
+        ("the ladder headline counts only the gates that passed",
+         "      s+=stage('pass','gated',`stopped at <b>${esc(fails[0].gate)}</b> &mdash; answered by another path`,",
+         "      s+=stage('pass','gated',`all ${t.gates.filter(g=>g.pass).length} checks passed`,"),
+        ("the ladder that actually answered is not drawn",
+         "  if(altl&&altl[1].length)", "  if(false)"),
+        ("the greeting path's own stop reason is ignored again",
+         "    const gw=GREETWHY[t.greeting_reason];", "    const gw=null;"),
     ]
     print("\n--- self-test: each mutation must be CAUGHT ---")
     for name, orig, mut in MUTATIONS:

@@ -273,6 +273,10 @@ def correlate(inbox, sent, decisions):
                          "weather_ok", "gen_status", "injection_flagged", "dest",
                          "obs_station", "obs_age_s", "forecast_asked", "trigger_match",
                          "greeting_gates", "greeting_reason", "calc",
+                         # gate NAMES only, no sender or node data. Without this the signal
+                         # readback's own ladder never reaches the page, so the trace can show
+                         # the ladder that failed and not the one that answered.
+                         "sigreport_gates",
                          "sunmoon_match", "sunmoon", "sigreport",
                          # authenticated-DM path: so the trace can say the model also got the
                          # injected context + remembered thread, not just the message.
@@ -316,10 +320,30 @@ def build_exchanges(inbox, sent):
 PUBLIC_CONFIG_KEYS = ("TRANSPORT", "HOST", "RESPONDER_ENABLED", "RESPONDER_MODEL")
 
 
+def _ran_a_model(r):
+    """True only when the record positively says the model ran for this reply.
+
+    `gen_ms` alone does NOT say that. A doer answers from code and still logs a duration —
+    `fixed_calc` and `fixed_forecast_refused` log a literal 0, meaning "no model ran", not
+    "returned in under a millisecond". Averaging those in pulled the published model latency
+    down by 18% (11,499 ms against a true 13,985 ms) and got worse with every doer armed,
+    because a faster page and more non-events look identical in one mean.
+
+    Records that predate `gen_status` and carry no `model` are UNKNOWN, not assumed: they are
+    excluded from the average and counted, so the denominator never shrinks silently."""
+    if r.get("gen_status") == "ok":
+        return True
+    return r.get("gen_status") is None and bool(r.get("model"))
+
+
 def build_decision_stats():
-    """Aggregate decisions.jsonl into per-day stats: counts by verdict, avg gen_ms."""
+    """Aggregate decisions.jsonl into per-day stats: counts by verdict, avg gen_ms.
+
+    `avg/min/max_gen_ms` describe the MODEL population only. The replies written by code are
+    a separate count, not a fast tail of the same distribution."""
     from collections import defaultdict
-    by_day = defaultdict(lambda: {"replied": 0, "skipped": 0, "skip_reasons": {}, "gen_ms": []})
+    by_day = defaultdict(lambda: {"replied": 0, "skipped": 0, "skip_reasons": {}, "gen_ms": [],
+                                  "from_code": 0, "unattributed": 0})
     try:
         with open(DECISIONS) as f:
             for ln in f:
@@ -337,8 +361,13 @@ def build_decision_stats():
                 if r.get("matched"):
                     e["replied"] += 1
                     ms = r.get("gen_ms")
-                    if ms is not None:
-                        e["gen_ms"].append(ms)
+                    if _ran_a_model(r):
+                        if ms is not None:
+                            e["gen_ms"].append(ms)
+                    elif str(r.get("gen_status") or "").startswith("fixed_"):
+                        e["from_code"] += 1
+                    elif ms is not None:
+                        e["unattributed"] += 1
                 else:
                     e["skipped"] += 1
                     reason = r.get("reason") or "unknown"
@@ -354,9 +383,13 @@ def build_decision_stats():
             "replied": e["replied"],
             "skipped": e["skipped"],
             "skip_reasons": e["skip_reasons"],
+            # None means "no model reply on this day", which is a different fact from 0 ms.
             "avg_gen_ms": round(sum(ms_list) / len(ms_list)) if ms_list else None,
             "max_gen_ms": max(ms_list) if ms_list else None,
             "min_gen_ms": min(ms_list) if ms_list else None,
+            "model_replies": len(ms_list),
+            "from_code": e["from_code"],
+            "unattributed": e["unattributed"],
         })
     return {"days": days[:30]}
 
@@ -4654,7 +4687,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
 </style></head>
 <body>
 <header>
-  <div><h1>📻 cal-mesh <span class="sub">— live levers (v4)</span></h1>
+  <div><h1>📻 cal-mesh <span class="sub">— live levers (v5)</span></h1>
   <div class="sub" id="sub">connecting…</div></div>
   <span class="navlinks"><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
   <span class="pill" id="conn">…</span>
@@ -5382,22 +5415,61 @@ function stage(cls,name,summary,detail){
 // The stages are a sequence in time and a gated-out message genuinely never reaches the later
 // ones — verified against the records: a skipped decision carries no sanitize, no fact, no
 // model and no destination. So "never reached" is read off the record, not assumed.
+// Plain-language names for the deterministic paths. The KEY is the status responder.py logs;
+// the value is what a reader is told. Missing entry != failure -- see the prefix test below.
+const FIXEDSRC={fixed_calc:'the number path',fixed_sunmoon:'the sun/moon path',
+  fixed_sigreport:'the signal readback',fixed_greeting_ack:'the greeting table',
+  fixed_forecast_refused:'the forecast refusal',fixed_weather_unavailable:'the weather fallback',
+  fixed_capabilities:'the capability list'};
+// Why a greeting that never got an ack did not get one. The greeting ladder runs PAST the main
+// ladder's sender check on purpose, so the main ladder's failing gate is frequently not the
+// thing that decided the outcome. Closed set, read off plan_greeting()'s own returns.
+const GREETWHY={greeting_sender_cooldown:'this node had already been greeted inside the cooldown window',
+  greeting_is_reaction:'the message was a tapback on an earlier message, not a greeting anyone typed',
+  greeting_budget_spent:'the day&rsquo;s greeting budget was already spent',
+  greeting_not_broadcast:'it was a direct message, and the ack is broadcast-only',
+  greeting_disabled:'the greeting ack is switched off'};
 function spineHtml(x,t){
   const link=(x.kind==='exchange')?linkSvg(x):null;
   let s='';
   if(link) s+=stage('pass','received',link.summary,link.diagram+link.rows);
   const gated=t.gates&&t.gates.length;
   const stopped=x.verdict==='skipped';
+  // The headline is read off the CHIPS, not off the verdict. `passed` counted only the gates
+  // that passed and then called that number "all", so a ladder with a red cross in it
+  // announced "all 3 checks passed" -- on 10 real records, every one of them an off-list
+  // greeting ack, where the main ladder genuinely failed and another path answered anyway.
+  // That is not a contradiction and it is the most interesting thing in the record, so it is
+  // now said out loud instead of being averaged away.
+  const chips=g=>g.map(q=>`<span class="gate ${q.pass?'gp':'gf'}">${q.pass?'✓':'✗'} ${esc(q.gate)}</span>`).join('');
+  const altl=t.greeting_gates?['the greeting path',t.greeting_gates]
+            :(t.sigreport_gates?['the signal readback',t.sigreport_gates]:null);
   if(gated){
-    const passed=t.gates.filter(g=>g.pass).length;
-    s+=stage(stopped?'stop':'pass','gated',
-      stopped?`stopped at <b>${esc((t.gates.find(g=>!g.pass)||{}).gate||'a check')}</b>`
-             :`all ${passed} checks passed`,
-      t.gates.map(g=>`<span class="gate ${g.pass?'gp':'gf'}">${g.pass?'✓':'✗'} ${esc(g.gate)}</span>`).join('')
-      +(stopped?'<span class="rungn">later checks never evaluated</span>':''));
+    const fails=t.gates.filter(g=>g.pass===false);
+    if(!fails.length)
+      s+=stage('pass','gated',`all ${t.gates.length} checks passed`,chips(t.gates));
+    else if(stopped)
+      s+=stage('stop','gated',`stopped at <b>${esc(fails[0].gate)}</b>`,
+        chips(t.gates)+'<span class="rungn">later checks never evaluated</span>');
+    else
+      s+=stage('pass','gated',`stopped at <b>${esc(fails[0].gate)}</b> &mdash; answered by another path`,
+        chips(t.gates)+'<span class="rungn">the reply list gates generated prose; the path that '
+        +'answered writes no prose, so it is deliberately open to senders this ladder excludes</span>');
   }
+  // The ladder that actually decided was never drawn at all, so the only one on screen was the
+  // one that did not. It carries gate names only -- no node ids, nothing about the sender.
+  if(altl&&altl[1].length)
+    s+=stage(altl[1].every(g=>g.pass!==false)?'pass':'stop',altl[0],
+      altl[1].every(g=>g.pass!==false)?`all ${altl[1].length} checks passed`
+        :`stopped at <b>${esc(altl[1].filter(g=>g.pass===false)[0].gate)}</b>`,chips(altl[1]));
   if(!t.model&&stopped){
-    s+=stage('skip','not answered','the message was received and recorded, and nothing further ran',
+    // Name the check that DECIDED. `reason` is the main ladder's, and for a greeting-shaped
+    // message the greeting ladder ran on past it and stopped for one of its own -- so the page
+    // was publishing sender_allowed as the cause of an outcome sender_allowed did not govern.
+    // 4 real records: three tapbacks and one node still inside its cooldown window.
+    const gw=GREETWHY[t.greeting_reason];
+    s+=stage('skip','not answered',
+      gw?`no ack &mdash; ${gw}`:'the message was received and recorded, and nothing further ran',
       '<span class="rungn">no text was sent to a model, and nothing went on air</span>');
     return `<ol class="spine">${s}</ol>`;
   }
@@ -5441,8 +5513,23 @@ function spineHtml(x,t){
         +'Most of it is process startup and a network round trip — an order of magnitude, not '
         +'thinking time.');}
     s+=stage('pass','narrated',`<code>${esc(t.model)}</code>`,d);}
-  if(t.gen_status&&t.gen_status!=='ok')
-    s+=stage('stop','generation',`<code>${esc(t.gen_status)}</code>`,'');
+  // `gen_status` names WHICH PATH wrote the reply. It is not a health field. "ok" means the
+  // model returned; every `fixed_*` value means a doer answered and no model ran at all; a
+  // `gen_*` value is a real generation failure. Drawing all three as one red stop stage
+  // published 21 deterministic answers as breakdowns -- each with a green "sent" underneath it,
+  // which is the tell nobody read. Keyed on the PREFIX, not on the table: a fixed path added
+  // later and not listed here must still not be published as a failure. It gets a truthful
+  // stage that names the gap instead.
+  if(t.gen_status&&t.gen_status!=='ok'){
+    const src=FIXEDSRC[t.gen_status];
+    if(/^fixed_/.test(t.gen_status))
+      s+=stage('pass','answered from code',src||'a fixed reply',
+        '<span class="hint">no model ran &mdash; the responder wrote this reply itself'
+        +(src?'':', by a path this page does not have a name for yet')+'</span>');
+    else
+      s+=stage('stop','generation',`<code>${esc(t.gen_status)}</code>`,
+        '<span class="hint">the model was called and returned nothing usable</span>');
+  }
   if(t.dest) s+=stage('pass','sent',`on air to <code>${esc(t.dest)}</code>`,'');
   return `<ol class="spine">${s}</ol>`;
 }
