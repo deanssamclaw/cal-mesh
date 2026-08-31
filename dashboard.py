@@ -4346,6 +4346,10 @@ box-shadow:inset 0 3px 0 var(--accent)}
 .tabnote{font-size:11.5px;color:var(--dim);line-height:1.55;margin:0;padding:13px 16px 2px;max-width:80ch}
 /* --- exchanges --- */
 .xc{padding:14px 16px;border-bottom:1px solid var(--line)}
+#exchanges{overflow-y:auto;overscroll-behavior:contain}
+#exchanges.capped{max-height:var(--xcap,520px)}
+.xcmore{margin:0;padding:9px 16px;font-size:11.5px;color:var(--dim);border-bottom:1px solid var(--line)}
+.xcmore:empty{display:none}
 .xc:last-child{border-bottom:0}
 .xc .meta{color:var(--dim);font-size:11px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:5px}
 .xc .ask{font-size:15px;word-break:break-word;max-width:78ch}
@@ -4752,7 +4756,8 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     <button class="tab" role="tab" id="tab-dm" aria-controls="pane-dm" aria-selected="false">🔒 Direct Messages <span class="badge" id="dm-n">0</span></button>
     <button class="tab" role="tab" id="tab-learn" aria-controls="pane-learn" aria-selected="false">🔁 Learning Loops <span class="badge" id="lrn-untriaged">0</span></button>
    </div>
-   <div class="pane" id="pane-open" role="tabpanel" aria-labelledby="tab-open"><div id="exchanges"></div></div>
+   <div class="pane" id="pane-open" role="tabpanel" aria-labelledby="tab-open">
+    <p class="xcmore" id="xc-more"></p><div id="exchanges"></div></div>
    <div class="pane" id="pane-dm" role="tabpanel" aria-labelledby="tab-dm" hidden>
     <p class="tabnote">Cal and Dean&rsquo;s test bench. Trying things on the open channel costs every
     node in range airtime, so experiments happen here instead &mdash; one link, two nodes. <b>It is
@@ -5638,6 +5643,28 @@ function chTag(c){
   const cls = c===0 ? ' c0' : c===1 ? ' c1' : '';
   return `<span class="tag ch${cls}">ch${c==null?'?':esc(c)}</span>`;
 }
+// Open Exchanges shows XC_VISIBLE and scrolls for the rest. The height is MEASURED from the
+// first child past the limit rather than set in pixels: an exchange is as tall as its message,
+// so a fixed height would show four of one conversation and six of another.
+const XC_VISIBLE=5;
+function capExchanges(){
+  const c=$('#exchanges'), note=$('#xc-more');
+  if(!c) return;
+  const kids=c.children, n=kids.length, extra=n-XC_VISIBLE;
+  if(note) note.textContent = extra>0
+    ? `Showing ${XC_VISIBLE} of ${n} — scroll inside the list for the other ${extra}.` : '';
+  // A decision trace must never be read through a five-row window, so the cap comes off while
+  // one is open and is re-measured when the last one closes.
+  if(extra<=0 || c.querySelector('details.tr[open]')){ c.classList.remove('capped'); return; }
+  // offsetHeight is 0 while the tab is hidden. Measuring then would cap the list at nothing,
+  // and the reader would find an empty box the first time they opened the tab.
+  if(!c.offsetHeight) return;
+  requestAnimationFrame(()=>{
+    if(!c.offsetHeight || c.querySelector('details.tr[open]')) return;
+    const top=kids[0].offsetTop, cut=kids[XC_VISIBLE].offsetTop;
+    if(cut>top){ c.style.setProperty('--xcap',(cut-top)+'px'); c.classList.add('capped'); }
+  });
+}
 function exchangeHtml(x){
   if(x.kind==='unprompted') return `
     <div class="xc unprompted"><div class="meta"><span class="tag tx">TX</span>
@@ -5753,6 +5780,7 @@ async function tick(){
    $('#dm-exchanges').innerHTML=dms.length?dms.map(exchangeHtml).join('')
      :'<div class="empty">no direct messages yet</div>';
    hydrateOpen();
+   capExchanges();
  }
  $('#nn').textContent=lastNodes.length;
  renderNodes();
@@ -5905,6 +5933,10 @@ $('#xtabs').addEventListener('click', e=>{
     const pane=document.getElementById(t.getAttribute('aria-controls'));
     if(pane) pane.hidden = !on;
   });
+  // The list cannot be measured while its pane is hidden, so a render that landed while the
+  // reader was on another tab leaves it uncapped. Re-measure on the way in. The arrow-key
+  // handler routes through click(), so this covers keyboard switching too.
+  capExchanges();
 });
 $('#xtabs').addEventListener('keydown', e=>{
   if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight') return;
@@ -5921,12 +5953,14 @@ $('#xtabs').addEventListener('keydown', e=>{
   if(!el.open){ OPEN.delete(k); ANIMATED.delete(k);
     // the class must come off, or re-adding it on reopen is a no-op and nothing replays
     const tpc=el.querySelector('.tp'); if(tpc) tpc.classList.remove('anim');
+    capExchanges();   // last trace closed — the five-row cap goes back on
     return; }
   OPEN.add(k);
   const body=el.querySelector('.tpwrap');
   const x=XBYKEY.get(k);
   if(body&&!body.firstChild&&x) body.innerHTML=traceHtml(x);
   hydrate(el,k,true);
+  capExchanges();     // a trace is open — lift the cap so it is not read through a slot
 }, true));
 (function(){
   const m=location.pathname.match(/\/(old-\d+)\/?$/);
