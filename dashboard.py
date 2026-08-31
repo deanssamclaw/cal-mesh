@@ -25,6 +25,15 @@ import os, json, http.server, socketserver, subprocess, threading, time
 import console
 import capability_records
 import anatomy
+# The distiller itself, for health() and audit(). ONE choke point on purpose: the CLI
+# (`learn.py --check`) and this page must never be able to disagree about whether the loop
+# is healthy, and two implementations of that verdict would drift the first time a
+# threshold moved. Guarded because a page that cannot import the distiller must SAY so,
+# not quietly omit the panel and read as though everything were fine.
+try:
+    import learn as _learn
+except Exception:
+    _learn = None
 from urllib.parse import urlparse
 
 BASE     = os.path.expanduser("~/cal-mesh")
@@ -492,7 +501,18 @@ def build_learning(top=6, runs=20):
     # goes silently stale the moment they move, which is the moment anyone would care.
     hist = tail_jsonl(LHISTORY, runs)
     last = hist[0] if hist else {}
+    # Computed HERE, on every read, rather than read back from a status file the distiller
+    # writes. Two reasons, both load-bearing. A heartbeat written by the monitored job cannot
+    # report that the job stopped -- it keeps saying whatever it last said and reads healthy
+    # forever. And the drift check has to run against the code loaded RIGHT NOW, because the
+    # failure it exists to catch is a classifier edited between two runs: banking the number at
+    # run time would reproduce the same blind spot, just a day wide instead of six.
+    try:
+        health = _learn.health() if _learn else None
+    except Exception:
+        health = None
     return {
+        "health": health,
         "scoreboard": {
             "untriaged": last.get("untriaged", len(untriaged)),
             "armed": last.get("armed", len(armed)),
@@ -4442,6 +4462,25 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
    never resolve a selector against the markup. The stat row is the page's own .tiles/.tile,
    not a second component that looks like it. */
 #pane-learn .lsec h3{margin:0;padding:16px 16px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent)}
+#pane-learn .lhealth{margin:4px 16px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);overflow:hidden}
+#pane-learn .lhrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 14px;border-bottom:1px solid var(--line)}
+#pane-learn .lchip{padding:4px 11px;border-radius:999px;font-weight:700;font-size:11.5px;letter-spacing:.6px;border:1px solid}
+#pane-learn .lchip.ok{background:#dafbe1;color:var(--ok);border-color:#aceebb}
+#pane-learn .lchip.bad{background:#ffebe9;color:var(--bad);border-color:#ffcecb}
+#pane-learn .lchip.unknown{background:#fff8c5;color:var(--warn);border-color:#f0e08a}
+#pane-learn .lhwhy{color:var(--dim);font-size:12.5px}
+#pane-learn .lfacts{display:flex;flex-wrap:wrap;gap:1px;background:var(--line)}
+#pane-learn .lfact{flex:1 1 150px;background:var(--card);padding:10px 14px}
+#pane-learn .lfact.warn{background:#fff8c5}
+#pane-learn .lfact .lk{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim)}
+#pane-learn .lfact .lv{font-size:17px;font-weight:650;margin-top:2px}
+#pane-learn .lfact.warn .lv{color:var(--bad)}
+#pane-learn .lspark{margin:0 16px 4px;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:6px 8px}
+#pane-learn .lspark svg{display:block;width:100%;height:60px}
+#pane-learn .lspark .sb{fill:var(--accent);opacity:.30}
+#pane-learn .lspark .sb.late{fill:var(--warn);opacity:.65}
+#pane-learn .lspark .sl{fill:none;stroke:var(--accent);stroke-width:1.5}
+#pane-learn .lspark .sz{fill:var(--dim);font-size:10px}
 #pane-learn .lnote{margin:0;padding:0 16px 8px;font-size:11.5px;color:var(--dim);line-height:1.55;max-width:80ch}
 #pane-learn .tiles{padding:4px 16px 0;margin-bottom:8px}
 /* 3px reserved gutter + 13px = the 16px left edge every other element in this pane sits on.
@@ -4730,6 +4769,21 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     read for what it could not answer. Published for the reason the trace is: a list of what
     this node <b>can</b> do is a claim, while a list of what it still cannot, next to the commit
     that fixed the last one, is checkable. The uncomfortable numbers are the load-bearing ones.</p>
+    <div class="lhealth" id="lrn-health"></div>
+    <p class="lnote">The strip above answers a different question from the tiles below it, and
+    the difference is the point. Three situations used to be indistinguishable here, because all
+    three report <i>nothing new</i>: a healthy loop over a quiet mesh, a responder that has
+    stopped writing, and a bank that no longer matches the code which classifies it. They are
+    <b>FRESH</b>, <b>STALLED</b> and <b>DRIFT</b> &mdash; and the third is not hypothetical, it
+    is what published three answered range tests as unanswered gaps for six days while every
+    number on this page looked correct. There is no green light here on purpose: a light is a
+    claim, and what is shown instead is the evidence it would have been claiming from.</p>
+    <div class="lspark"><svg id="lrn-spark" viewBox="0 0 600 60" preserveAspectRatio="none"
+      role="img" aria-label="records folded per distiller run, with open-queue size over the top"></svg></div>
+    <p class="lnote">One bar per run &mdash; how many records that run folded, so an input that
+    dries up becomes a row of stumps rather than a number nobody reads. The line over the top is
+    the open queue. A bar in <span class="lwarn">warning colour</span> is a run that landed more
+    than 26 h after the one before it, which is the schedule slipping.</p>
     <div class="tiles" id="lrn-stats"></div>
     <div class="lsec"><h3>Armed</h3><div id="lrn-armed"></div></div>
     <div class="lsec"><h3>Waiting on an oracle</h3>
@@ -5712,14 +5766,80 @@ function shaLink(c,pushed){
   return `<a class="lsha" href="${url}" target="_blank" rel="noopener noreferrer">${esc(c)}</a>`
        + (pushed?'':' <span class="lwarn">local only</span>');
 }
+// Durations read as durations. Mirrors learn._fmt_age deliberately -- the CLI and this page
+// quote the same numbers, and two formatters would eventually disagree about what "2.0" meant.
+function ageTxt(h){ if(h==null) return '?';
+  if(h<1) return Math.round(h*60)+' min';
+  if(h<48) return h.toFixed(1)+' h';
+  return (h/24).toFixed(1)+' d'; }
+function untilTxt(iso){ if(!iso) return '—';
+  const d=(new Date(iso)-Date.now())/3600000;
+  return d<0 ? 'overdue' : 'in '+ageTxt(d); }
+function paintAges(H){
+  if(!H) return;
+  const a=$('#lrn-agerun'), b=$('#lrn-agein'), c=$('#lrn-agenext');
+  if(a) a.textContent=ageTxt(H.run_age_h);
+  if(b) b.textContent=ageTxt(H.input_age_h);
+  if(c) c.textContent=untilTxt(H.next_expected);
+}
+function drawHealth(H){
+  const el=$('#lrn-health'); if(!el) return;
+  if(!H){
+    // The page could not read the distiller at all, and says exactly that. It does NOT fall
+    // through to a cheerful default -- a fallback that describes a mechanism describes the
+    // wrong one, and the wrong one here would be "healthy".
+    el.innerHTML='<div class="lhrow"><span class="lchip unknown">UNKNOWN</span>'
+      +'<span class="lhwhy">this page could not read the distiller&rsquo;s health</span></div>';
+    return; }
+  const F=H.flags||[];
+  const cls={FRESH:'ok',LATE:'bad',STALLED:'bad',DRIFT:'bad',UNKNOWN:'unknown'}[H.state]||'unknown';
+  const fact=(k,v,warn)=>`<div class="lfact${warn?' warn':''}"><div class="lk">${k}</div><div class="lv">${v}</div></div>`;
+  el.innerHTML=
+     `<div class="lhrow"><span class="lchip ${cls}">${esc(H.state)}</span>`
+    +`<span class="lhwhy">${esc(H.reason||'')}</span></div><div class="lfacts">`
+    +fact('last run',`<span id="lrn-agerun">${ageTxt(H.run_age_h)}</span> ago`,F.includes('LATE'))
+    +fact('next run due',`<span id="lrn-agenext">${untilTxt(H.next_expected)}</span>`,F.includes('LATE'))
+    +fact('last inbound',`<span id="lrn-agein">${ageTxt(H.input_age_h)}</span> ago`,F.includes('STALLED'))
+    +fact('bank check',(H.stale==null?'?':H.stale)+' stale of '+(H.audited??0),F.includes('DRIFT'))
+    +`</div>`;
+}
+function drawSpark(hist){
+  const el=$('#lrn-spark'); if(!el) return;
+  const h=(hist||[]).filter(r=>r&&r.ts);
+  if(h.length<2){ el.innerHTML='<text class="sz" x="6" y="34">not enough runs recorded yet to plot</text>'; return; }
+  const W=600,HT=60,pad=3,base=HT-3;
+  const maxP=Math.max(1,...h.map(r=>+r.processed||0));
+  const maxU=Math.max(1,...h.map(r=>+r.untriaged||0));
+  const step=(W-pad*2)/h.length, bw=Math.max(1,step-1.5);
+  let bars='',pts=[];
+  h.forEach((r,i)=>{
+    const x=pad+step*i;
+    const ph=Math.max(1,Math.round((base-14)*((+r.processed||0)/maxP)));
+    // A run that landed more than the LATE threshold after the one before it is COLOURED, not
+    // dropped. A run that never happened has no bar of its own to draw, so the only place it
+    // can show up at all is the gap it left in front of the next one.
+    const late=i>0 && (new Date(r.ts)-new Date(h[i-1].ts))/3600000>26;
+    bars+=`<rect class="sb${late?' late':''}" x="${x.toFixed(1)}" y="${(base-ph).toFixed(1)}" `
+        +`width="${bw.toFixed(1)}" height="${ph}"><title>${esc(r.ts.slice(0,16).replace('T',' '))} — `
+        +`${+r.processed||0} record(s) folded, ${+r.untriaged||0} open${late?' — late run':''}</title></rect>`;
+    pts.push((x+bw/2).toFixed(1)+','+(3+(base-17)*(1-(+r.untriaged||0)/maxU)).toFixed(1));
+  });
+  el.innerHTML=bars+`<polyline class="sl" points="${pts.join(' ')}" vector-effect="non-scaling-stroke"/>`;
+}
 function renderLearning(L){
   const sb=L.scoreboard||{};
-  // The distiller writes once a day; this ran four innerHTML writes every 3s regardless,
-  // against the rule the exchange stream states two functions up — it fights the reader for
-  // text selection and scroll position, and buys nothing.
-  const lsig=JSON.stringify(L);
+  const H=L.health||null;
+  // Ages move on every poll by design, so they are written into stable nodes here and kept
+  // deliberately OUT of the signature below. Folding them in would make the signature differ
+  // on every single tick and re-run every innerHTML write underneath it -- which is precisely
+  // the cost the signature exists to avoid.
+  paintAges(H);
+  const lsig=JSON.stringify([sb,L.armed,L.untriaged,L.corrections,L.history,
+    H&&[H.state,H.flags,H.stale,H.audited,H.last_run,H.last_input,H.next_expected]]);
   if(lsig===lastLsig) return;
   lastLsig=lsig;
+  drawHealth(H);
+  drawSpark(L.history||[]);
   // A bare count, like the two tabs beside it. "19 open" put a unit inside one badge of three.
   $('#lrn-untriaged').textContent=sb.untriaged??0;
   // Emphasis is reserved for the two numbers that mean something went wrong. by_loop being 0

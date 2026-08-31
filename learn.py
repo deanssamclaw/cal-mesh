@@ -88,7 +88,7 @@ public; `gap-ledger.json`, `gap-ledger.md` and `learn-state.json` are gitignored
 `decisions.jsonl` for the same reason. `learn.py` itself is source and is tracked.
 """
 import os, sys, re, json, argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 BASE       = os.path.expanduser("~/cal-mesh")
 DECISIONS  = os.path.join(BASE, "decisions.jsonl")
@@ -235,6 +235,11 @@ def iter_decisions():
 
 # THROTTLED clusters with the rest: a question refused for capacity is still an ask, and it is
 # the one bucket that says the limits themselves need looking at rather than a new capability.
+# Every bucket classify() can return. Named once: the audit sums records over these and
+# would double-count if it also summed the per-stream keys built from them.
+BUCKETS = ("HIT", "GAP", "CLARIFY", "NO_TABLE", "THROTTLED", "REFUSED", "GREETING",
+           "FILTERED", "OTHER")
+
 CLUSTERED = ("GAP", "CLARIFY", "NO_TABLE", "THROTTLED")
 SCHEMA = 2
 
@@ -448,6 +453,13 @@ def render_md(agg, state, tr):
     lines.append(f"_Generated {datetime.now(timezone.utc).isoformat()} · "
                  f"run #{state.get('runs', 0)} · watermark `{state.get('last_ts','')}`_")
     lines.append("")
+    h = health()
+    lines.append(f"**Loop health: {h['state']}** — {h['reason']}  ")
+    lines.append(f"_last run {_fmt_age(h['run_age_h'])} ago · last inbound "
+                 f"{_fmt_age(h['input_age_h'])} ago · "
+                 f"bank check {h['stale'] if h['stale'] is not None else '?'} stale of "
+                 f"{h['audited']} · {h['runs']} runs_")
+    lines.append("")
     lines.append("Propose-only. Every cluster below is a candidate capability, not a change. "
                  "Each still walks the gate (off → eval → review → arm) before it answers. "
                  "The loop's question to a human is **what is the oracle**, never *shall I "
@@ -591,6 +603,212 @@ def append_history(run, snap):
     return rec
 
 
+# ---------------------------------------------------------------------------
+# Health -- is this loop actually running, and is what it published still true?
+# ---------------------------------------------------------------------------
+# Thresholds are MEASURED, not chosen. Taken 2026-08-31 over the whole of
+# decisions.jsonl (147 records, 2026-08-08 .. 2026-08-31) and all 19 recorded runs:
+#
+#   RUN_LATE_H = 26     Scheduled runs land 24.00 h apart, eight consecutive days, with no
+#                       drift at all. 26 h is that cadence plus two hours of grace for a host
+#                       that happened to be asleep at 06:15.
+#   INPUT_STALL_H = 48  The largest natural silence between two inbound records is 39.3 h
+#                       (median 0.47 h, p90 11.5 h). 48 h clears the observed worst case with
+#                       headroom. Set below ~40 h this fires on a genuinely quiet mesh, and a
+#                       health signal that cries wolf is one nobody reads.
+#
+# Re-derive both if the traffic pattern changes. A threshold inherited from a different
+# traffic shape is a guess wearing a measurement's clothes.
+RUN_LATE_H = 26
+INPUT_STALL_H = 48
+
+# The closed set. A verdict outside it is a bug, not a new state -- and UNKNOWN is what an
+# unreadable artefact produces, never a cheerful default.
+STATES = ("FRESH", "LATE", "STALLED", "DRIFT", "UNKNOWN")
+
+
+def audit(agg=None, watermark=None):
+    """Re-classify what has already been folded, and compare it against what was banked.
+
+    THE HOLE THIS CLOSES. The aggregate is cumulative and the watermark means each record is
+    classified exactly once, ever. So a fix to classify() corrects every FUTURE record and
+    cannot reach the ones already counted. That is not hypothetical: adding sigreport to
+    DOER_CAPS fixed the classifier, and three sigreport readbacks still sat in the published
+    build queue as unanswered gaps for six days afterwards -- because nothing compared the
+    bank against the code. This is that comparison, and it is the reason DRIFT is a state.
+
+    Only records AT OR BEFORE the watermark are audited. Records the loop has not folded yet
+    are legitimately absent from the bank, and counting them would report drift every day in
+    the window between the responder writing and the job running -- a false alarm on a
+    schedule, which is exactly how a true one gets ignored.
+
+    Returns counts only. No message text: a public page reads this.
+    """
+    agg = agg if agg is not None else (load_json(LEDGER_JSON, {}) or {})
+    if watermark is None:
+        watermark = (load_json(STATE, {}) or {}).get("last_ts", "")
+    banked = dict(agg.get("totals") or {})
+    if not banked or not watermark:
+        return {"ok": None, "stale": None, "audited": 0, "banked": 0,
+                "delta": {}, "reason": "no bank, or no watermark to audit against"}
+    our, own_ch = our_id(), cal_channel()
+    rebuilt, n = {}, 0
+    for rec in iter_decisions():
+        ts = rec.get("ts") or ""
+        if not ts or ts > watermark:
+            continue
+        n += 1
+        b = classify(rec, our)
+        # Mirror fold() EXACTLY -- one plain key and one stream key per record. Rebuilding only
+        # the plain keys reported a false deficit on every `HIT_dm`-style key while `stale`
+        # read 0, so the audit contradicted itself; an instrument that disagrees with its own
+        # summary is worse than none.
+        rebuilt[b] = rebuilt.get(b, 0) + 1
+        sk = b + "_" + stream(rec, our, own_ch)
+        rebuilt[sk] = rebuilt.get(sk, 0) + 1
+    delta = {k: rebuilt.get(k, 0) - banked.get(k, 0)
+             for k in sorted(set(banked) | set(rebuilt))
+             if rebuilt.get(k, 0) != banked.get(k, 0)}
+    # `stale` counts RECORDS, so it is summed over the plain buckets only. Every record also
+    # lands in a stream key, and counting both families would report each moved record twice.
+    # A pure reclassification moves a record between buckets, so the positive side of the
+    # delta counts it once; summing absolute values would double it again.
+    moved = sum(v for k, v in delta.items() if k in BUCKETS and v > 0)
+    return {"ok": not delta, "stale": moved, "audited": n,
+            "banked": sum(banked.get(b, 0) for b in BUCKETS), "delta": delta,
+            "reason": "" if not delta else "bank disagrees with the current classifier"}
+
+
+def _age_h(iso, now):
+    if not iso:
+        return None
+    try:
+        t = datetime.fromisoformat(iso)
+    except Exception:
+        return None
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return max(0.0, (now - t).total_seconds() / 3600.0)
+
+
+def _fmt_age(h):
+    """Ages read as durations, not decimals. One formatter for the CLI and the ledger header,
+    because two would drift and this number is the whole point of the strip."""
+    if h is None:
+        return "?"
+    if h < 1:
+        return f"{int(round(h * 60))} min"
+    if h < 48:
+        return f"{h:.1f} h"
+    return f"{h / 24:.1f} d"
+
+
+def _health_reason(state, run_age, in_age, a):
+    """One sentence per state, and each one names ITS OWN mechanism.
+
+    A fall-through that describes some other state's mechanism is worse than no sentence: it
+    is the page asserting a cause it did not measure. There is no default branch here on
+    purpose -- an unrecognised state says so.
+    """
+    if state == "FRESH":
+        return "ran on schedule, input flowing, bank agrees with the current classifier"
+    if state == "UNKNOWN":
+        return ("cannot read the run history, the decision log, or the bank "
+                "-- reporting unknown rather than healthy")
+    if state == "LATE":
+        return f"no distiller run in {run_age:.0f} h; it is scheduled every 24 h"
+    if state == "STALLED":
+        return f"the loop is running, but nothing has been received in {in_age:.0f} h"
+    if state == "DRIFT":
+        return (f"{a.get('stale') or 0} banked record(s) would classify differently under the "
+                f"code running now -- rebuild with `learn.py --reset`")
+    return f"unrecognised state {state!r}"
+
+
+def health(now=None):
+    """Liveness from OBSERVABLE EVIDENCE, never from the loop's own say-so.
+
+    A heartbeat written by the job being monitored cannot report that the job stopped -- it
+    just keeps saying whatever it last said, and reads healthy forever. So every field here is
+    derived from artefacts carrying their own timestamps (the newest run in learn-history.jsonl,
+    the newest record in decisions.jsonl), and the dashboard recomputes it on each poll instead
+    of reading a status file that something may have quietly stopped refreshing.
+
+    THREE STATES THAT USED TO LOOK IDENTICAL, all of them reported as "0 new gaps":
+    a healthy loop over a quiet mesh, a dead responder, and a bank that no longer matches the
+    code. They are FRESH, STALLED and DRIFT here. Telling them apart is the entire point --
+    one green light says the same thing in all three, which is why the six-day staleness was
+    invisible while every number on the page looked right.
+    """
+    now = now or datetime.now(timezone.utc)
+
+    last_run, runs = None, 0
+    try:
+        with open(HISTORY) as f:
+            for ln in f:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    rec = json.loads(ln)
+                except Exception:
+                    continue
+                if rec.get("ts"):
+                    last_run, runs = rec["ts"], runs + 1
+    except Exception:
+        pass
+
+    last_input = ""
+    for rec in iter_decisions():
+        ts = rec.get("ts") or ""
+        if ts > last_input:
+            last_input = ts
+    last_input = last_input or None
+
+    a = audit()
+    run_age, in_age = _age_h(last_run, now), _age_h(last_input, now)
+
+    # Flags are collected, not short-circuited: two things can be wrong at once, and a strip
+    # that can only ever name one of them hides the second until the first is fixed.
+    flags = []
+    if run_age is None or in_age is None or a.get("stale") is None:
+        flags.append("UNKNOWN")
+    if run_age is not None and run_age > RUN_LATE_H:
+        flags.append("LATE")
+    if in_age is not None and in_age > INPUT_STALL_H:
+        flags.append("STALLED")
+    if a.get("stale"):
+        flags.append("DRIFT")
+
+    # Precedence is upstream-first: a loop that has not run makes every number under it old,
+    # so naming DRIFT while the job itself is dead would point at the wrong repair. The strip
+    # renders all four facts regardless, so precedence chooses the chip -- it hides nothing.
+    state = "FRESH"
+    for s in ("UNKNOWN", "LATE", "STALLED", "DRIFT"):
+        if s in flags:
+            state = s
+            break
+
+    next_expected = None
+    if last_run:
+        try:
+            t = datetime.fromisoformat(last_run)
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+            next_expected = (t + timedelta(hours=24)).isoformat()
+        except Exception:
+            next_expected = None
+
+    return {"state": state, "flags": flags, "runs": runs,
+            "last_run": last_run, "run_age_h": run_age,
+            "next_expected": next_expected, "late_after_h": RUN_LATE_H,
+            "last_input": last_input, "input_age_h": in_age,
+            "stall_after_h": INPUT_STALL_H,
+            "stale": a.get("stale"), "audited": a.get("audited"),
+            "delta": a.get("delta") or {},
+            "reason": _health_reason(state, run_age, in_age, a)}
+
+
 def git_head():
     """(short sha, on_origin) for the current checkout, or (None, False).
 
@@ -643,6 +861,10 @@ def main():
     ap.add_argument("--reset", action="store_true",
                     help="ignore the watermark and rebuild the aggregate from scratch")
     ap.add_argument("--quiet", action="store_true", help="write files, print only the summary line")
+    ap.add_argument("--check", action="store_true",
+                    help="print the health verdict and exit (0 fresh, 1 unhealthy, 2 unknown)")
+    ap.add_argument("--audit", action="store_true",
+                    help="re-classify the banked records with the current code and report drift")
     ap.add_argument("--triage", metavar="KEY", help="record an oracle verdict for a cluster key")
     ap.add_argument("--oracle", choices=("derivable", "needs-source", "none"))
     ap.add_argument("--source", help="the ground truth this will be measured against")
@@ -660,9 +882,39 @@ def main():
         cmd_triage(args)
         return
 
+    # --check and --audit READ ONLY. A health probe that mutates the thing it measures cannot
+    # be run from a monitor, a cron, or twice in a row, so neither folds, renders or advances
+    # the watermark.
+    if args.audit:
+        a = audit()
+        print(f"audited {a['audited']} banked record(s) against the current classifier")
+        if a["stale"] is None:
+            print(f"  UNKNOWN -- {a['reason']}")
+            return 2
+        if not a["delta"]:
+            print("  0 stale -- the bank agrees with the code")
+            return 0
+        print(f"  {a['stale']} stale record(s) -- {a['reason']}")
+        print("  (delta is rebuilt minus banked, over plain and per-stream keys)")
+        for b, d in sorted(a["delta"].items()):
+            print(f"    {b:<10} {d:+d}")
+        print("  rebuild with: learn.py --reset")
+        return 1
+    if args.check:
+        h = health()
+        print(f"{h['state']}: {h['reason']}")
+        print(f"  last run {_fmt_age(h['run_age_h'])} ago · last inbound "
+              f"{_fmt_age(h['input_age_h'])} ago · {h['runs']} run(s) · "
+              f"bank check {h['stale'] if h['stale'] is not None else '?'} stale")
+        return {"FRESH": 0, "UNKNOWN": 2}.get(h["state"], 1)
+
     agg, run, state = fold(reset=args.reset)
     tr = load_triage()
     snap = snapshot(agg, tr)
+    # Banked on the run as well as computed live by the dashboard. The live read is what
+    # catches a classifier edited between runs; this one gives the number a history, so a
+    # drift that came and went is still visible afterwards.
+    snap["stale"] = audit(agg, state.get("last_ts"))["stale"]
     append_history(run, snap)
     render_md(agg, state, tr)
 
@@ -690,4 +942,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
