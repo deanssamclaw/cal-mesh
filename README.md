@@ -95,7 +95,9 @@ arrives after the paste is not a guard.
 - `config` — all knobs (transport + responder). Read live every loop.
 - `inbox.jsonl` — received text. `sent.jsonl` — sent text + metadata (`source`: manual/responder).
 - `decisions.jsonl` — every inbound the responder evaluated: matched? reason? reply?
-- `status.json` / `nodes.json` / `responder-state.json` — live state.
+- `status.json` / `nodes.json` / `responder-state.json` — live state. `nodes.json` carries a
+  `grid` per neighbour when `POSITION_GRID=true`: a **coarse Maidenhead locator**, not a point.
+  See below.
 - `gap-ledger.json` / `gap-ledger.md` — the distiller's bank and its rendered view. `learn-state.json`
   holds the watermark and run counter, `learn-history.jsonl` is one line per run, `triage.json` holds
   the oracle verdicts. All gitignored: they carry message text and third-party node ids.
@@ -241,6 +243,43 @@ Two things this has already caught that testing did not: a diagram that read to 
 *"your message failed to send"* when the message had arrived fine and was what caused the reply,
 and a trace asserting one cause for a blank that had several. If the page cannot explain a reply
 honestly, that is a defect in the reply.
+
+## Neighbour position: a bucket, never a point
+
+About half the neighbours broadcast their own position over the air. With `POSITION_GRID=true`
+the bridge reduces that to a **Maidenhead locator** and stores only the locator — roughly
+**3 × 4.5 miles** at 6 characters, or 70 × 110 miles at 4. `POSITION_GRID_CHARS` sets which.
+
+Three properties make it safe to publish, and each is load-bearing:
+
+- **Bucketed at capture.** `coarse_grid()` runs in `bridge.py` and the exact latitude and
+  longitude are discarded in the same expression. Rounding at render time would leave the precise
+  point sitting in a file that feeds a public API — one bug away from being served.
+- **Cal's own node is excluded structurally**, not because it happens to advertise nothing today.
+  Cal HT sits at a fixed private address, and a firmware setting must not be able to start
+  publishing it as a side effect. `eval_hops.py` mutates that exclusion away and requires the
+  suite to fail.
+- **A node that broadcasts nothing simply has no grid.** It is never inferred from neighbours,
+  hop count or signal.
+
+What it still gives away, stated plainly: one bucket says little, but buckets across enough
+neighbours narrow where the receiver hearing all of them must be. That is a deliberate trade,
+made with the knowledge that these are positions their operators already transmit in the clear
+to everyone in range. Set `POSITION_GRID=false` to turn the column off entirely.
+
+The encoder is `calc.latlon_to_grid`, pinned against IARU's published worked examples — the
+same one the `calc` doer uses, so there is one implementation rather than two that can drift.
+
+## Hops: named when known, counted when not
+
+A traceroute reply carries each relay's **full node number**, so hops are named from the node
+database — name, hardware, hops from Cal, last heard. Nothing there is inferred.
+
+The **relay byte** the firmware reports with an ordinary message is different: one byte, and
+genuinely a fragment. Measured over 292 known nodes, a two-character fragment matches exactly
+one node only **28%** of the time and one value is shared by **nine**. So a relay is named only
+on a unique match and otherwise reports how many candidates it has. Guessing the likeliest is
+the mistake `clean_name` already exists for.
 
 ## The learning loop, and whether it is running
 

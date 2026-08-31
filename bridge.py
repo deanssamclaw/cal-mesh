@@ -69,6 +69,35 @@ def load_config():
     return cfg
 
 
+try:
+    import calc as _calc          # latlon_to_grid, pinned against IARU worked examples
+except Exception:
+    _calc = None
+
+
+def coarse_grid(pos, chars):
+    """A neighbour's reported position as a Maidenhead locator, truncated to `chars`.
+
+    BUCKETED HERE, at capture. The precise coordinate is never written anywhere: rounding at
+    render time would leave the exact point sitting in a file that feeds a public API, one bug
+    away from being served, and the entire value of a bucket is that the precise number never
+    lands. Returns None on anything it cannot do -- a missing position, a bad number, no calc
+    module -- because a position is an optional extra and must never cost a nodedb write.
+
+    6 characters is a subsquare: 2.9 x 4.5 miles at this latitude. 4 is a square: 69 x 108
+    miles, which puts an entire metro in one bucket and therefore says nothing.
+    """
+    if _calc is None or not pos:
+        return None
+    lat, lon = pos.get("latitude"), pos.get("longitude")
+    if lat is None or lon is None:
+        return None
+    try:
+        return _calc.latlon_to_grid(float(lat), float(lon))[:max(2, int(chars))]
+    except Exception:
+        return None
+
+
 lost = threading.Event()
 COUNTS = {"rx": 0, "tx": 0}
 POS_SEEN = {"n": None}   # last logged count of position-reporting neighbours (see write_nodes)
@@ -675,6 +704,14 @@ def write_status(cfg, connected, iface=None):
 
 def write_nodes(iface):
     try:
+        cfg = load_config()
+        want_grid = str(cfg.get("POSITION_GRID", "false")).lower() == "true"
+        grid_chars = cfg.get("POSITION_GRID_CHARS", "6")
+        # Our own node is excluded from the grid regardless of what it advertises. It does not
+        # advertise a position today; if that ever changes, this base station's fixed address
+        # must not start appearing on a public page as a side effect of a firmware setting.
+        _me = getattr(iface, "myInfo", None)
+        my_num = getattr(_me, "my_node_num", None)
         rows = []
         for nid, n in (iface.nodes or {}).items():
             u = n.get("user", {})
@@ -685,19 +722,24 @@ def write_nodes(iface):
             rows.append({"id": nid, "short": u.get("shortName"), "long": u.get("longName"),
                          "hw": u.get("hwModel"), "hops": n.get("hopsAway"),
                          "snr": n.get("snr"), "lastHeard": n.get("lastHeard"),
-                         "pubkey_fp": pubkey_fp(u.get("publicKey"))})
+                         "pubkey_fp": pubkey_fp(u.get("publicKey")),
+                         "grid": (coarse_grid(n.get("position"), grid_chars)
+                                  if (want_grid and n.get("num") != my_num) else None)})
         rows.sort(key=lambda r: (r["hops"] if r["hops"] is not None else 99,
                                  -(r["snr"] or -999)))
-        # Positions are deliberately NOT stored or published: nodes.json feeds a PUBLIC page,
-        # and Cal HT sits at a fixed private location. Log only the COUNT of neighbours that
-        # report a position — enough to know whether a private map is even feasible, and it
-        # goes to the local log, never to the API. Logged on change only.
+        # PRECISE positions are still never stored or published. What nodes.json now carries,
+        # when POSITION_GRID is on, is the COARSE Maidenhead bucket computed above -- a node's
+        # own broadcast position, reduced to a square, with our own node excluded. The exact
+        # latitude and longitude are read and discarded in the same expression.
+        # The count below is unchanged and still local-only: it is the denominator that says
+        # how much of the mesh the grid column can ever cover.
         try:
             with_pos = sum(1 for n in (iface.nodes or {}).values()
                            if (n.get("position") or {}).get("latitude") is not None)
             # Whether OUR OWN node advertises a position is the decisive one: if it does, the
             # base station's fixed location is already going out over the air to everyone in
-            # range, which is a different problem from what this dashboard publishes.
+            # range, which is a different problem from what this dashboard publishes -- and is
+            # why the grid column excludes our own node rather than trusting it to be absent.
             me = getattr(iface, "myInfo", None)
             my_num = getattr(me, "my_node_num", None)
             self_pos = any((n.get("position") or {}).get("latitude") is not None

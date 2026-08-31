@@ -28,16 +28,43 @@ def ck(name, cond, detail=""):
     print(f"  {'ok  ' if cond else 'FAIL'} {name}" + ("" if cond else f"  {detail}"))
     if not cond: FAILS.append(name)
 
-print("no location, anywhere")
+print("location is a BUCKET, never a point")
 nodes = json.load(open(os.path.join(HERE, "nodes.json")))["nodes"]
+bridge_src = open(os.path.join(HERE, "bridge.py")).read()
 fields = set()
 for n in nodes: fields |= set(n.keys())
+# `long` is the long NAME, not longitude -- the obvious regex matches it and would pass a file
+# full of coordinates. Name the fields exactly.
 coord = [f for f in fields if re.search(r"latitude|longitude|coord|altitude", f, re.I)]
-ck("the node database stores no coordinate field", not coord, coord)
-ck("the bridge states positions are never stored",
-   "Positions are deliberately NOT stored or published" in open(os.path.join(HERE, "bridge.py")).read())
-ck("the page never renders a position field",
-   not re.search(r"\.latitude|\.longitude|n\.pos\b", V5), "a coordinate reaches the template")
+ck("no precise coordinate field is stored", not coord, coord)
+ck("the bridge buckets at capture rather than at render",
+   "BUCKETED HERE, at capture" in bridge_src)
+ck("the exact position is discarded in the same expression",
+   "latitude and longitude are read and discarded" in bridge_src)
+ck("the page never renders a raw coordinate",
+   not re.search(r"\.latitude|\.longitude", V5), "a coordinate reaches the template")
+
+grids = [n for n in nodes if n.get("grid")]
+ck("grids are actually populated (else the checks below prove nothing)",
+   len(grids) > 0, f"{len(grids)} of {len(nodes)}")
+ck("every grid is a well-formed Maidenhead locator",
+   all(re.fullmatch(r"[A-R]{2}[0-9]{2}([a-xA-X]{2})?", g["grid"]) for g in grids),
+   [g["grid"] for g in grids if not re.fullmatch(r"[A-R]{2}[0-9]{2}([a-xA-X]{2})?", g["grid"])][:3])
+ck("every grid is at one coarseness, so none is finer than configured",
+   len({len(g["grid"]) for g in grids}) == 1, sorted({len(g["grid"]) for g in grids}))
+ck("no grid is finer than a subsquare",
+   max(len(g["grid"]) for g in grids) <= 6, max(len(g["grid"]) for g in grids))
+
+me = (json.load(open(os.path.join(HERE, "status.json"))).get("node") or {}).get("id")
+mine = [n for n in nodes if n.get("id") == me]
+ck("Cal's own node carries no grid", not (mine and mine[0].get("grid")), mine[:1])
+# Cal does not advertise a position today, so the line above would pass even with the exclusion
+# deleted. The guarantee has to be structural or it is an accident that holds until a firmware
+# setting changes.
+ck("and the exclusion is STRUCTURAL, not just an accident of what Cal advertises",
+   'n.get("num") != my_num' in bridge_src, "self-exclusion missing from write_nodes")
+ck("the page states the trade rather than only the safeguard",
+   "narrow where the receiver" in V5, "FAQ does not admit what a grid gives away")
 
 print("\nthe relay byte may narrow, never name on a collision")
 frag = {}
@@ -77,7 +104,9 @@ else:
         "  unknown:hopDetail([" + json.dumps(stranger) + "]),\n"
         "  dedup:(hopDetail([known.id,known.id]).match(/phrow/g)||[]).length,\n"
         "  tag:hopTag(known.id), shortTag:hopTag('x'), nullTag:hopTag(null),\n"
-        "  knownShort:known.short, knownId:known.id};\n"
+        "  knownShort:known.short, knownId:known.id,\n"
+        "  gridded:(function(){const g=D.nodes.find(n=>n.grid&&n.id!==D.me);"
+        "return g?hopDetail([g.id]):null;})()};\n"
         "console.log(JSON.stringify(out));\n")
     r = subprocess.run([node, js], capture_output=True, text=True)
     if r.returncode != 0:
@@ -85,6 +114,8 @@ else:
     else:
         o = json.loads(r.stdout.strip().splitlines()[-1])
         ck("a known hop is NAMED, not truncated", o["knownShort"] in o["known"], o["known"][:120])
+        ck("a hop with a grid renders it", ("EM" in o["gridded"] or "grid" in o["gridded"])
+           if o.get("gridded") else True, str(o.get("gridded"))[:140])
         ck("a known hop carries substance (hardware or distance)",
            ("hop" in o["known"] or "&middot;" in o["known"]), o["known"][:120])
         ck("an unknown hop says so rather than inventing a name",
@@ -103,21 +134,25 @@ if "--self-test" in sys.argv:
     print("\nself-test — each mutation must FAIL a check above")
     MUTANTS = {
         "relay named on any match":
-            ("hits.length===1", "hits.length>=1"),
+            ("dashboard.py", "hits.length===1", "hits.length>=1"),
         "unknown hop gets invented a name":
-            ("'<span class=\"phname unk\">not in Cal&rsquo;s node database</span>'",
-             "'<span class=\"phname\">'+esc(hopTag(id))+'</span>'"),
+            ("dashboard.py", "phname unk\">not in Cal", "phname\">not in Cal"),
         "Cal's own node treated as a neighbour":
-            ("if(id===ROUTES.me){", "if(false){"),
+            ("dashboard.py", "if(id===ROUTES.me){", "if(false){"),
+        # The one that matters most. Cal advertises no position today, so deleting the
+        # self-exclusion changes nothing in the current data -- only the STRUCTURAL check can
+        # catch it. This proves that check is load-bearing rather than decorative.
+        "bridge stops excluding Cal's own node":
+            ("bridge.py", 'n.get("num") != my_num', "True"),
     }
-    for name, (old, new) in MUTANTS.items():
-        if old not in V5:
+    for name, (target, old, new) in MUTANTS.items():
+        src_txt = open(os.path.join(HERE, target)).read()
+        if old not in src_txt:
             print(f"  FAIL mutation anchor missing: {name}"); FAILS.append(name); continue
         md = tempfile.mkdtemp(prefix="evalhopsmut-")
-        open(os.path.join(md, "dashboard.py"), "w").write(
-            open(os.path.join(HERE, "dashboard.py")).read().replace(old, new, 1))
-        for f in ("nodes.json", "status.json", "bridge.py"):
+        for f in ("dashboard.py", "nodes.json", "status.json", "bridge.py"):
             shutil.copy(os.path.join(HERE, f), os.path.join(md, f))
+        open(os.path.join(md, target), "w").write(src_txt.replace(old, new, 1))
         shutil.copy(os.path.join(HERE, "eval_hops.py"), os.path.join(md, "eval_hops.py"))
         r = subprocess.run([sys.executable, os.path.join(md, "eval_hops.py")],
                            capture_output=True, text=True)

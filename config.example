@@ -121,3 +121,12 @@ TRACEROUTE_MAX_CH_UTIL=25
 # contain our own last probe.
 TRACEROUTE_MIN_GAP_S=60
 TRACEROUTE_HOP_LIMIT=3
+
+# --- Neighbour position, published as a COARSE Maidenhead grid ---------------------------
+# Nodes broadcast their own position over the air. This publishes a BUCKETED form of what
+# they already transmit, never the point: the locator is computed at capture and the precise
+# coordinate is never written to disk, so there is nothing exact for a later bug to serve.
+# 6 = subsquare, ~3 x 4.5 miles at mid latitudes. 4 = square, ~70 x 110 miles (a whole metro
+# in one bucket, which says nothing). Your own node is excluded whatever it advertises.
+POSITION_GRID=true
+POSITION_GRID_CHARS=6

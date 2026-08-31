@@ -4729,6 +4729,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
 .tp .phname{font-weight:650;font-size:12.5px}
 .tp .phname.unk{font-weight:500;font-style:italic;color:var(--dim)}
 .tp .phmeta{font-size:11.5px;color:var(--dim)}
+.tp .phgrid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent);font-weight:600}
 .tp .plink{display:inline-flex;flex-direction:column;align-items:center;margin:0 2px;min-width:56px}
 .tp .plink .parr{display:block;width:100%;height:2px;border-radius:1px;background:#6b7684;
   position:relative}
@@ -4970,10 +4971,20 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     <details><summary>Why isn't it a real map?</summary><div class="a">
       Because this page is public and the base station sits at a fixed private address — a pin would
       publish it, and a series of pins would publish movements. So the diagram shows <b>topology</b>
-      (who → who, how many hops) and never a location. No coordinates are stored by this project at
-      all: the bridge deliberately reads names, hops and signal from the node database and skips the
-      position field, even though about half the neighbours broadcast one. Cal's own node doesn't
-      advertise a position either.</div></details>
+      (who → who, how many hops) and never a position.
+      <br><br>Hop rows do now carry a <b>grid square</b>, and it is worth being exact about what
+      that is and is not. A node that broadcasts its own position gets a Maidenhead subsquare —
+      roughly <b>3 by 4.5 miles</b> — computed by the bridge at the moment of capture, with the
+      precise latitude and longitude discarded in the same expression. No exact coordinate is
+      written to disk or served by the API, so there is nothing precise here for a later bug to
+      leak. Only about half the neighbours broadcast a position at all; the rest simply have no
+      grid. <b>Cal's own node is excluded whatever it advertises</b>, and today it advertises
+      nothing.
+      <br><br>This is a trade rather than a free lunch, and the honest version is: one bucket per
+      node says little, but buckets gathered across enough neighbours narrow where the receiver
+      hearing all of them must be. It is published anyway because a mesh is far more legible with
+      it than without, and because these are positions their own operators already transmit in the
+      clear to everyone in range.</div></details>
     <details><summary>What about privacy and safety?</summary><div class="a">
       The channel is public by design, and this page only ever shows public-channel traffic and Cal's
       own telemetry — never the operator's data. Incoming text is treated as hostile: anyone in radio
@@ -5001,6 +5012,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-08-31</span><b>Hops gained substance, and a coarse grid.</b> A traceroute reply carries each relay&rsquo;s full node number, so hops are now <i>named</i> from the node database — short and long name, hardware, distance in hops, when it was last heard — rather than listed as bare ids. A hop this node has never heard is shown as the last two characters of its id and said to be unknown, never guessed: across 292 known nodes a two-character fragment matches exactly one of them only <b>28%</b> of the time, and one value is shared by nine. The last-relay byte the firmware reports is the one genuine fragment, and it is named only on a unique match and otherwise reports how many candidates it has. Nodes that broadcast a position now also show a <b>Maidenhead subsquare</b>, about 3 by 4.5 miles, bucketed at capture with the exact coordinate discarded and never written; Cal&rsquo;s own node is excluded. See the map question in the FAQ for what that does and does not give away.</div>
       <div class="ci"><span class="cd">2026-08-22</span><b>The open channel and Cal&rsquo;s own channel are now different colours.</b> Every exchange already carried a <code>ch0</code> or <code>ch1</code> chip, both in the same blue, so telling the KC Mesh open channel apart from Cal&rsquo;s private one meant reading the digit on every row. <code>ch0</code> keeps the blue; <code>ch1</code> is teal. The pair was chosen by measurement rather than taste: the teal holds 6.38:1 against its own chip, and it is the one candidate that stays clearly apart from the blue under both common forms of colour blindness &mdash; teal desaturates toward grey while blue stays blue, where a magenta collapses toward it. Amber and orange were ruled out for a different reason: in this same row they already mean <i>off-list</i> and <i>auto</i>, and a colour that already has a meaning cannot be given a second one. The chip still spells out which channel it was, so the colour only ever reinforces a label that was already there.</div>
       <div class="ci"><span class="cd">2026-08-21</span><b>v5 &mdash; what Cal <i>cannot</i> answer is now a tab, next to what it did.</b> A distiller reads every exchange once a day and files the ones that reached the model instead of a capability. That list used to live in a file on the machine that nobody opened, which is indistinguishable from the thing not running. It sits in the tab strip now, beside Open Exchanges and Direct Messages, because it is made <i>of</i> them &mdash; the same traffic, read for what it could not answer. Three things are published that a capability list would not tell you. <b>The queue itself</b>, which is what this node still gets wrong. <b>The commit</b> that armed each answer, linked, and whether that commit has actually been pushed &mdash; a sha sitting only on the machine that made it is work nobody can see, and "armed" would overstate it. And <b>corrections</b>: doers that had to be fixed <i>after</i> they were armed, itemised rather than counted, because a loop scored only on what it builds will build. The number worth watching is the one at the end of that row: how many of these the distiller found versus how many a person spotted. It currently reads zero to three. Nothing is built from the queue until someone decides what the right answer would be measured against &mdash; every answer that has held up here was pinned to something outside this repo, and a doer graded only by its own test suite is a guess with a green check next to it.</div>
       <div class="ci"><span class="cd">2026-08-19</span><b>v4 &mdash; the trace is dark, and only the trace.</b> The page around it is unchanged: same tiles, same streams, same light palette it moved to on 12 August. What changed is that opening a <b>trace</b> now drops you onto a dark instrument panel instead of a lighter shade of the same page. The reason is that these are two different things to look at. The page is a board you <i>scan</i> &mdash; is the radio up, what came in, which nodes are near. A trace is one record you <i>read</i>, and it is drawn with boxes, wires and dots that have nowhere to sit when their ground is the same white as the list they came out of. It also keeps v3&rsquo;s elevation honest. On a light page a raised surface is whiter than what it sits on; on a dark one it is lighter than what it sits on. Inverting the ground without inverting that rule would have left the well and the raised planes reading backwards, so the recessed panel is now the darkest thing on screen and every box lifted off it is lighter, which is the same hierarchy stated the other way round. The colour ramp under the gauges follows the same logic: still one hue, still never a rainbow, but running dark-to-bright, because "light to dark" is an instruction about the background as much as the ink. Two colours had to be re-picked by hand rather than swapped, and they are the <i>same two places</i> that had to be re-picked when this page went light &mdash; the link diagram&rsquo;s colours are written into the drawing code, and the "nothing was looked up" box carries its colour inline, so neither of them can ever be reached by changing a palette. Contrast was measured rather than judged: every piece of text in the panel clears the AA threshold with room to spare, and the borders, the spine rail and the gauge track were each brightened until they clear the separate, stricter bar that applies to a line carrying meaning. That last part is a real change and not a formality &mdash; a hairline that reads fine at 1.2:1 on white is simply not there on black.</div>
@@ -5083,9 +5095,11 @@ function nodeName(id){
 function fitLabel(s, n){ s=(s==null?'':String(s)); return s.length>n ? s.slice(0,n-1)+'…' : s; }
 
 // A LINK diagram, deliberately not a geographic one: who transmitted, who relayed it, who
-// received it. It uses only what is already public on the air — there are no coordinates here
-// and none are stored, because this page is public and the base station sits at a fixed
-// private location.
+// received it. It uses only what is already public on the air. There are no coordinates in this
+// drawing and no precise coordinate is stored anywhere: a node that broadcasts a position is
+// reduced to a Maidenhead square at capture and shown in the hop rows below, never here and
+// never as a point. This page is public and the base station sits at a fixed private location,
+// which is why our own node is excluded from that column entirely.
 //
 // TWO LAYOUT RULES, both learned by shipping the violation (2026-08-11):
 //
@@ -5142,9 +5156,11 @@ function agoEpoch(sec){
 // two-character fragment matches exactly one of them only 28% of the time, so a guess would be
 // wrong more often than right.
 //
-// No location. Positions are never captured -- the bridge counts how many neighbours report
-// one and stores no coordinates, because this page is public and Cal HT sits at a fixed
-// private address. There is no field here to render even if the page wanted to.
+// Location is a COARSE bucket and never a point. A node that broadcasts its position gets a
+// Maidenhead subsquare -- about 3 by 4.5 miles -- computed by the bridge at capture, with the
+// precise latitude and longitude discarded in the same expression and never written anywhere.
+// Cal's own node is excluded whatever it advertises, because this page is public and Cal HT
+// sits at a fixed private address. A node that broadcasts no position simply has no grid.
 function hopDetail(ids){
   const seen=new Set(), out=[];
   ids.forEach(id=>{
@@ -5165,6 +5181,8 @@ function hopDetail(ids){
       + (n ? '<span class="phname">'+esc(n.short||n.long||id)+'</span><span class="phmeta">'
              + ((n.long&&n.short&&n.long!==n.short)?esc(n.long)+' &middot; ':'')
              + (n.hw?esc(n.hw)+' &middot; ':'')
+             + (n.grid?'<span class="phgrid" title="Maidenhead subsquare, about 3 by 4.5 miles">'
+                       +esc(n.grid)+'</span> &middot; ':'')
              + (n.hops!=null ? n.hops+(n.hops===1?' hop':' hops')+' from Cal'
                              : 'distance from Cal not recorded')
              + (heard?' &middot; heard '+esc(heard):'')
