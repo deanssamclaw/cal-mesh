@@ -4723,6 +4723,12 @@ details.tr[open]>summary:hover{border-color:#4478ad;
 .tp .phop{display:inline-block;padding:3px 9px;border-radius:7px;font-size:12px;font-weight:600;
   background:linear-gradient(180deg,#1c232c,#161c24);border:1px solid #5c6673;color:var(--fg)}
 .tp .phop.unk{border-style:dashed;color:var(--dim);font-weight:500;font-style:italic}
+.tp .phops{margin:9px 0 2px;border-top:1px solid var(--line)}
+.tp .phrow{display:flex;flex-wrap:wrap;gap:9px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line)}
+.tp .phfrag{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--dim);min-width:3.4em}
+.tp .phname{font-weight:650;font-size:12.5px}
+.tp .phname.unk{font-weight:500;font-style:italic;color:var(--dim)}
+.tp .phmeta{font-size:11.5px;color:var(--dim)}
 .tp .plink{display:inline-flex;flex-direction:column;align-items:center;margin:0 2px;min-width:56px}
 .tp .plink .parr{display:block;width:100%;height:2px;border-radius:1px;background:#6b7684;
   position:relative}
@@ -5110,13 +5116,73 @@ function pathAge(ts){
   if(s<172800) return Math.round(s/3600)+' h ago';
   return Math.round(s/86400)+' days ago';
 }
+// A hop is shown as the last two characters of its node id -- the SAME identifier the link
+// diagram already prints for the relay byte (`·c6`), so a hop here and a relay there can be
+// read against each other instead of being two unrelated notations for one idea.
+//
+// The leading dot is load-bearing. Two characters NARROW a node, they do not identify one, and
+// a bare two-character string reads as a name -- which is the trap `clean_name` exists for: a
+// truncation that looks like an identity belonging to no node. The dot marks it a fragment.
+function hopTag(id){
+  const s = (id==null ? '' : String(id));
+  return s.length<2 ? (s||'?') : '·'+s.slice(-2);
+}
+function nodeInfo(id){ return lastNodes.find(n=>n.id===id) || null; }
+function agoEpoch(sec){
+  if(!sec) return null;
+  const s=Math.max(0, Date.now()/1000 - sec);
+  if(s<90) return Math.round(s)+' s ago';
+  if(s<5400) return Math.round(s/60)+' min ago';
+  if(s<172800) return Math.round(s/3600)+' h ago';
+  return Math.round(s/86400)+' days ago';
+}
+// A traceroute hop arrives as a FULL node number, so there is nothing to infer here -- the
+// substance below is looked up, not guessed. A hop Cal has never heard from gets a row saying
+// exactly that, rather than a plausible-looking name: this database holds 292 nodes and a
+// two-character fragment matches exactly one of them only 28% of the time, so a guess would be
+// wrong more often than right.
+//
+// No location. Positions are never captured -- the bridge counts how many neighbours report
+// one and stores no coordinates, because this page is public and Cal HT sits at a fixed
+// private address. There is no field here to render even if the page wanted to.
+function hopDetail(ids){
+  const seen=new Set(), out=[];
+  ids.forEach(id=>{
+    if(id==null || seen.has(id)) return;
+    seen.add(id);
+    const n=nodeInfo(id), heard=n?agoEpoch(n.lastHeard):null;
+    // Cal's own radio is in its own node database, and rendering that record as a neighbour
+    // reads as nonsense on the page: "distance from Cal not recorded, heard 7 days ago" about
+    // the machine doing the reporting. Hop count and last-heard are facts about OTHER nodes;
+    // for this one they describe the database, not the radio.
+    if(id===ROUTES.me){
+      out.push('<div class="phrow"><span class="phfrag">'+esc(hopTag(id))+'</span>'
+        +'<span class="phname">'+esc(n?(n.short||n.long):'Cal')+'</span>'
+        +'<span class="phmeta">this node &mdash; the end of the path Cal measured from</span></div>');
+      return;
+    }
+    out.push('<div class="phrow"><span class="phfrag">'+esc(hopTag(id))+'</span>'
+      + (n ? '<span class="phname">'+esc(n.short||n.long||id)+'</span><span class="phmeta">'
+             + ((n.long&&n.short&&n.long!==n.short)?esc(n.long)+' &middot; ':'')
+             + (n.hw?esc(n.hw)+' &middot; ':'')
+             + (n.hops!=null ? n.hops+(n.hops===1?' hop':' hops')+' from Cal'
+                             : 'distance from Cal not recorded')
+             + (heard?' &middot; heard '+esc(heard):'')
+             + '</span>'
+          : '<span class="phname unk">not in Cal&rsquo;s node database</span>'
+            +'<span class="phmeta">seen only as a relay on this path</span>')
+      + '</div>');
+  });
+  return out.length ? '<div class="phops">'+out.join('')+'</div>' : '';
+}
 function chain(nodes, snrs, complete){
   // One SNR per LINK, in order, exactly as the firmware fills it. When the array is not one
   // entry per link it is NOT stretched to fit -- a missing reading is drawn missing.
   let h='<div class="pchain">';
   nodes.forEach((n,i)=>{
     h += (n==null) ? '<span class="phop unk">unnamed</span>'
-                   : '<span class="phop">'+esc(nodeName(n))+'</span>';
+                   : (nodeInfo(n) ? '<span class="phop">'+esc(nodeName(n))+'</span>'
+                                  : '<span class="phop unk">'+esc(hopTag(n))+'</span>');
     if(i<nodes.length-1){
       const v = (complete && snrs && snrs.length>i) ? snrs[i] : null;
       h+='<span class="plink"><span class="parr"></span>'
@@ -5136,8 +5202,13 @@ function pathHtml(nodeId){
     + '</div>'
     + '<div class="pdir">out</div>' + chain(r.path, r.snr_towards, r.snr_towards_complete)
     + (hasBack ? '<div class="pdir">back</div>' + chain(back, r.snr_back, true) : '')
+    + hopDetail([].concat(r.path||[], back))
     + '<span class="hint">A traceroute Cal sent and got an answer to, so every hop is named '
-    + 'rather than counted. <b>This is not this message&rsquo;s path</b> &mdash; it was measured '
+    + 'rather than counted &mdash; the reply carries each relay&rsquo;s full node number, so '
+    + 'nothing here is inferred. A hop Cal has never heard from is shown as the last two '
+    + 'characters of its id instead, and said to be unknown rather than guessed at. No hop '
+    + 'carries a location: positions are never captured. <b>This is not this message&rsquo;s '
+    + 'path</b> &mdash; it was measured '
     + 'at its own moment, and a route is only true when it is measured. The two directions are '
     + 'listed separately because they are measured separately and often differ.</span></div>';
 }
@@ -5204,9 +5275,25 @@ function linkSvg(x){
   else{
     rows+=row('path', hops+' hop'+(hops>1?'s':'')+' — relayed'
       +(hops>1?', and only the last relay is identified':''));
-    if(relayId)
-      rows+=row('last relay','id ends <code>'+esc(relayId)+'</code> — one byte of the node number that '
-        +'relayed it, which narrows the candidates but does not identify a node');
+    if(relayId){
+      // One byte NARROWS; it identifies only when exactly one known node ends in it. Measured
+      // over this 292-node database: 82 of 155 distinct fragments are unique, so a byte
+      // resolves to a single node for only 28% of nodes, and one value is shared by nine.
+      // Naming the likeliest candidate would be a guess wearing a measurement's clothes.
+      const f=String(relayId).replace(/^·/,'').toLowerCase();
+      const hits=lastNodes.filter(n=>String(n.id||'').slice(-2).toLowerCase()===f);
+      rows+=row('last relay', hits.length===1
+        ? 'id ends <code>'+esc(relayId)+'</code> &mdash; and exactly one node Cal knows ends in '
+          +'it: <b>'+esc(hits[0].short||hits[0].long||hits[0].id)+'</b>'
+          +((hits[0].long&&hits[0].short&&hits[0].long!==hits[0].short)
+             ?' ('+esc(hits[0].long)+')':'')
+          +(hits[0].hw?', '+esc(hits[0].hw):'')
+        : 'id ends <code>'+esc(relayId)+'</code> &mdash; one byte of the node number that relayed '
+          +'it. '+(hits.length
+            ? 'It matches <b>'+hits.length+'</b> of the '+lastNodes.length+' nodes Cal knows, so '
+              +'it narrows the candidates without naming one.'
+            : 'No node Cal currently knows ends in it.'));
+    }
   }
   // The signal belongs to the LAST hop and nothing else. Stating that plainly matters: a message
   // relayed from close by arrives strong no matter how far the sender is, and reading it as
