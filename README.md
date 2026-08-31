@@ -41,7 +41,7 @@ crash/restart without ever dropping packet capture. The dashboard only observes.
 | `com.cal.mesh-bridge`    | `bridge.py`    | Owns Cal HT (serial or TCP). Capture → `inbox.jsonl`; send ← `outbox/`. Emits `status.json`, `sent.jsonl`, `nodes.json`. |
 | `com.cal.mesh-responder` | `responder.py` | Autonomous Cal. Gates inbound → generates a terse reply via headless `claude` → `outbox/`. Logs every verdict to `decisions.jsonl`. |
 | `com.cal.mesh-dashboard` | `dashboard.py` | Read-only web view of every lever. No deps (stdlib). Funnel-exposed. |
-| `com.cal.mesh-learn`     | `learn.py`     | Daily 06:15. Distils `decisions.jsonl` into a ranked ledger of what Cal could not answer. Reads only; proposes, never arms. |
+| `com.cal.mesh-learn`     | `learn.py`     | Daily 06:15. Distils `decisions.jsonl` into a ranked ledger of what Cal could not answer, and audits that ledger against its own classifier. Reads only; proposes, never arms. |
 
 Restart any: `launchctl kickstart -k gui/$(id -u)/com.cal.mesh-<name>`
 
@@ -96,6 +96,9 @@ arrives after the paste is not a guard.
 - `inbox.jsonl` — received text. `sent.jsonl` — sent text + metadata (`source`: manual/responder).
 - `decisions.jsonl` — every inbound the responder evaluated: matched? reason? reply?
 - `status.json` / `nodes.json` / `responder-state.json` — live state.
+- `gap-ledger.json` / `gap-ledger.md` — the distiller's bank and its rendered view. `learn-state.json`
+  holds the watermark and run counter, `learn-history.jsonl` is one line per run, `triage.json` holds
+  the oracle verdicts. All gitignored: they carry message text and third-party node ids.
 - `mesh` — CLI: `mesh send "…"` · `mesh read [N]` · `mesh watch` · `mesh nodes` · `mesh status` · `mesh log`
 - `bridge.log` / `responder.log` / `dashboard.log`
 
@@ -238,6 +241,55 @@ Two things this has already caught that testing did not: a diagram that read to 
 *"your message failed to send"* when the message had arrived fine and was what caused the reply,
 and a trace asserting one cause for a blank that had several. If the page cannot explain a reply
 honestly, that is a defect in the reply.
+
+## The learning loop, and whether it is running
+
+The distiller is a scheduled job that reports its own numbers, which is a shape that can be
+wrong invisibly — and was. Three situations produce an identical "nothing new": a healthy loop
+over a quiet mesh, a responder that has stopped writing, and a bank that no longer agrees with
+the code that classifies it. The third one shipped. Adding `sigreport` to `DOER_CAPS` fixed the
+classifier, but the aggregate is cumulative and the watermark classifies each record exactly
+once, so the fix corrected every future record and could not reach the three already counted.
+Three answered range tests stayed published as unanswered gaps for six days, while every figure
+on the page was internally consistent.
+
+So the page publishes a verdict from a closed set, with the evidence under it:
+
+| state | means |
+|---|---|
+| `FRESH` | ran on schedule, input flowing, bank agrees with the classifier |
+| `LATE` | no run inside the threshold — everything below it is stale |
+| `STALLED` | the loop is running, but nothing has been received |
+| `DRIFT` | banked records would classify differently under the code running now |
+| `UNKNOWN` | an artefact could not be read — never a cheerful default |
+
+Two rules make it worth trusting. **Liveness is derived from artefacts carrying their own
+timestamps** — the newest run in `learn-history.jsonl`, the newest record in `decisions.jsonl` —
+never from a heartbeat the monitored job writes, because that cannot report that the job has
+stopped; it keeps saying whatever it last said. And **the drift check runs on every page read,
+not once per run**, because the failure it catches is a classifier edited *between* runs, so
+banking the number at run time would rebuild the same blind spot a day wide.
+
+Flags are collected rather than short-circuited, so two faults at once cannot hide each other;
+precedence only chooses which chip is shown, and all four facts render regardless. There is no
+green light on the page. A light is a claim, and that claim would have read true throughout the
+six days — what is shown instead is the evidence it would have been claiming from.
+
+Thresholds are measured, not chosen. Runs land 24.00 h apart across eight consecutive days, so
+`LATE` is 26 h. The largest natural silence between two inbound records is 39.3 h (median
+0.47 h, p90 11.5 h), so `STALLED` is 48 h — below about 40 h it fires on a genuinely quiet mesh,
+and a health signal that cries wolf is one nobody reads. Re-derive both if traffic changes shape.
+
+Both checks are read-only and exit with a code, so they compose with a monitor:
+
+    learn.py --check     # 0 fresh · 1 unhealthy · 2 unknown
+    learn.py --audit     # re-classify the bank against the current code; per-bucket delta
+
+`eval_health.py` — 62 checks. Every state is driven by a fixture that forces it; the drift check
+is exercised by putting `DOER_CAPS` back to its pre-fix shape and demanding the audit finds all
+three records; and both browser renderers are executed against live and adversarial payloads.
+Three self-test mutations, including "health always returns FRESH", each of which must fail the
+suite.
 
 ## How to grow from here
 1. Widen `ALLOW_FROM` / trigger policy to serve other operators.
