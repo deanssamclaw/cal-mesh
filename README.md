@@ -95,6 +95,7 @@ arrives after the paste is not a guard.
 - `config` — all knobs (transport + responder). Read live every loop.
 - `inbox.jsonl` — received text. `sent.jsonl` — sent text + metadata (`source`: manual/responder).
 - `decisions.jsonl` — every inbound the responder evaluated: matched? reason? reply?
+  Carries the inbound **packet id**, which is what binds a decision to its message.
 - `status.json` / `nodes.json` / `responder-state.json` — live state. `nodes.json` carries a
   `grid` per neighbour when `POSITION_GRID=true`: a **coarse Maidenhead locator**, not a point.
   See below.
@@ -204,6 +205,11 @@ Nothing goes on air because it looked right. The gate is the same for every tier
   claimed to cover "every handler at once" and was instantiated only on the ones already correct;
   an assertion sitting after a `continue` that skipped the only case it could fail on; one that was
   constant-true by operator precedence. All found by mutation, none by reading.
+  Two things make the mutation check itself decoration, and both were live here: a mutant that
+  **crashes** — the child died on an import before reaching a single check and the non-zero exit
+  was read as a catch — and a mutant that **is not a defect**, where a rule guarded in two places
+  was mutated in one and behaved identically. So require the suite to have run and reported its
+  own failures, and mutate every copy of the rule.
 - **The review is adversarial and must execute.** A reviewer told to *refute* and to *run it* finds
   what a reviewer told to *check* does not. Five rounds on the sun/moon tier found real defects
   every time — including three live bugs in already-armed capabilities that had nothing to do with
@@ -243,6 +249,16 @@ Two things this has already caught that testing did not: a diagram that read to 
 *"your message failed to send"* when the message had arrived fine and was what caused the reply,
 and a trace asserting one cause for a blank that had several. If the page cannot explain a reply
 honestly, that is a defect in the reply.
+
+**Every trace is bound to its message by packet id**, because a trace shown under the wrong
+exchange is worse than no trace at all: it reads as evidence. The responder stamps the radio's
+own id on each decision record and the dashboard joins on `(sender, id)`. Sender, text and
+timestamp are all heuristics — `Cal test` sent twice from one node is genuinely indistinguishable
+under them — and the fallback that still has to serve pre-id records now pairs *globally*
+nearest, closest pair first across the whole set. Before that it walked record by record, and a
+message whose own decision had been trimmed away could take a later duplicate's and render a
+gate ladder it never earned, while the message that did earn it showed `no trace recorded`.
+`eval_correlate.py` holds both ends.
 
 ## Neighbour position: a bucket, never a point
 
