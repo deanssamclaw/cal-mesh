@@ -108,29 +108,50 @@ console.log(JSON.stringify(OUT));
 
 if "--self-test" in sys.argv:
     print("\nself-test — each mutation must FAIL a check above")
+    # Both the open-trace and hidden-pane rules are guarded TWICE -- once before the measurement
+    # and again inside the requestAnimationFrame, because the pane can be hidden or a trace
+    # opened between the two. So a mutation has to remove BOTH copies to model a real defect;
+    # breaking one leaves the behaviour intact, and a mutant that is not a defect cannot be
+    # caught by anything. Two mutations here were single-point and survived for that reason,
+    # which read as missing coverage and was not.
     MUTANTS = {
         "cap ignores an open trace":
-            (r"if(extra<=0 || c.querySelector('details.tr[open]')){ c.classList.remove('capped'); return; }",
-             r"if(extra<=0){ c.classList.remove('capped'); return; }"),
+            [(r"if(extra<=0 || c.querySelector('details.tr[open]')){ c.classList.remove('capped'); return; }",
+              r"if(extra<=0){ c.classList.remove('capped'); return; }"),
+             (r"if(!c.offsetHeight || c.querySelector('details.tr[open]')) return;",
+              r"if(!c.offsetHeight) return;")],
         "cap uses a fixed pixel height":
             (r"c.style.setProperty('--xcap',(cut-top)+'px');",
              r"c.style.setProperty('--xcap','320px');"),
         "hidden pane is measured anyway":
-            (r"if(!c.offsetHeight) return;", r"if(false) return;"),
+            [(r"if(!c.offsetHeight) return;", r"if(false) return;"),
+             (r"if(!c.offsetHeight || c.querySelector('details.tr[open]')) return;",
+              r"if(c.querySelector('details.tr[open]')) return;")],
     }
     src = open(os.path.join(HERE, "eval_exchanges.py")).read()
-    for name, (old, new) in MUTANTS.items():
-        if old not in V5:
+    for name, edits in MUTANTS.items():
+        edits = [edits] if isinstance(edits, tuple) else edits
+        if any(old not in V5 for old, _ in edits):
             print(f"  FAIL mutation anchor missing: {name}"); FAILS.append(name); continue
         mdir = tempfile.mkdtemp(prefix="evalxcmut-")
         mpath = os.path.join(mdir, "dashboard.py")
-        open(mpath, "w").write(open(os.path.join(HERE, "dashboard.py")).read()
-                               .replace(old, new, 1))
+        mutated = open(os.path.join(HERE, "dashboard.py")).read()
+        for old, new in edits:
+            mutated = mutated.replace(old, new, 1)
+        open(mpath, "w").write(mutated)
         shutil.copy(os.path.join(HERE, "eval_exchanges.py"), os.path.join(mdir, "eval_exchanges.py"))
+        # PYTHONPATH so the mutant's siblings (console, calc, ...) import. Without it the child
+        # died on `import console` before reaching a single check, and a non-zero exit was read
+        # as "mutation caught" -- every mutation here passed unconditionally for two sessions.
+        # sys.path[0] is still mdir, so the MUTATED dashboard.py is the one that loads.
         r = subprocess.run([sys.executable, os.path.join(mdir, "eval_exchanges.py")],
-                           capture_output=True, text=True)
-        print(f"  {'ok  ' if r.returncode != 0 else 'FAIL'} mutation caught: {name}")
-        if r.returncode == 0:
+                           capture_output=True, text=True,
+                           env=dict(os.environ, PYTHONPATH=HERE))
+        # A crash is not a catch. Require the suite to have RUN and reported its own failures.
+        caught = r.returncode != 0 and "FAILED" in r.stdout
+        print(f"  {'ok  ' if caught else 'FAIL'} mutation caught: {name}"
+              + ("" if caught else f"  {(r.stderr or r.stdout)[-160:]!r}"))
+        if not caught:
             FAILS.append("self-test: " + name)
 
 print()

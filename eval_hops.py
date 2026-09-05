@@ -122,6 +122,11 @@ else:
            "not in Cal" in o["unknown"] and "&rsquo;s node database" in o["unknown"],
            o["unknown"][:140])
         ck("an unknown hop still shows its fragment", "·ff" in o["unknown"], o["unknown"][:140])
+        # `.phname.unk` is what renders it dim and italic. Without the class the disclaimer is
+        # set in the same weight as a resolved name, which is how a hop Cal cannot identify
+        # comes to look like one it can.
+        ck("an unknown hop is marked unknown, not set like a name",
+           'class="phname unk"' in o["unknown"], o["unknown"][:140])
         ck("Cal's own node is not described as a distant neighbour",
            "this node" in o["self"] and "heard" not in o["self"], o["self"][:160])
         ck("a repeated hop is listed once", o["dedup"] == 1, o["dedup"])
@@ -135,7 +140,8 @@ if "--self-test" in sys.argv:
     MUTANTS = {
         "relay named on any match":
             ("dashboard.py", "hits.length===1", "hits.length>=1"),
-        "unknown hop gets invented a name":
+        # Named for what it does: it drops the class, so the disclaimer renders like a name.
+        "unknown hop loses its unknown styling":
             ("dashboard.py", "phname unk\">not in Cal", "phname\">not in Cal"),
         "Cal's own node treated as a neighbour":
             ("dashboard.py", "if(id===ROUTES.me){", "if(false){"),
@@ -154,10 +160,17 @@ if "--self-test" in sys.argv:
             shutil.copy(os.path.join(HERE, f), os.path.join(md, f))
         open(os.path.join(md, target), "w").write(src_txt.replace(old, new, 1))
         shutil.copy(os.path.join(HERE, "eval_hops.py"), os.path.join(md, "eval_hops.py"))
+        # PYTHONPATH so the mutant's siblings import; without it the child died on
+        # `import console` and the non-zero exit read as a catch. sys.path[0] is still md, so
+        # the MUTATED dashboard.py / bridge.py is what loads.
         r = subprocess.run([sys.executable, os.path.join(md, "eval_hops.py")],
-                           capture_output=True, text=True)
-        print(f"  {'ok  ' if r.returncode != 0 else 'FAIL'} mutation caught: {name}")
-        if r.returncode == 0: FAILS.append("self-test: " + name)
+                           capture_output=True, text=True,
+                           env=dict(os.environ, PYTHONPATH=HERE))
+        # A crash is not a catch: require the suite to have run and reported its own failures.
+        caught = r.returncode != 0 and "FAILED" in r.stdout
+        print(f"  {'ok  ' if caught else 'FAIL'} mutation caught: {name}"
+              + ("" if caught else f"  {(r.stderr or r.stdout)[-160:]!r}"))
+        if not caught: FAILS.append("self-test: " + name)
 
 print()
 if FAILS:

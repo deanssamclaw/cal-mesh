@@ -18,8 +18,10 @@ The mutants are loaded IN-PROCESS, deliberately. Copying a mutated dashboard.py 
 directory and running it there makes `import console` fail, and a mutation "caught" by an
 ImportError is a check that proves nothing.
 
-Run:  python3 eval_correlate.py                (exit 0 = pass)
-      python3 eval_correlate.py --self-test    also proves the checks can FAIL
+The mutations run on EVERY invocation rather than behind --self-test. They are in-process and
+cost milliseconds, and a self-test that has to be asked for is one that does not get asked for.
+
+Run:  python3 eval_correlate.py                (exit 0 = pass; mutations included)
 """
 import os, sys, json, tempfile, importlib.util
 
