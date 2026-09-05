@@ -212,8 +212,43 @@ ck(sigreport.match("range test") is not None, "range test still fires")
 ck(sigreport.match("tange test") is not None, "and so does the typo")
 ck(sigreport.match("latency test") is not None, "so does an unlisted qualifier")
 ck(sigreport.match("test") is not None, "a bare test still fires")
-# with the trigger present the reading is settled: the sender said Cal's name
-ck(sigreport.match("Cal, got the test") is not None, "addressed overrides referential")
+# BEING NAMED IS NOT BEING ASKED. This first exempted anything addressed, on the reasoning
+# that saying Cal's name settled it. Adversarial review refuted that in one line: `Cal aced
+# the test` is a sentence ABOUT Cal. The guard now applies whether or not Cal is named.
+ck(sigreport.match("Cal, got the test") is None, "named, but still talking about a test")
+ck(sigreport.match("cal aced the test") is None, "a sentence about Cal is not a test")
+ck(sigreport.match("cal ran the test") is None, "nor is reporting that Cal ran one")
+
+# AN INDEX MUST NOT BYPASS THE GUARD. Reading the qualifier as words[-2] landed on the DIGIT's
+# neighbour once an index matched, so appending a number defeated the rule entirely -- and a
+# numbered sequence is the exact traffic this module documents.
+ck(sigreport.match("got the test 2") is None, "an index does not bypass the guard")
+ck(sigreport.match("got your test 5") is None, "nor with a possessive")
+ck(sigreport.match("the test 12") is None, "nor with a bare determiner")
+ck(sigreport.match("Test 12")["index"] == "12", "and a real numbered test still fires")
+
+# A POSSESSIVE NAMES AN OWNER, so the test belongs to someone and is being discussed.
+ck(sigreport.match("cal's test") is None, "the trigger's possessive is not an address")
+ck(sigreport.match("dean's check") is None, "and neither is anybody else's")
+
+# ANOTHER DOER'S WORD MAKES IT THAT DOER'S MESSAGE. sigreport runs ahead of every ladder, so
+# claiming these is how a weather question stops reaching weather.
+ck(sigreport.match("cal weather check") is None, "weather check belongs to weather")
+ck(sigreport.match("hey cal weather check") is None, "including behind a greeting")
+ck(sigreport.match("cal sunset check") is None, "sunset check belongs to sun/moon")
+ck(sigreport.match("cal capabilities check") is None, "capabilities check belongs to capabilities")
+
+# THE SEPARATOR CLASS IS THE SAME ON BOTH SIDES of the trigger. It was not, so an exclamation
+# after the name killed the match while one before it was fine.
+ck(sigreport.match("Cal! test") is not None, "an exclamation after the trigger")
+ck(sigreport.match("Hey Cal! test") is not None, "greeting and exclamation together")
+ck(sigreport.match("Cal. test") is not None, "a full stop after the trigger")
+ck(sigreport.match("Cal? range test") is not None, "a question mark after the trigger")
+
+# A NON-STRING MUST NOT TAKE THE RESPONDER DOWN. A malformed record can put a number or a list
+# in `text`, and responder.py passes it straight in.
+for _bad in (123, b"cal test", True, ["cal test"], 3.5, {"a": 1}):
+    ck(sigreport.match(_bad) is None, "non-string input returns None rather than raising")
 
 # --- 2. the report says only what was measured ----------------------------------------------
 # THE SHAPE SAYS WHOSE MEASUREMENT IT IS. `RSSI -63` on a relayed packet is the RELAY's
@@ -465,13 +500,22 @@ if "--self-test" in sys.argv:
         ("out-of-range snr aired",
          'if snr is not None and not (-30.0 <= snr <= 30.0):\n        snr = None',
          'if False:\n        snr = None'),
-        # the two 2026-09-05 rules, each mutated back to the behaviour it replaced
-        ("greeting before the trigger stops being addressed",
-         'stripped = re.sub(r"^(?:%s[\\s,:!-]+)?%s\\b[\\s,:-]*" % (_GREET, re.escape(trig)),',
-         'stripped = re.sub(r"^%s\\b[\\s,:-]*" % (re.escape(trig),),'),
-        ("talking about a test claims the message again",
-         'if lead in _REFERENTIAL:\n                return None',
-         'if False:\n                return None'),
+        # the 2026-09-05 rules, each mutated back to the behaviour it replaced
+        ('greeting before the trigger stops being addressed',
+         'stripped = re.sub(r"^(?:%s%s)?%s\\b(?![\'\\u2019])%s" % (_GREET, _SEP, re.escape(trig), _SEP),',
+         'stripped = re.sub(r"^%s\\b%s" % (re.escape(trig), _SEP),'),
+        ('talking about a test claims the message again',
+         'if lead in _REFERENTIAL or lead.endswith("\'s") or lead.endswith("’s"):\n            return None',
+         'if False:\n            return None'),
+        ('an index bypasses the referential guard again',
+         'skip = 2 if mt.group("idx") else 1',
+         'skip = 1'),
+        ("another doer's word is claimed again",
+         'if lead in _OTHER_DOER:\n            return None',
+         'if False:\n            return None'),
+        ('a non-string takes the responder down again',
+         'if not isinstance(text, str):\n        return ""',
+         'if False:\n        return ""'),
     ]
     import tempfile
     for name, orig, mut in MUTATIONS:
