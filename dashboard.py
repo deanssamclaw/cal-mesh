@@ -236,30 +236,91 @@ def _epoch(s):
 
 
 def _pair_nearest(records, cands, rec_key, cand_key, window=300):
-    """Greedy one-to-one pairing: for each record, take the unconsumed candidate with the
-    same key whose timestamp is nearest, within `window` seconds. Keyed on exact text so a
-    repeated identical message can never cross-pair with the wrong reply — the nearest-ts
-    tiebreak plus consumption keeps repeats in order. Returns [(record, candidate|None)]."""
-    buckets = {}
-    for c in cands:
-        buckets.setdefault(cand_key(c), []).append([_epoch(c.get("ts")), c, False])
-    out = []
-    for r in records:
-        k, rt = rec_key(r), _epoch(r.get("ts"))
-        best, best_dt = None, None
-        for ent in buckets.get(k, []):
-            if ent[2] or ent[0] is None or rt is None:
-                continue
-            dt = abs(ent[0] - rt)
-            if dt <= window and (best_dt is None or dt < best_dt):
-                best, best_dt = ent, dt
-        if best is not None:
-            best[2] = True
-            out.append((r, best[1]))
-        else:
-            out.append((r, None))
-    return out
+    """Globally-nearest one-to-one pairing: among every (record, candidate) pair that shares a
+    key and falls within `window` seconds, take the closest first and consume both sides.
 
+    Nearest-first GLOBALLY, not per record, and that distinction is the whole point. Walking the
+    records in order and giving each its nearest unconsumed candidate lets a record with no
+    decision of its own swallow a later duplicate's: two identical messages 50 s apart, only the
+    second ever evaluated, and the first would claim the second's ladder while the second
+    rendered "no trace recorded" -- a decision trace asserted for a message that never got one.
+    Sorting all admissible pairs by distance hands that decision to the record it is 1 s from
+    rather than the one it is 51 s from, and the unevaluated message correctly gets nothing.
+
+    Ties break on record then candidate order, so equal distances resolve the way the logs were
+    written and the result never depends on dict ordering. Returns [(record, candidate|None)]
+    in the order of `records`.
+    """
+    buckets = {}
+    for j, c in enumerate(cands):
+        buckets.setdefault(cand_key(c), []).append((j, _epoch(c.get("ts")), c))
+    edges = []
+    for i, r in enumerate(records):
+        rt = _epoch(r.get("ts"))
+        if rt is None:
+            continue
+        for j, ct, c in buckets.get(rec_key(r), ()):
+            if ct is None:
+                continue
+            dt = abs(ct - rt)
+            if dt <= window:
+                edges.append((dt, i, j, c))
+    edges.sort(key=lambda e: (e[0], e[1], e[2]))
+    took_r, took_c, paired = set(), set(), {}
+    for dt, i, j, c in edges:
+        if i in took_r or j in took_c:
+            continue
+        took_r.add(i)
+        took_c.add(j)
+        paired[i] = c
+    return [(r, paired.get(i)) for i, r in enumerate(records)]
+
+
+def _pair_decisions(inbox, decisions, window=300):
+    """Attach each inbound message to the responder's decision about it.
+
+    The packet id is the only exact key: it is the radio's own identifier for the message, so a
+    match on it is the message, not a message that looked like it. Everything else available
+    here -- sender, text, timestamp -- is a heuristic, and `Cal test` sent twice from one node is
+    genuinely indistinguishable under it.
+
+    Two things force the fallback to stay. Decision records written before the responder logged
+    the id have none, and `trim_file` trims inbox.jsonl and decisions.jsonl independently, so an
+    inbox record can outlive its decision. Both are paired the old way, which is now
+    globally-nearest and no longer lets an unevaluated message steal a neighbour's trace.
+
+    The id is paired on (from, id): ids are 32-bit and random, so two nodes can collide, and the
+    sender makes the key unique in the only way that matters.
+    """
+    by_id = {}
+    for d in decisions:
+        did = d.get("id")
+        if did is not None:
+            by_id.setdefault((d.get("from"), did), []).append(d)
+    out, used = [], set()
+    rest, rest_at = [], []
+    for r in inbox:
+        rid = r.get("id")
+        hit = None
+        if rid is not None:
+            for d in by_id.get((r.get("from"), rid), ()):
+                if id(d) not in used:
+                    hit = d
+                    used.add(id(d))
+                    break
+        out.append((r, hit))
+        if hit is None:
+            rest.append(r)
+            rest_at.append(len(out) - 1)
+    if rest:
+        left = [d for d in decisions if id(d) not in used]
+        fell = _pair_nearest(rest, left,
+                             lambda r: (r.get("from"), r.get("text")),
+                             lambda c: (c.get("from"), c.get("text")), window)
+        for at, (r, d) in zip(rest_at, fell):
+            if d is not None:
+                out[at] = (r, d)
+    return out
 
 def correlate(inbox, sent, decisions):
     """Attach each side of a conversation to the other, so the UI never has to guess.
@@ -271,9 +332,7 @@ def correlate(inbox, sent, decisions):
 
     Both directions are computed here rather than in the browser so the pairing logic has
     one implementation and the API is useful on its own."""
-    for rec, dec in _pair_nearest(inbox, decisions,
-                                  lambda r: (r.get("from"), r.get("text")),
-                                  lambda c: (c.get("from"), c.get("text"))):
+    for rec, dec in _pair_decisions(inbox, decisions):
         if dec is None:
             rec["verdict"] = None          # not yet evaluated (or predates the responder)
             continue

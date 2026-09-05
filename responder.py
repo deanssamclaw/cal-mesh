@@ -1402,7 +1402,14 @@ def main():
                         # a message on Cal's own PSK'd channel is addressed ^all exactly like one
                         # on the public channel, so the distiller counted them as one population
                         # the moment the private channel was armed.
-                        d = {"ts": now(), "from": rec.get("from"), "to": rec.get("to"),
+                        # The packet id rides along so the dashboard can bind this decision
+                        # to the message it was made about EXACTLY. Without it the only join
+                        # available is sender + text + a timestamp window, under which two
+                        # identical messages from one node are indistinguishable -- and an
+                        # inbox record whose decision was trimmed away could be shown a
+                        # neighbour's ladder as if it were its own.
+                        d = {"ts": now(), "id": rec.get("id"),
+                             "from": rec.get("from"), "to": rec.get("to"),
                              "channel": rec.get("channel", 0),
                              "text": rec.get("text", ""), "matched": should,
                              "reason": reason, "reply": None, "gates": gates}
