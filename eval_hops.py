@@ -21,7 +21,12 @@ import os, sys, re, json, shutil, tempfile, subprocess, importlib.util
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location("dash", os.path.join(HERE, "dashboard.py"))
 dash = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(dash)
-V5 = dash.PAGE_V5
+# Grade whatever "/" actually serves. Naming a template here means the suite keeps grading
+# the page it was written against long after that page is retired to /old-N, which is the
+# quiet way an eval stops covering what ships.
+_cur = re.search(r"^CURRENT_PAGE = (PAGE_V\d+)",
+                 open(os.path.join(HERE, "dashboard.py")).read(), re.M).group(1)
+V5 = getattr(dash, _cur)
 
 FAILS = []
 def ck(name, cond, detail=""):
