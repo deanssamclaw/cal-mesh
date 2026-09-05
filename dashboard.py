@@ -4264,13 +4264,13 @@ PAGE_V5 = r"""<!doctype html>
 <meta name="color-scheme" content="light">
 <title>cal-mesh — levers (v5)</title>
 <style>
-:root{--bg:#c3cad3;--card:#edf1f5;--card2:#d9dfe6;--line:#8e9cad;--fg:#141a21;
---dim:#46505d;--accent:#07499a;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--tx:#6639ba;--rx:#1a7f37;}
+:root{--bg:#d2cbc4;--card:#f4f1ee;--card2:#e5e0da;--line:#aa9e91;--fg:#1f1b16;
+--dim:#5b5248;--accent:#07499a;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--tx:#6639ba;--rx:#1a7f37;}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
 font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 header{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--line);
-position:sticky;top:0;background:linear-gradient(180deg,#c3cad3,#c3cad3ee);backdrop-filter:blur(6px);z-index:5}
+position:sticky;top:0;background:linear-gradient(180deg,#d2cbc4,#d2cbc4ee);backdrop-filter:blur(6px);z-index:5}
 header h1{font-size:17px;margin:0;letter-spacing:.3px}
 header .sub{color:var(--dim);font-size:12px}
 .pill{margin-left:12px;padding:5px 12px;border-radius:999px;font-weight:600;font-size:12px}
@@ -4331,14 +4331,14 @@ color:var(--dim);text-transform:uppercase;letter-spacing:.6px;display:flex;gap:8
 .tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);background:var(--card2);
 padding:9px 10px 0}
 .tab{appearance:none;font:inherit;font-size:14px;font-weight:600;color:#404c5c;
-background:#b4bdc8;border:1px solid #a3aebd;border-bottom:0;border-radius:10px 10px 0 0;
+background:#c6beb6;border:1px solid #a3aebd;border-bottom:0;border-radius:10px 10px 0 0;
 padding:11px 18px;margin-bottom:-1px;cursor:pointer;display:flex;align-items:center;gap:8px;
 white-space:nowrap;transition:background .12s ease,color .12s ease}
-.tab:hover{background:#ccd3db;color:var(--fg)}
+.tab:hover{background:#dbd4cc;color:var(--fg)}
 .tab[aria-selected="true"]{background:var(--card);color:var(--accent);
 border-color:var(--line);border-bottom:1px solid var(--card);
 box-shadow:inset 0 3px 0 var(--accent)}
-.tab .badge{background:#a9b3c0;color:#404c5c;font-weight:700}
+.tab .badge{background:#bdb5ac;color:#404c5c;font-weight:700}
 .tab[aria-selected="true"] .badge{background:#ddf4ff;color:var(--accent)}
 .tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(max-width:520px){.tab{padding:10px 12px;font-size:13px}}
@@ -4354,12 +4354,12 @@ box-shadow:inset 0 3px 0 var(--accent)}
 .xc .meta{color:var(--dim);font-size:11px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:5px}
 .xc .ask{font-size:15px;word-break:break-word;max-width:78ch}
 .rep .txt,.norep{max-width:78ch}
-.xc.unprompted{background:#bcc4ce}
+.xc.unprompted{background:#cdc5bd}
 .rep{margin:9px 0 0 16px;padding:8px 12px;border-left:2px solid var(--tx);background:#f7f4fd;
 border-radius:0 8px 8px 0}
 .rep .who{color:var(--dim);font-size:11px;display:block;margin-bottom:2px}
 .rep .txt{color:var(--tx);font-size:14px}
-.norep{margin:8px 0 0 16px;padding:7px 12px;border-left:2px solid var(--line);background:#bcc4ce;
+.norep{margin:8px 0 0 16px;padding:7px 12px;border-left:2px solid var(--line);background:#cdc5bd;
 border-radius:0 8px 8px 0;color:var(--dim);font-size:12.5px}
 /* --- trace disclosure --- */
 details.tr{margin:10px 0 0 16px}
@@ -4370,7 +4370,7 @@ details.tr summary::-webkit-details-marker{display:none}
 details.tr summary::before{content:">";font-size:13px;font-weight:700;display:inline-block;
 transform-origin:50% 50%;transition:transform .15s ease}
 details.tr[open] summary::before{transform:rotate(90deg)}
-details.tr summary:hover{border-color:var(--accent);background:#b4bdc8}
+details.tr summary:hover{border-color:var(--accent);background:#c6beb6}
 .tp{margin-top:7px;background:#f4f6f9;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 .link-d{margin:2px 0 10px;max-width:620px}
 .link-d svg{width:100%;height:auto;display:block}
@@ -4417,7 +4417,7 @@ font-weight:700;flex-shrink:0}
 .stg .sdet{margin-top:5px}
 .stg .sdet:empty{display:none}
 .rungn{display:inline-block;margin:1px 4px 1px 0;padding:1px 6px;border-radius:4px;font-size:11px;
-background:#bcc4ce;color:var(--dim);font-style:italic}
+background:#cdc5bd;color:var(--dim);font-style:italic}
 /* --- trace: measurements drawn to the scale they were measured on --- */
 .bar{position:relative;height:6px;border-radius:3px;background:#e7ebf1;margin-top:6px;max-width:280px}
 .bar>i{position:absolute;top:0;bottom:0;border-radius:3px;background:#cfe6d6}
@@ -4446,7 +4446,7 @@ td.snr-good{color:var(--ok)} td.snr-bad{color:var(--warn)}
    dropping it would lose that. */
 .trans{padding:14px 16px}
 .seg{display:inline-flex;border:1px solid #a3aebd;border-radius:9px;overflow:hidden;
-background:#b4bdc8}
+background:#c6beb6}
 .sg{padding:8px 18px;font-size:13.5px;font-weight:600;color:#404c5c;
 border-right:1px solid #a3aebd;letter-spacing:.2px}
 .sg:last-child{border-right:0}
@@ -4512,7 +4512,7 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 #pane-learn .lsha:hover{text-decoration:underline}
 #pane-learn .lwarn{color:var(--warn);font-weight:600}
 .tile.alarm{border-color:var(--warn)} .tile.alarm .v{color:var(--warn)}
-.faq h3{margin:0;padding:14px 16px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent);border-bottom:1px solid var(--line);background:#bcc4ce}
+.faq h3{margin:0;padding:14px 16px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent);border-bottom:1px solid var(--line);background:#cdc5bd}
 .faq .a a{color:var(--accent);text-decoration:none;font-weight:600}
 .faq .a a:hover{text-decoration:underline}
 .faq details{border-bottom:1px solid var(--line)}
@@ -4605,7 +4605,7 @@ box-shadow:0 0 0 3px rgba(207,34,46,.14),0 1px 2px rgba(22,27,34,.3)}
 .glab{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;gap:12px}
 .gname{font-size:9px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--dim)}
 .gval{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;font-weight:600}
-.track{position:relative;height:9px;border-radius:5px;background:#b4bdc8;
+.track{position:relative;height:9px;border-radius:5px;background:#c6beb6;
 box-shadow:inset 0 1px 2px rgba(22,27,34,.14)}
 /* sequential magnitude = ONE hue, light to dark. Not a red-amber-green rainbow: that is a
    rainbow ramp for an ordered quantity, and red/amber are ~1.5 dE apart under deuteranopia. */
@@ -4629,7 +4629,7 @@ box-shadow:0 0 0 2px #fff,0 1px 3px rgba(22,27,34,.4);transition:left .7s cubic-
 .flow,.flow.gen,.flow.gen.g2,.flow.gen.g3,.flow.gen.g4{grid-template-columns:minmax(0,1fr)}
 .arw,.cross{display:none}}
 /* ==================== v4: the trace is a dark instrument well ====================
-   The page ground is a MID slate as of 2026-09-05; the trace panel — and ONLY the
+   The page ground is a MID WARM neutral as of 2026-09-05; the trace panel — and ONLY the
    trace panel — is dark. These are two different kinds of surface. The page is a
    status board you scan; the trace is an instrument you read one record on, and
    dropping it well below the page's ground gives the boxes, wires and dots somewhere
@@ -4641,7 +4641,7 @@ box-shadow:0 0 0 2px #fff,0 1px 3px rgba(22,27,34,.4);transition:left .7s cubic-
    The ground moved because the page had been at the two ends and neither was the
    answer: v1 was #0c0f14, v2-v5 #f6f8fa. The middle is NOT the midpoint between them
    — that is a mid grey no text sits on comfortably from either direction. It is a
-   slate light enough to keep the text dark, which is why this change is small: it
+   warm neutral light enough to keep the text dark, which is why this change is small: it
    moves the ground and leaves the type alone. It also buys the well its contrast
    back. Against white the dark panel was a jump; against slate it is a depth.
 
@@ -4752,7 +4752,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
    sheet above and an unstyled light box would be the thing nobody notices until a
    record shaped the old way turns up. */
 .tp .sw{background:#1c232c;border-color:#5c6673}
-.tp .sw.cut{background:#141a21}
+.tp .sw.cut{background:#1f1b16}
 .tp .sw.cut .swv{text-decoration-color:#5c6673}
 .tp .sw.i-fact{border-color:#3a8752;background:#122a1a}
 .tp .sw.i-out{border-color:#7d5fbd;background:#221a35}
