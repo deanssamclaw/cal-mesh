@@ -193,6 +193,27 @@ DEFAULTS = {
     "DM_MEMORY_ENABLED": "false",
     "DM_MEMORY_MAX_TURNS": "8",       # recent (q,a) pairs retained; oldest fall off
     "DM_MEMORY_MAX_CHARS": "1200",    # hard cap on the injected memory block (prompt, not a window)
+    # --- PROACTIVE WELCOME for a NODE'S FIRST MESSAGE (default OFF) ---
+    # When a node Cal has never seen before sends its first message on the public
+    # channel, Cal broadcasts a short public welcome to ^all — once per node ever.
+    # Dean's hypothesis: a visible hello draws more people into the mesh. It SELECTS
+    # a line from a closed, operator-authored table, never a model, so an off-list
+    # newcomer is fine by the same argument as the greeting ack and sigreport — the
+    # allow list gates GENERATED prose, which this path never produces.
+    #
+    # Safe to arm whenever: `welcome_seen` is seeded from the node DB at first load,
+    # so every node already known is excluded and only genuinely new nodes are ever
+    # welcomed. A cold set that welcomed the regulars on arm is the failure this
+    # seeding exists to prevent.
+    "WELCOME_ENABLED": "false",
+    "WELCOME_TEXT": "",               # operator override. EMPTY = rotate the built-in lines
+                                      # (which name no place, so unlike GREET_TEXT they are
+                                      # safe to ship in this published file). A NON-empty
+                                      # value is used verbatim for every welcome.
+    "WELCOME_MAX_PER_DAY": "4",       # global amplification budget — the real control, since
+                                      # node ids are spoofable and a per-node cap keys on one.
+    "WELCOME_MIN_GAP_S": "300",       # floor between welcomes, so a burst of new nodes cannot
+                                      # turn the channel into a welcome flood.
 }
 
 # The unlocked persona. Still forbids secrets outright, because "absence not refusal" covers the
@@ -1101,6 +1122,130 @@ def is_bare_greeting(text):
     return _GREET_RE.match(s) is not None
 
 
+# ══ PROACTIVE WELCOME ═════════════════════════════════════════════════════════
+# A node's FIRST message on the public channel earns one short public welcome.
+# Distinct from the greeting ACK (which mirrors a bare greeting, per day): this
+# fires on first contact whatever the message says, exactly once per node, and is
+# the warmer thing to send a newcomer — so it is tried AHEAD of the ack.
+
+# Built-in lines. Each is 5-7 words (the on-air budget) and names no place, so
+# they are safe to ship in this published file. `used` SELECTS the line, so the
+# choice is deterministic and testable; it never shapes prose.
+_WELCOME_LINES = [
+    "Welcome to the mesh, glad you're here",
+    "New signal — welcome to the mesh!",
+    "Welcome aboard, good to hear you",
+    "Great to have you on the mesh",
+]
+
+
+def welcome_reply(override="", n=0):
+    """The line for the n-th welcome. `override`, if set, wins verbatim. Never
+    returns None — by the time this is called the caller has decided to welcome."""
+    if override:
+        return override
+    return _WELCOME_LINES[n % len(_WELCOME_LINES)]
+
+
+def welcome_is_new(st, sender, ours):
+    """A node is new for welcome purposes only if we have never recorded seeing
+    it. Self and empty ids are never new. Pure read — the caller marks it seen."""
+    if not sender or sender == ours:
+        return False
+    return sender not in (st.get("welcome_seen") or {})
+
+
+def mark_welcome_seen(st, sender, ts=None):
+    """Record that this node has now been seen, so it is never later welcomed as
+    'new'. Runs for EVERY inbound message on every path, armed or not — the known
+    set has to stay warm or arming later would treat the regulars as newcomers."""
+    if not sender:
+        return
+    ts = time.time() if ts is None else ts
+    st.setdefault("welcome_seen", {}).setdefault(sender, ts)
+
+
+def seed_welcome_seen(st):
+    """One-shot: fold every node already in the node DB into `welcome_seen`, so
+    the feature can be armed at any time without welcoming the existing crowd.
+    Idempotent behind a flag; a failure to read the DB must not wedge the loop
+    and must not set the flag, so a later run with a readable DB still seeds."""
+    if st.get("welcome_seeded"):
+        return
+    try:
+        db = json.load(open(NODES))
+    except Exception:
+        return
+    now_ts = time.time()
+    seen = st.setdefault("welcome_seen", {})
+    for node in db.get("nodes", []):
+        nid = node.get("id")
+        if nid:
+            seen.setdefault(nid, now_ts)
+    st["welcome_seeded"] = True
+
+
+def plan_welcome(cfg, st, rec, ours, is_new, ts=None):
+    """Decide whether a new node's first message earns a public welcome. Same
+    contract as plan_greeting: pure, returns (should, reason, dest, ch, text,
+    gates), mutates nothing. `is_new` is passed in — captured by the caller
+    BEFORE it marks the node seen — so this stays a pure read. The caller commits
+    the budget only if it actually sends."""
+    ts = time.time() if ts is None else ts
+    ch = rec.get("channel", 0)
+    sender = rec.get("from")
+    gates = []
+
+    def mark(name, ok):
+        gates.append({"gate": name, "pass": bool(ok)})
+        return ok
+
+    if not mark("welcome_enabled", cfg.get("WELCOME_ENABLED", "false").lower() == "true"):
+        return False, "welcome_disabled", None, ch, None, gates
+    if not mark("not_self", bool(sender) and sender != ours):
+        return False, "self", None, ch, None, gates
+    # A public act on the public channel. A welcome DM'd to a stranger is a
+    # stranger thing to receive, and Cal's PSK channel has too small an audience
+    # to encourage anyone — so both are refused, not quietly skipped.
+    if not mark("broadcast", rec.get("to") in ("^all", None)):
+        return False, "welcome_not_broadcast", None, ch, None, gates
+    if not mark("public_channel", ch == 0):
+        return False, "welcome_not_public_channel", None, ch, None, gates
+    # A tapback is not a message; the reaction flag is authoritative (see plan_greeting).
+    if not mark("not_a_reaction", rec.get("reaction") in (None, False)):
+        return False, "welcome_is_reaction", None, ch, None, gates
+    # There must be an actual message — an empty/whitespace body is a non-text
+    # packet the bridge logged as a message, and welcoming that is welcoming noise.
+    if not mark("has_text", bool((rec.get("text") or "").strip())):
+        return False, "welcome_no_text", None, ch, None, gates
+    if not mark("is_new_node", bool(is_new)):
+        return False, "welcome_not_new", None, ch, None, gates
+    if not mark("not_already_welcomed", sender not in (st.get("welcome_sent") or {})):
+        return False, "welcome_already_sent", None, ch, None, gates
+    last = st.get("welcome_last_ts", 0)
+    if not mark("min_gap", ts - last >= _int_cfg(cfg, "WELCOME_MIN_GAP_S", DEFAULTS["WELCOME_MIN_GAP_S"])):
+        return False, "welcome_min_gap", None, ch, None, gates
+    day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+    used = (st.get("welcome_day") or {}).get(day, 0)
+    if not mark("daily_budget", used < _int_cfg(cfg, "WELCOME_MAX_PER_DAY", DEFAULTS["WELCOME_MAX_PER_DAY"])):
+        return False, "welcome_budget_spent", None, ch, None, gates
+    return True, "welcome", "^all", ch, welcome_reply(cfg.get("WELCOME_TEXT", ""), used), gates
+
+
+def commit_welcome(st, sender, ts=None):
+    """Spend the budget. Separate from plan_welcome so a send that fails costs
+    nothing. Records once-ever (welcome_sent), the min-gap clock (welcome_last_ts),
+    and the daily counter (welcome_day)."""
+    ts = time.time() if ts is None else ts
+    st.setdefault("welcome_sent", {})[sender] = ts
+    st["welcome_last_ts"] = ts
+    day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+    d = st.setdefault("welcome_day", {})
+    d[day] = d.get(day, 0) + 1
+    for k in [k for k in d if k < day]:     # keep the counter from growing without bound
+        del d[k]
+
+
 def plan_greeting(cfg, st, rec, ours, ts=None):
     """Decide whether an off-list sender's bare greeting gets the fixed ack.
 
@@ -1383,6 +1528,11 @@ def main():
     lf.flush()
 
     st = load_state()
+    # Fold the known node DB into welcome_seen once, so proactive welcome can be
+    # armed at any time without welcoming the existing crowd. No-op after the first
+    # successful seed; safe (and inert) while WELCOME_ENABLED is false.
+    seed_welcome_seen(st)
+    save_state(st)
     last_trim = time.time()
     log("cal-mesh responder starting")
     log(f"our node: {our_id()}")
@@ -1396,6 +1546,11 @@ def main():
             for rec, new_off in read_new(st):
                 try:
                     if rec is not None:
+                        # Was this node new BEFORE this message? Capture first, then mark it
+                        # seen — every inbound on every path warms the known set, so newness
+                        # is judged once, at genuine first contact, and never re-triggers.
+                        w_is_new = welcome_is_new(st, rec.get("from"), ours)
+                        mark_welcome_seen(st, rec.get("from"))
                         gates = []
                         should, reason, dest, ch = evaluate(cfg, st, rec, ours, trace=gates)
                         # `channel` rides along because `to` alone cannot separate the streams:
@@ -1570,24 +1725,44 @@ def main():
                                 d["gen_ms"] = gen_ms
                                 log(f"gen failed for {rec.get('from')}: {why} ({gen_ms}ms)")
                         elif reason == "sender_not_allowed":
-                            # Off-list sender. The ladder is right to refuse a GENERATED
-                            # reply; a bare greeting still gets a fixed acknowledgement so
-                            # silence doesn't read as a snub. No model, no fetch, no prose.
-                            g_ok, g_reason, g_dest, g_ch, g_text, g_gates = plan_greeting(
-                                cfg, st, rec, ours)
-                            d["greeting_gates"] = g_gates
-                            if g_ok:
-                                enqueue(g_text, g_dest, g_ch)
-                                commit_greeting(st, rec.get("from"))
+                            # A brand-new node's first message earns ONE public welcome, tried
+                            # AHEAD of the greeting ack: a warm hello beats a mirrored one for a
+                            # newcomer, and this covers the common case (a first message that is
+                            # not a bare greeting) the ack cannot. Off-list by design, like the
+                            # ack — it SELECTS a fixed line and runs no model, so the allow list
+                            # (which gates generated prose) is the wrong question to ask of it.
+                            w_ok, w_reason, w_dest, w_ch, w_text, w_gates = plan_welcome(
+                                cfg, st, rec, ours, w_is_new)
+                            d["welcome_gates"] = w_gates
+                            if w_ok:
+                                enqueue(w_text, w_dest, w_ch)
+                                commit_welcome(st, rec.get("from"))
                                 save_state(st)
-                                d.update({"matched": True, "reason": g_reason,
-                                          "reply": g_text, "dest": g_dest,
-                                          "capability": "greeting", "prompt_kind": "fixed",
-                                          "gen_status": "fixed_greeting_ack"})
-                                log(f"GREET {rec.get('from')} -> {g_dest}: {g_text!r}")
+                                d.update({"matched": True, "reason": w_reason,
+                                          "reply": w_text, "dest": w_dest,
+                                          "capability": "welcome", "prompt_kind": "fixed",
+                                          "gen_status": "fixed_welcome"})
+                                log(f"WELCOME {rec.get('from')} -> {w_dest}: {w_text!r}")
                             else:
-                                d["greeting_reason"] = g_reason
-                                log(f"skip {rec.get('from')}: {reason} / {g_reason}")
+                                d["welcome_reason"] = w_reason
+                                # Off-list sender. The ladder is right to refuse a GENERATED
+                                # reply; a bare greeting still gets a fixed acknowledgement so
+                                # silence doesn't read as a snub. No model, no fetch, no prose.
+                                g_ok, g_reason, g_dest, g_ch, g_text, g_gates = plan_greeting(
+                                    cfg, st, rec, ours)
+                                d["greeting_gates"] = g_gates
+                                if g_ok:
+                                    enqueue(g_text, g_dest, g_ch)
+                                    commit_greeting(st, rec.get("from"))
+                                    save_state(st)
+                                    d.update({"matched": True, "reason": g_reason,
+                                              "reply": g_text, "dest": g_dest,
+                                              "capability": "greeting", "prompt_kind": "fixed",
+                                              "gen_status": "fixed_greeting_ack"})
+                                    log(f"GREET {rec.get('from')} -> {g_dest}: {g_text!r}")
+                                else:
+                                    d["greeting_reason"] = g_reason
+                                    log(f"skip {rec.get('from')}: {reason} / {w_reason} / {g_reason}")
                         else:
                             log(f"skip {rec.get('from')}: {reason}")
                         record_decision(d)

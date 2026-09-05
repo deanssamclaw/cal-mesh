@@ -54,6 +54,8 @@ _BUDGET_LABEL = {
     "TRACER_MAX_QUEUED": "probes allowed to sit in the queue",
     "CLARIFY_TTL_S": "seconds a follow-up stays answerable",
     "DM_LOCKED_MAX_CHARS": "reply character budget on a locked DM",
+    "WELCOME_MAX_PER_DAY": "welcomes per day, all new nodes",
+    "WELCOME_MIN_GAP_S": "seconds between welcomes",
 }
 
 
@@ -184,6 +186,26 @@ RECORDS = (
         "oracle_key": None,
     },
     {
+        "flag": "WELCOME_ENABLED", "name": "welcome", "kind": "doer",
+        "module": "responder.py", "model_runs": False,
+        "answers": "Broadcasts one short public hello, from a fixed table, to a node the "
+                   "first time it is heard sending a message.",
+        "trigger": "A node's FIRST message on the public channel, from an id never seen "
+                   "before. Fires once per node ever, whatever the message says.",
+        "who": "any new node, including nodes not on the allow-list",
+        "out_of_scope": [
+            {"limit": "Never a model and never the newcomer's name — the line is SELECTED "
+                      "from a closed table, so there is no prose for anyone to steer.",
+             "where": "responder.py:welcome_reply"},
+            {"limit": "Never welcomes a node already known: the known set is seeded from the "
+                      "node DB at startup, so arming does not greet the existing crowd.",
+             "where": "responder.py:seed_welcome_seen"},
+            {"limit": "Public channel only, and broadcast only — never a DM and never Cal's "
+                      "own PSK channel.", "where": "responder.py:plan_welcome"},
+        ],
+        "oracle_key": None,
+    },
+    {
         "flag": "CLARIFY_FOLLOWUP_ENABLED", "name": "clarify follow-up", "kind": "path",
         "module": "responder.py", "model_runs": False,
         "answers": "Lets a short follow-up answer a question Cal just asked, instead of "
@@ -310,6 +332,7 @@ def build_records(cfg=None, triage=None, defaults=None):
         out = []
         pre = {"calc": (), "greeting ack": ("GREET_",), "sigreport": ("SIGREPORT_",),
                "traceroute": ("TRACEROUTE_",), "tracer": ("TRACER_",),
+               "welcome": ("WELCOME_",),
                "clarify follow-up": ("CLARIFY_",), "DM length budget": ("DM_LOCKED_",)}.get(rec["name"], ())
         for key, label in _BUDGET_LABEL.items():
             if not any(key.startswith(p) for p in pre):

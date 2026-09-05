@@ -54,6 +54,21 @@ GREET_TEXT=
 GREET_MAX_PER_DAY=6
 GREET_SENDER_COOLDOWN_S=86400
 
+# --- proactive WELCOME for a node's FIRST message ---
+# When a node Cal has never seen before sends its first message on the public channel,
+# Cal broadcasts a short public welcome to ^all, ONCE per node ever. No model runs: the
+# line is SELECTED from a closed built-in table (each 5-7 words, naming no place), or set
+# WELCOME_TEXT to override every welcome with one verbatim string. Off-list newcomers are
+# the whole point, and are safe for the same reason the greeting ack is.
+# Safe to arm at any time: welcome_seen is seeded from the node DB at startup, so nodes Cal
+# already knows are excluded and only genuinely new nodes are ever welcomed.
+# WELCOME_MAX_PER_DAY is the real budget (node ids are spoofable); WELCOME_MIN_GAP_S floors
+# the spacing so a rush of new nodes can't flood the channel.
+WELCOME_ENABLED=false
+WELCOME_TEXT=
+WELCOME_MAX_PER_DAY=4
+WELCOME_MIN_GAP_S=300
+
 # --- P1 content unlock on an authenticated DM (docs/proposals/channel-trust-and-agency.md) ---
 # Longer, context-aware replies to ONE pinned node over an authenticated direct message.
 # CONTENT only — tools stay locked exactly as on the public channel.
