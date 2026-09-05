@@ -85,6 +85,16 @@ _WHOLE_RE = re.compile(r"^(?:" + r"|".join(_WHOLE) + r")$", re.I)
 # echoes it so a reply can be matched to its test when several are in flight. Nothing else from
 # the inbound text is ever echoed: the capture group is digits only, so there is no path from
 # sender-controlled prose into a transmitted reply.
+# A greeting may precede the trigger. Kept to the openers that actually appear on this mesh
+# rather than a general vocabulary: the list only has to be right about what gets sent.
+_GREET = (r"(?:hi|hey|hello|yo|howdy|heya|good\s+(?:morning|afternoon|evening)"
+          r"|morning|afternoon|evening)")
+
+# A determiner or possessive immediately before test/check makes the phrase a REFERENCE to a
+# test rather than one being run. Not a vocabulary of test words -- that design already died on
+# `tange test` -- but a vocabulary of the handful of words that turn any noun into a reference.
+_REFERENTIAL = frozenset("the a an this that these those my your our their his her its".split())
+
 _INDEX = r"(?:\s+#?(?P<idx>\d{1,3}))?"
 _TAIL_RE = re.compile(r"^(?:[\w'/-]+\s+){0,%d}(?:test|check)%s$"
                       % (_MAX_WORDS_TAIL - 1, _INDEX), re.I)
@@ -103,15 +113,26 @@ def match(text, trigger="cal"):
     """Return {"via": ...} for a range/signal test, else None. Pure text shape, no I/O.
 
     The trigger word is stripped FIRST so `Cal range test` and `range test` are the same
-    message. It is stripped only from the front, and only as a whole word: a node named
-    "Calibration Test" must not be filleted into a match.
+    message. It is stripped as a whole word only: a node named "Calibration Test" must not be
+    filleted into a match. A GREETING may sit in front of it — `Hey Cal, this is a test` is
+    addressed exactly as much as `Cal, this is a test`, and anchoring hard to position 0 meant
+    the phrase rules never saw it. That miss is in the log: on 2026-08-08 `Hey Cal, this is a
+    test` fell through to the model while measured SNR sat on disk.
+
+    Whether the trigger was actually found is returned as `addressed`, because the tail rule
+    below is deliberately stricter without it.
     """
     s = _normalize(text)
     if not s:
         return None
     trig = (trigger or "").strip().lower()
+    addressed = False
     if trig:
-        s = re.sub(r"^%s\b[\s,:-]*" % re.escape(trig), "", s).strip()
+        stripped = re.sub(r"^(?:%s[\s,:!-]+)?%s\b[\s,:-]*" % (_GREET, re.escape(trig)),
+                          "", s).strip()
+        if stripped != s:
+            addressed = True
+            s = stripped
         # "Cal" alone, once stripped, leaves nothing. That is a hail, not a test.
         if not s:
             return None
@@ -120,7 +141,21 @@ def match(text, trigger="cal"):
         return {"via": "phrase", "text": s, "index": None}
     mt = _TAIL_RE.match(s)
     if mt:
-        # A bare "test" is still a test — one word, ends in test.
+        # A bare "test" is still a test — one word, ends in test — and Dean's 2026-08-22 call
+        # ("any kind of range test") is what keeps it firing.
+        #
+        # What it must NOT swallow is somebody TALKING ABOUT a test. `got the test` is a
+        # neighbour telling another neighbour they received one, and this doer sits ahead of
+        # every ladder, so a message it claims is a message no other capability will ever see.
+        # The tell is a determiner immediately before the word: `the test`, `a test`, `your
+        # test` are references to a test, where `range test` and `latency test` are one being
+        # run. With the trigger present that reading is settled — the sender said Cal's name,
+        # so `Cal, got the test` is still for Cal — and this only applies without it.
+        if not addressed:
+            words = s.split()
+            lead = words[-2] if len(words) > 1 and not mt.group("idx") else ""
+            if lead in _REFERENTIAL:
+                return None
         return {"via": "tail", "text": s, "index": mt.group("idx")}
     return None
 
