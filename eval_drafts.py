@@ -170,6 +170,25 @@ ck("an unparseable budget falls back rather than going unlimited",
 ck("an absent budget falls back", mod._int_cfg({}, "DRAFTS_MAX_PER_RUN", "40") == 40)
 ck("there is no --reset", "--reset" not in CODE)
 
+print("\na bounded run covers the RECENT end, not the oldest")
+# iter_decisions() yields oldest first. Taking the first N unprocessed drafted the oldest 20 of
+# 285 and left three weeks of newer traffic untouched -- the tab showed 2026-08-08..08-14 on
+# 09-06. A review surface that cannot cover everything must cover what just happened.
+_fake = [{"from": "!a", "ts": "2026-01-0%d" % i, "text": "m%d" % i, "reason": "x"}
+         for i in range(1, 6)]
+_saved_iter = mod._learn.iter_decisions
+try:
+    mod._learn.iter_decisions = lambda: iter(_fake)
+    _order = [r["ts"] for r in mod.candidates("!me")]
+    ck("candidates come back newest first", _order == sorted(_order, reverse=True), _order)
+    ck("and none are dropped", len(_order) == len(_fake), len(_order))
+    mod._learn.iter_decisions = lambda: iter(_fake + [{"from": "!me", "ts": "2026-01-09",
+                                                       "text": "mine", "reason": "x"}])
+    ck("Cal's own is still excluded",
+       all(r["from"] != "!me" for r in mod.candidates("!me")))
+finally:
+    mod._learn.iter_decisions = _saved_iter
+
 print("\nthe renderer is CALLED where its argument exists")
 # The call was first placed inside renderLearning(L), where `d` is not in scope. Valid syntax,
 # so eval_page passed it; a ReferenceError every tick, so the tab stayed empty AND the rest of
@@ -250,6 +269,9 @@ MUTANTS = {
     "the arming flag stops being readable": (
         '                if k.strip() in DEFAULTS:',
         '                if False:'),
+    "a bounded run crawls from the oldest again": (
+        '    rows.sort(key=lambda r: r.get("ts") or "", reverse=True)',
+        '    rows.sort(key=lambda r: r.get("ts") or "")'),
     "shape starts judging quality": (
         '    if _learn._GENERIC_SMELL.search(draft):\n        return "generic"',
         '    if False:\n        return "generic"'),
@@ -272,6 +294,12 @@ for name, (old, new) in MUTANTS.items():
             caught = [r["draft_id"] for r in m.prune(pair)] != ["b"]
         elif name == "the budget goes unlimited on garbage":
             caught = m._int_cfg({"X": "abc"}, "X", "40") != 40
+        elif name == "a bounded run crawls from the oldest again":
+            fake = [{"from": "!a", "ts": "2026-01-0%d" % i, "text": "m", "reason": "x"}
+                    for i in range(1, 5)]
+            m._learn.iter_decisions = lambda: iter(fake)
+            got = [r["ts"] for r in m.candidates("!me")]
+            caught = got != sorted(got, reverse=True)
         elif name == "the arming flag stops being readable":
             d2 = tempfile.mkdtemp(prefix="evaldraftsmut-")
             open(os.path.join(d2, "config"), "w").write("DRAFTS_ENABLED=true\n")

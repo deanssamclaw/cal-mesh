@@ -167,13 +167,21 @@ def already(rows):
 
 
 def candidates(our):
-    """Every inbound that is not Cal's own. Emoji, tapbacks, other people's conversations, and
-    the ones he answered -- all of it. A message Cal replied to still gets a draft, marked
-    unfaithful, because 'would he answer that differently today' is worth seeing; it is stored
-    BESIDE the real reply and never replaces it."""
-    for rec in _learn.iter_decisions():
-        if rec.get("from") and rec.get("from") != our:
-            yield rec
+    """Every inbound that is not Cal's own, NEWEST FIRST. Emoji, tapbacks, other people's
+    conversations, and the ones he answered -- all of it. A message Cal replied to still gets a
+    draft, marked unfaithful, because 'would he answer that differently today' is worth seeing;
+    it is stored BESIDE the real reply and never replaces it.
+
+    ORDER IS THE WHOLE POINT OF A BOUNDED RUN. iter_decisions() yields oldest first, so taking
+    the first N unprocessed drafted the OLDEST twenty of 285 and the tab showed 2026-08-08 to
+    08-14 while three weeks of newer traffic sat untouched. A review surface has to answer
+    "what is Cal not saying lately", so a run that cannot cover everything must cover the
+    RECENT end. The backlog is then filled in by running it again, from the new end backwards.
+    """
+    rows = [r for r in _learn.iter_decisions()
+            if r.get("from") and r.get("from") != our]
+    rows.sort(key=lambda r: r.get("ts") or "", reverse=True)
+    return rows
 
 
 def run(cfg, limit=None, now=None):
