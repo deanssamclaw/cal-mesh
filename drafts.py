@@ -201,7 +201,19 @@ def run(cfg, limit=None, now=None):
         if not isinstance(text, str) or not text.strip():
             continue
         t0 = time.time()
-        prompt = _r.build_prompt((rec.get("from") or "")[-4:], text)
+        # SANITIZE FIRST. build_prompt's contract is "msg_text must already be sanitized", and
+        # the responder honours it at responder.py:634 before every live generation. This module
+        # did not, so a stranger's raw text was interpolated straight into the user turn --
+        # newline truncation and the injected-instruction redaction both bypassed. Measured when
+        # it was found: 85 of 100 stored rows came from senders NOT on ALLOW_FROM, 44 distinct
+        # strangers, and the resulting prose is published on a public page.
+        #
+        # The allow list gates GENERATED PROSE. Simulating generation for everyone quietly
+        # demoted it to a gate on TRANSMISSION, which was never the deal. Sanitizing restores
+        # the responder's actual input path, so the draft is also a more faithful counterfactual,
+        # not a less faithful one.
+        clean, flagged = _r.sanitize_inbound(text)
+        prompt = _r.build_prompt((rec.get("from") or "")[-4:], clean)
         reply, why = _r.run_claude(cfg, prompt)
         rows.append({
             "ts": rec.get("ts"),
@@ -217,6 +229,9 @@ def run(cfg, limit=None, now=None):
             # A draft made later is not what the responder would have said: the weather fact,
             # sun/moon times and DM memory are all read live at generation time.
             "faithful": not bool(rec.get("reply")),
+            # What the sanitizer did, so the tab can show that a message was redacted rather
+            # than silently publishing a draft of something that never reached the model whole.
+            "flagged": flagged,
             "shape": shape(reply),
             "doers": doer_coverage(text),
             "chars": len(reply or ""),
