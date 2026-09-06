@@ -85,6 +85,24 @@ _WHOLE_RE = re.compile(r"^(?:" + r"|".join(_WHOLE) + r")$", re.I)
 # echoes it so a reply can be matched to its test when several are in flight. Nothing else from
 # the inbound text is ever echoed: the capture group is digits only, so there is no path from
 # sender-controlled prose into a transmitted reply.
+# A greeting may precede the trigger. Kept to the openers that actually appear on this mesh
+# rather than a general vocabulary: the list only has to be right about what gets sent.
+_GREET = (r"(?:hi|hey|hello|yo|howdy|heya|good\s+(?:morning|afternoon|evening)"
+          r"|morning|afternoon|evening)[\s,:;!.?-]")
+
+# A determiner or possessive immediately before test/check makes the phrase a REFERENCE to a
+# test rather than one being run. Not a vocabulary of test words -- that design already died on
+# `tange test` -- but a vocabulary of the handful of words that turn any noun into a reference.
+_REFERENTIAL = frozenset("the a an this that these those my your our their his her its".split())
+
+# Words that belong to another armed capability. If one of these qualifies the test/check, the
+# message is that capability's and sigreport must not pre-empt it.
+_OTHER_DOER = frozenset("""weather temp temperature forecast humidity dewpoint wind rain snow
+    sun sunrise sunset sunup sundown moon moonrise moonset capabilities capability""".split())
+
+# Punctuation people actually type around a call sign. Used on BOTH sides of the trigger.
+_SEP = r"[\s,:;!.?-]*"
+
 _INDEX = r"(?:\s+#?(?P<idx>\d{1,3}))?"
 _TAIL_RE = re.compile(r"^(?:[\w'/-]+\s+){0,%d}(?:test|check)%s$"
                       % (_MAX_WORDS_TAIL - 1, _INDEX), re.I)
@@ -94,7 +112,12 @@ def _normalize(text):
     """Lowercase, collapse whitespace, drop trailing punctuation. A question mark is KEPT and
     is not disqualifying here — unlike a greeting, `you copy?` is the ordinary spelling of a
     radio check, and refusing it would refuse the commonest form of the thing."""
-    s = (text or "").strip().lower()
+    # responder.py hands this rec.get("text", ""), and a malformed record can put a number or a
+    # list there. Type is checked, not just falsiness: `(text or "")` passes an int straight
+    # through to .strip() and takes the responder loop down with an AttributeError.
+    if not isinstance(text, str):
+        return ""
+    s = text.strip().lower()
     s = re.sub(r"\s+", " ", s)
     return s.strip(" .!,;:-–—\"'?")
 
@@ -103,15 +126,30 @@ def match(text, trigger="cal"):
     """Return {"via": ...} for a range/signal test, else None. Pure text shape, no I/O.
 
     The trigger word is stripped FIRST so `Cal range test` and `range test` are the same
-    message. It is stripped only from the front, and only as a whole word: a node named
-    "Calibration Test" must not be filleted into a match.
+    message. It is stripped as a whole word only: a node named "Calibration Test" must not be
+    filleted into a match. A GREETING may sit in front of it — `Hey Cal, this is a test` is
+    addressed exactly as much as `Cal, this is a test`, and anchoring hard to position 0 meant
+    the phrase rules never saw it. That miss is in the log: on 2026-08-08 `Hey Cal, this is a
+    test` fell through to the model while measured SNR sat on disk.
+
+    Whether the trigger was actually found is returned as `addressed`, because the tail rule
+    below is deliberately stricter without it.
     """
     s = _normalize(text)
     if not s:
         return None
     trig = (trigger or "").strip().lower()
+    addressed = False
     if trig:
-        s = re.sub(r"^%s\b[\s,:-]*" % re.escape(trig), "", s).strip()
+        # The separator class is the SAME on both sides of the trigger. It was not, and the
+        # asymmetry meant `hey! cal test` fired while `Cal! test` did not.
+        # `(?!['\u2019])` keeps a possessive from reading as an address: `Cal's test` is
+        # somebody else's test being discussed, and stripping it left the fragment `'s test`.
+        stripped = re.sub(r"^(?:%s%s)?%s\b(?!['\u2019])%s" % (_GREET, _SEP, re.escape(trig), _SEP),
+                          "", s).strip()
+        if stripped != s:
+            addressed = True
+            s = stripped
         # "Cal" alone, once stripped, leaves nothing. That is a hail, not a test.
         if not s:
             return None
@@ -120,7 +158,38 @@ def match(text, trigger="cal"):
         return {"via": "phrase", "text": s, "index": None}
     mt = _TAIL_RE.match(s)
     if mt:
-        # A bare "test" is still a test — one word, ends in test.
+        # A bare "test" is still a test — one word, ends in test — and Dean's 2026-08-22 call
+        # ("any kind of range test") is what keeps it firing.
+        #
+        # What it must NOT swallow is somebody TALKING ABOUT a test. `got the test` is a
+        # neighbour telling another neighbour they received one, and this doer sits ahead of
+        # every ladder, so a message it claims is a message no other capability will ever see.
+        # The tell is a determiner immediately before the word: `the test`, `a test`, `your
+        # test` are references to a test, where `range test` and `latency test` are one being
+        # run. With the trigger present that reading is settled — the sender said Cal's name,
+        # so `Cal, got the test` is still for Cal — and this only applies without it.
+        words = s.split()
+        # Step back over the matched tail to reach the qualifier: [.. , qualifier, test] or
+        # [.. , qualifier, test, 12]. Reading words[-2] unconditionally put the guard on the
+        # DIGIT's neighbour when an index matched, so `got the test 2` fired while `got the
+        # test` did not -- and a numbered sequence is exactly the traffic this module documents.
+        skip = 2 if mt.group("idx") else 1
+        lead = words[-(skip + 1)] if len(words) > skip else ""
+        # Applied whether or not the sender said Cal's name. The exemption was wrong: `Cal aced
+        # the test` and `Cal ran the test` are sentences ABOUT Cal, and being named in one is
+        # not being asked for a signal report.
+        # A possessive qualifier names an OWNER, which makes it someone's test being discussed:
+        # `Cal's test`, `Dean's check`. Caught by suffix rather than by listing names, and the
+        # trigger's own possessive is the case that reaches here, since `Cal's` is deliberately
+        # not stripped as an address.
+        if lead in _REFERENTIAL or lead.endswith("'s") or lead.endswith("’s"):
+            return None
+        # A qualifier another doer owns is that doer's message. sigreport sits ahead of every
+        # ladder, so `weather check` answered from here is a weather question that never
+        # reaches weather. This is a list of OTHER capabilities' words, not of test words --
+        # that open set is what died on `tange test`; this one is closed and known.
+        if lead in _OTHER_DOER:
+            return None
         return {"via": "tail", "text": s, "index": mt.group("idx")}
     return None
 
