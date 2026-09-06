@@ -42,5 +42,16 @@ fi
 # a guard that arrives after the paste is not a guard.
 SEC=$(git diff --cached | grep -oiE 'sk-ant-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|BEGIN [A-Z ]*PRIVATE KEY|meshtastic\.org/e/#[A-Za-z0-9_+/=-]{8,}|\bpsk["'\'']?\s*[:=]\s*["'\'']?[A-Za-z0-9+/_-]{16,}={0,2}' || true)
 if [ -n "$SEC" ]; then echo "  SCRUB FAIL: credential-shaped string"; FAIL=1; else echo "  scrub: no credential shapes"; fi
+# Filename guard for the operational logs that hold MESSAGE TEXT and MODEL PROSE. The content
+# scans above cannot see this class: a stranger's message and a drafted reply match no
+# coordinate, no node id and no credential shape, so nothing above would fire. The only control
+# that works is refusing the file by name, and .gitignore is one `add -f` from being moot.
+NAMES=$(git diff --cached --name-only | grep -E '(^|/)(drafts\.jsonl|draft-grades\.json|decisions\.jsonl|inbox\.jsonl|dm-memory\.json|dm-context\.txt)$' || true)
+if [ -n "$NAMES" ]; then
+  echo "  SCRUB FAIL: operational log staged (message text / model prose):"
+  for n in $NAMES; do echo "    $n"; done; FAIL=1
+else
+  echo "  scrub: no operational logs staged"
+fi
 [ "$FAIL" -eq 0 ] && echo "  scrub: PASS" || echo "  scrub: BLOCKED"
 exit "$FAIL"

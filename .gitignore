@@ -56,3 +56,8 @@ route-ledger.md
 
 # worktrees created by EnterWorktree — scratch, never part of the repo
 .claude/worktrees/
+
+# drafts.jsonl — simulated replies, never transmitted. Listed BEFORE the module that
+# writes it exists, because config.bak-* already leaked this repo once by not being listed.
+drafts.jsonl
+draft-grades.json
