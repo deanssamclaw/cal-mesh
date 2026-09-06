@@ -170,6 +170,34 @@ ck("an unparseable budget falls back rather than going unlimited",
 ck("an absent budget falls back", mod._int_cfg({}, "DRAFTS_MAX_PER_RUN", "40") == 40)
 ck("there is no --reset", "--reset" not in CODE)
 
+print("\nthe renderer is CALLED where its argument exists")
+# The call was first placed inside renderLearning(L), where `d` is not in scope. Valid syntax,
+# so eval_page passed it; a ReferenceError every tick, so the tab stayed empty AND the rest of
+# renderLearning died with it. Reading the diff did not catch it and could not: the line looks
+# right in isolation. Assert the call site sits in the same function as a known-good `d` use.
+import importlib.util as _ilu
+_ds = _ilu.spec_from_file_location("dash_for_scope", os.path.join(HERE, "dashboard.py"))
+_dash = _ilu.module_from_spec(_ds); _ds.loader.exec_module(_dash)
+V6 = _dash.PAGE_V6
+
+
+def enclosing_fn(src, needle):
+    i = src.index(needle)
+    m = None
+    for mm in re.finditer(r"function\s+(\w+)\s*\(([^)]*)\)\s*\{", src[:i]):
+        m = mm
+    return (m.group(1), m.group(2)) if m else (None, None)
+
+
+_fn_d, _args_d = enclosing_fn(V6, "renderDrafts(d.drafts")
+_fn_l, _args_l = enclosing_fn(V6, "renderLearning(d.learning")
+ck("renderDrafts is called from the same function as renderLearning",
+   _fn_d == _fn_l and _fn_d is not None, f"{_fn_d} vs {_fn_l}")
+ck("and that function actually has `d` available",
+   "d" in [a.strip() for a in (_args_d or "").split(",")] or "const d=" in V6,
+   _args_d)
+ck("the renderer is defined exactly once", V6.count("function renderDrafts(") == 1)
+
 print("\nthe arming flag is actually REACHABLE")
 # It was not. responder.load_config() keeps a line only if the key is already in its own
 # DEFAULTS, so DRAFTS_ENABLED was dropped and the module reported DISARMED with the flag set

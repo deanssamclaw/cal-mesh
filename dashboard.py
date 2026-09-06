@@ -7851,6 +7851,7 @@ async function tick(){
  $('#nn').textContent=lastNodes.length;
  renderNodes();
  renderLearning(d.learning||{});
+ renderDrafts(d.drafts||{});
 }
 function shaLink(c,pushed){
   if(!c) return '<span class="lwarn">not committed</span>';
@@ -7947,7 +7948,6 @@ function renderLearning(L){
   // deliberately OUT of the signature below. Folding them in would make the signature differ
   // on every single tick and re-run every innerHTML write underneath it -- which is precisely
   // the cost the signature exists to avoid.
-  renderDrafts(d.drafts);
   paintAges(H);
   const lsig=JSON.stringify([sb,L.armed,L.untriaged,L.corrections,L.history,
     H&&[H.state,H.flags,H.stale,H.audited,H.last_run,H.last_input,H.next_expected]]);
