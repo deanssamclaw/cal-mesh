@@ -15,7 +15,7 @@ defect and demanding the audit notices.
 Run:  python3 eval_health.py                (exit 0 = pass)
       python3 eval_health.py --self-test    also proves the checks can FAIL
 """
-import os, sys, json, tempfile, importlib.util
+import os, sys, re, json, tempfile, importlib.util
 from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -200,7 +200,12 @@ ck("live health is in the closed set",
    (L["health"] or {}).get("state") in learn.STATES, (L["health"] or {}).get("state"))
 ck("history is published for the plot", isinstance(L.get("history"), list))
 
-v5 = dash.PAGE_V5
+# Grade whatever "/" actually serves. Naming a template here means the suite keeps grading
+# the page it was written against long after that page is retired to /old-N, which is the
+# quiet way an eval stops covering what ships.
+_cur = re.search(r"^CURRENT_PAGE = (PAGE_V\d+)",
+                 open(os.path.join(HERE, "dashboard.py")).read(), re.M).group(1)
+v5 = getattr(dash, _cur)
 ck("every state has a chip class in the JS map",
    all(st in v5 for st in learn.STATES), "missing a state in the chip map")
 for cls in ("lchip ok", "lchip bad", "lchip unknown"):
@@ -228,8 +233,8 @@ if not os.path.exists(_node):
 else:
     _fns = []
     for _n in ("function ageTxt", "function untilTxt", "function drawHealth", "function drawSpark"):
-        _i = dash.PAGE_V5.index(_n); _j = dash.PAGE_V5.index("\n}\n", _i) + 3
-        _fns.append(dash.PAGE_V5[_i:_j])
+        _i = v5.index(_n); _j = v5.index("\n}\n", _i) + 3
+        _fns.append(v5[_i:_j])
     _dir = tempfile.mkdtemp(prefix="evalrender-")
     _hjs = os.path.join(_dir, "h.js")
     _cases = {

@@ -21,7 +21,27 @@ import os, sys, re, json, shutil, tempfile, subprocess, importlib.util
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location("dash", os.path.join(HERE, "dashboard.py"))
 dash = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(dash)
-V5 = dash.PAGE_V5
+# Grade whatever "/" actually serves. Naming a template here means the suite keeps grading
+# the page it was written against long after that page is retired to /old-N, which is the
+# quiet way an eval stops covering what ships.
+_cur = re.search(r"^CURRENT_PAGE = (PAGE_V\d+)",
+                 open(os.path.join(HERE, "dashboard.py")).read(), re.M).group(1)
+V5 = getattr(dash, _cur)
+
+
+def _mutate_current(src, old, new):
+    """Apply a mutation inside the CURRENT template only.
+
+    Retiring a version duplicates every template in this file, so a bare src.replace(old,new,1)
+    lands in the RETIRED copy -- it mutates a page nothing grades. The suite then reports
+    "mutation not caught", which is true and completely misleading: the mutation was never
+    applied to the page under test. Scope it, and assert the anchor is unique in that scope.
+    """
+    lo = src.index(_cur + ' = r"""')
+    hi = src.index('"""\n', lo)
+    n = src.count(old, lo, hi)
+    assert n == 1, "anchor appears %d times inside %s" % (n, _cur)
+    return src[:lo] + src[lo:hi].replace(old, new, 1) + src[hi:]
 
 FAILS = []
 def ck(name, cond, detail=""):
@@ -158,7 +178,10 @@ if "--self-test" in sys.argv:
         md = tempfile.mkdtemp(prefix="evalhopsmut-")
         for f in ("dashboard.py", "nodes.json", "status.json", "bridge.py"):
             shutil.copy(os.path.join(HERE, f), os.path.join(md, f))
-        open(os.path.join(md, target), "w").write(src_txt.replace(old, new, 1))
+        # bridge.py holds no templates, so only the page file needs scoping
+        mutated = (_mutate_current(src_txt, old, new) if target == "dashboard.py"
+                   else src_txt.replace(old, new, 1))
+        open(os.path.join(md, target), "w").write(mutated)
         shutil.copy(os.path.join(HERE, "eval_hops.py"), os.path.join(md, "eval_hops.py"))
         # PYTHONPATH so the mutant's siblings import; without it the child died on
         # `import console` and the non-zero exit read as a catch. sys.path[0] is still md, so
