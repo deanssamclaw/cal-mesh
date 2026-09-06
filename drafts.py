@@ -74,6 +74,35 @@ def _int_cfg(cfg, key, dflt):
         return int(dflt)
 
 
+def load_cfg():
+    """The responder's config, plus this module's OWN keys.
+
+    responder.load_config() starts from responder.DEFAULTS and keeps a line only `if k in cfg`,
+    so a key it has never heard of is silently dropped. DRAFTS_ENABLED lives here, not there, so
+    reading the config through that function alone meant the flag could be set to true in the
+    file and this module would still report DISARMED -- unreachable, with nothing saying why.
+
+    It failed CLOSED, which is the right direction to fail, and is exactly why nothing noticed:
+    the eval asserted the default was off and the module dutifully stayed off. Found by arming
+    it for real and watching it refuse.
+
+    The responder is deliberately not modified to know about these keys: it owns the transmit
+    path, and a read-only observer has no business adding fields to it.
+    """
+    cfg = dict(DEFAULTS)
+    cfg.update(_r.load_config())
+    try:
+        for ln in open(os.path.join(BASE, "config")):
+            ln = ln.strip()
+            if ln and not ln.startswith("#") and "=" in ln:
+                k, v = ln.split("=", 1)
+                if k.strip() in DEFAULTS:
+                    cfg[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return cfg
+
+
 def _load(path, dflt):
     try:
         return json.load(open(path))
@@ -260,7 +289,7 @@ def main():
         print(json.dumps(summary(prune(_load_rows())), indent=2))
         return 0
 
-    cfg = _r.load_config()
+    cfg = load_cfg()
     if str(cfg.get("DRAFTS_ENABLED", DEFAULTS["DRAFTS_ENABLED"])).lower() != "true":
         print("drafts: DISARMED (DRAFTS_ENABLED is not true) — nothing drafted")
         return 0

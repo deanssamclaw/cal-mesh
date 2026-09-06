@@ -170,6 +170,26 @@ ck("an unparseable budget falls back rather than going unlimited",
 ck("an absent budget falls back", mod._int_cfg({}, "DRAFTS_MAX_PER_RUN", "40") == 40)
 ck("there is no --reset", "--reset" not in CODE)
 
+print("\nthe arming flag is actually REACHABLE")
+# It was not. responder.load_config() keeps a line only if the key is already in its own
+# DEFAULTS, so DRAFTS_ENABLED was dropped and the module reported DISARMED with the flag set
+# to true in the file. It failed closed, so every check here still passed -- "the default is
+# off" is true of a flag that cannot be turned on. Assert the flag can be turned ON.
+_tmpdir = tempfile.mkdtemp(prefix="evaldraftscfg-")
+open(os.path.join(_tmpdir, "config"), "w").write("DRAFTS_ENABLED=true\nDRAFTS_MAX_PER_RUN=7\n")
+_saved_base = mod.BASE
+try:
+    mod.BASE = _tmpdir
+    _cfg = mod.load_cfg()
+    ck("a config file can arm it", str(_cfg.get("DRAFTS_ENABLED")).lower() == "true",
+       _cfg.get("DRAFTS_ENABLED"))
+    ck("and can set the budget", mod._int_cfg(_cfg, "DRAFTS_MAX_PER_RUN", "40") == 7,
+       _cfg.get("DRAFTS_MAX_PER_RUN"))
+finally:
+    mod.BASE = _saved_base
+ck("absent config still reads as off",
+   str(mod.DEFAULTS["DRAFTS_ENABLED"]).lower() == "false")
+
 print("\ngrades live in their OWN file, never triage.json")
 # Any dict under a cluster key in triage.json reads as a triage verdict to four consumers, so a
 # grade written there drops the cluster out of the build queue and lowers the untriaged count on
@@ -199,6 +219,9 @@ MUTANTS = {
     "the budget goes unlimited on garbage": (
         "        return int(dflt)",
         "        return 10 ** 9"),
+    "the arming flag stops being readable": (
+        '                if k.strip() in DEFAULTS:',
+        '                if False:'),
     "shape starts judging quality": (
         '    if _learn._GENERIC_SMELL.search(draft):\n        return "generic"',
         '    if False:\n        return "generic"'),
@@ -221,6 +244,11 @@ for name, (old, new) in MUTANTS.items():
             caught = [r["draft_id"] for r in m.prune(pair)] != ["b"]
         elif name == "the budget goes unlimited on garbage":
             caught = m._int_cfg({"X": "abc"}, "X", "40") != 40
+        elif name == "the arming flag stops being readable":
+            d2 = tempfile.mkdtemp(prefix="evaldraftsmut-")
+            open(os.path.join(d2, "config"), "w").write("DRAFTS_ENABLED=true\n")
+            m.BASE = d2
+            caught = str(m.load_cfg().get("DRAFTS_ENABLED")).lower() != "true"
         else:
             caught = m.shape("I'm Claude, an AI assistant made by Anthropic.") != "generic"
     except AssertionError:
