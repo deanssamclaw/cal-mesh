@@ -157,6 +157,7 @@ the answer path** — that is the whole safety story. Taxonomy and specs in `doc
 | Greeting ack (off-list senders) | fixed table | no | **ARMED** |
 | Wire gauge, fasteners (TABLE) | table | no — the harness returns the row | measured, not built |
 | Load and rigging | — | — | **refuted, will not ship** (see below) |
+| Proactive welcome (new node's first message) | — | — | **refuted, will not ship** (see below) |
 
 **Which capability owns a message is decided by position, not vocabulary.** Whichever one's
 subject appears *first* is the one being asked about; anything later is context or a time adjunct.
@@ -192,6 +193,35 @@ budget — but the disqualifier is not length. OSHA *deleted* these tables from 
 1926.251 (2012) as obsolete and unsafe, replacing them with a duty to read the sling tag. Serving
 one over radio rebuilds the artifact the regulator retired, and it is most tempting exactly where
 it is most wrong. Full measurement in `docs/proposals/level3-table-doer-and-field-reference.md` §8.2.
+
+### Why the proactive welcome is not here
+The idea was good: a node Cal has never heard sends its first public message and gets one short
+public hello, on the theory that a visible welcome draws people into the mesh. It was built
+twice — once bare, once carrying the measurement — and **refuted both times, for different
+reasons.** Kept here because the idea is attractive enough to be proposed again.
+
+A **bare** hello is a claim, not an observation. "Good to hear you" reads identically whether the
+newcomer arrived direct and strong or scraped in at seven hops, so it cannot show the one thing a
+newcomer actually wants to know. This repo already paid for that lesson: sigreport exists because
+the model once answered "Link's solid and steady over here" with no access to a number at all.
+
+Attaching the **measurement** fixes that and creates something worse. sigreport's trilateration
+residual is priced on the attacker having to ASK — they range test, and the answer goes to them.
+A welcome broadcasts signal and hop count to `^all`, unsolicited, to someone who asked nothing.
+Replayed over 29 days of real log: of 45 welcomes, **23 went to nodes that broadcast their own
+GPS**, and the node DB says half this mesh does. That is a passive harvest of
+`(known coordinate, RSSI into Cal, hop count)` on a schedule. Cal broadcasts no position
+precisely to avoid being locatable; this hands the same thing out a side door.
+
+And the trigger cannot be made to mean what it says. **"New to Cal's node database" is not "new
+to the mesh"** — a node's first TEXT packet can arrive before its NodeInfo, so seeding from the
+node DB still fired 13 times in replay. Cal is one node on a 313-node metro mesh and has no
+standing to welcome a 7-hop stranger to it. On the real log the armed feature stepped on a
+severe-thunderstorm broadcast to welcome the station issuing it, welcomed an automated weather
+bot monthly, and welcomed mid-conversation replies ("No but I'm on a plane").
+
+Measured by adversarial review over ~34,500 inputs, 2026-09-06. The implementation is on the
+`welcome-measured` branch, disarmed, if the shape is ever worth revisiting.
 
 ## Signal report: the doer that runs first
 Every other capability answers a question somebody chose to ask Cal. A range test is addressed to
