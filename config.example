@@ -130,3 +130,8 @@ TRACEROUTE_HOP_LIMIT=3
 # in one bucket, which says nothing). Your own node is excluded whatever it advertises.
 POSITION_GRID=true
 POSITION_GRID_CHARS=6
+
+# Drafts: simulate the reply Cal did NOT send. Never transmits. Public tab.
+DRAFTS_ENABLED=false
+DRAFTS_MAX_PER_RUN=40
+DRAFTS_MAX_PER_DAY=120

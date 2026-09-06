@@ -146,6 +146,38 @@ RECORDS = (
         "oracle_key": None,
     },
     {
+        "flag": "DRAFTS_ENABLED", "name": "drafts", "kind": "observer",
+        "module": "drafts.py", "model_runs": True,
+        "answers": "Nobody. It answers no one and transmits nothing. For every message that is "
+                   "not Cal's own it drafts the reply he WOULD have sent and publishes it on "
+                   "the Drafts tab, so 'should Cal say more?' can be looked at rather than "
+                   "guessed at.",
+        "trigger": "Every inbound message except Cal's own — answered or not, addressed or "
+                   "not, emoji included. It runs on a schedule, after the fact, never in the "
+                   "responder.",
+        "who": "nobody — it is read, not sent",
+        "out_of_scope": [
+            {"limit": "It cannot transmit, and that is structural rather than promised: the "
+                      "send boundary is the outbox DIRECTORY, since bridge.py broadcasts any "
+                      "file dropped there. The eval executes the module with writes into "
+                      "outbox/ trapped, and mutation-proves the trap.",
+             "where": "eval_drafts.py"},
+            {"limit": "It never builds a model argv. It calls the responder's locked one, so "
+                      "--permission-mode plan and --setting-sources \"\" are inherited rather "
+                      "than restated — a second call site would drop both and nothing would "
+                      "notice.", "where": "responder.py:run_claude"},
+            {"limit": "It never grades its own output. Shape only — silent, answered, or "
+                      "generic boilerplate. Quality verdicts are a person's, in a separate "
+                      "file, and are never required for the counters to mean something.",
+             "where": "drafts.py:shape"},
+            {"limit": "A draft made after the fact is not what the responder would have said: "
+                      "the weather fact, sun/moon times and DM memory are read live. Those "
+                      "rows are marked unfaithful rather than presented as equivalent.",
+             "where": "drafts.py:run"},
+        ],
+        "oracle_key": None,
+    },
+    {
         "flag": "SIGREPORT_ENABLED", "name": "sigreport", "kind": "doer",
         "module": "sigreport.py", "model_runs": False,
         "answers": "The receiver's own reading of the packet that carried your test — hop "

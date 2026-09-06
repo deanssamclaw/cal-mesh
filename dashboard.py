@@ -509,6 +509,43 @@ TRIAGE   = os.path.join(BASE, "triage.json")
 LHISTORY = os.path.join(BASE, "learn-history.jsonl")
 
 
+def build_drafts(limit=40):
+    """The Drafts tab: what Cal would have said, for messages he did not answer.
+
+    READ ONLY, and deliberately dumb. This publishes model prose about other people's messages,
+    which is a thing to do carefully rather than cleverly: no field is computed here, every value
+    is copied from the row drafts.py wrote, and the page escapes all of it. `not sent` is carried
+    per row rather than only in the tab heading, because a screenshot of one row has to say it
+    too. Newest first; a missing or half-written file yields an empty tab rather than an error.
+    """
+    rows = []
+    try:
+        with open(os.path.join(BASE, "drafts.jsonl"), encoding="utf-8") as fh:
+            for ln in fh:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    rows.append(json.loads(ln))
+                except json.JSONDecodeError:
+                    continue          # a torn last line must not empty the tab
+    except OSError:
+        return {"total": 0, "rows": []}
+    try:
+        grades = json.load(open(os.path.join(BASE, "draft-grades.json")))
+    except Exception:
+        grades = {}
+    rows.sort(key=lambda r: r.get("ts") or "", reverse=True)
+    out = []
+    for r in rows[:limit]:
+        out.append({"ts": r.get("ts"), "text": r.get("text"), "draft": r.get("draft"),
+                    "why_silent": r.get("why_silent"), "shape": r.get("shape"),
+                    "doers": r.get("doers") or [], "faithful": r.get("faithful"),
+                    "sent_reply": r.get("sent_reply"),
+                    "grade": grades.get(r.get("draft_id"))})
+    return {"total": len(rows), "rows": out}
+
+
 def build_learning(top=6, runs=20):
     """What the distiller has found, what got built for it, and whether that shipped.
 
@@ -629,6 +666,9 @@ def build_state():
         # 60 s cache: the distiller writes once a day, so re-reading it on every 3 s poll is
         # pure waste.
         "learning": cached("learning", 60, build_learning),
+        # 60 s like the learning block: drafts.py runs on a schedule, so re-reading the
+        # file on every 3 s poll would be pure cost.
+        "drafts": cached("drafts", 60, build_drafts),
         "responder": {
             "enabled": cfg.get("RESPONDER_ENABLED", "false"),
             "model": cfg.get("RESPONDER_MODEL", ""),
@@ -6363,6 +6403,14 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 #pane-learn .lchip{padding:4px 11px;border-radius:999px;font-weight:700;font-size:11.5px;letter-spacing:.6px;border:1px solid}
 #pane-learn .lchip.ok{background:#dafbe1;color:var(--ok);border-color:#aceebb}
 #pane-learn .lchip.bad{background:#ffebe9;color:var(--bad);border-color:#ffcecb}
+.dr{border-left:3px solid var(--warn)}
+.drhead{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.drtag{font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+padding:2px 7px;border-radius:4px;background:var(--warn);color:var(--card)}
+.drheard{margin:2px 0}
+.drdraft{margin:4px 0;padding:6px 9px;border-radius:6px;background:var(--card2);
+border:1px dashed var(--line);font-style:italic}
+.drsent{margin-top:4px;font-size:12px;color:var(--dim)}
 #pane-learn .lchip.unknown{background:#fff8c5;color:var(--warn);border-color:#f0e08a}
 #pane-learn .lhwhy{color:var(--dim);font-size:12.5px}
 #pane-learn .lfacts{display:flex;flex-wrap:wrap;gap:1px;background:var(--line)}
@@ -6665,6 +6713,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     <button class="tab" role="tab" id="tab-open" aria-controls="pane-open" aria-selected="true">💬 Open Exchanges <span class="badge" id="xc-n">0</span></button>
     <button class="tab" role="tab" id="tab-dm" aria-controls="pane-dm" aria-selected="false">🔒 Direct Messages <span class="badge" id="dm-n">0</span></button>
     <button class="tab" role="tab" id="tab-learn" aria-controls="pane-learn" aria-selected="false">🔁 Learning Loops <span class="badge" id="lrn-untriaged">0</span></button>
+    <button class="tab" role="tab" id="tab-drafts" aria-controls="pane-drafts" aria-selected="false">✍️ Drafts <span class="badge" id="dr-n">0</span></button>
    </div>
    <div class="pane" id="pane-open" role="tabpanel" aria-labelledby="tab-open">
     <p class="xcmore" id="xc-more"></p><div id="exchanges"></div></div>
@@ -6676,6 +6725,15 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     These are authenticated direct messages, so unlike the open channel the sender is
     cryptographically established rather than merely asserted.</p>
     <div id="dm-exchanges"></div>
+   </div>
+   <div class="pane" id="pane-drafts" role="tabpanel" aria-labelledby="tab-drafts" hidden>
+    <p class="tabnote"><b>None of this was transmitted.</b> Cal hears far more than he answers.
+    For every message that is not his own, he drafts the reply he <i>would</i> have sent &mdash;
+    locally, never on air &mdash; so the question &ldquo;should Cal say more?&rdquo; can be
+    looked at instead of guessed at. The drafting runs in a separate process that has no path to
+    the radio at all, and the reply that actually went out (where there was one) is shown beside
+    the draft rather than replaced by it.</p>
+    <div id="drafts"></div>
    </div>
    <div class="pane" id="pane-learn" role="tabpanel" aria-labelledby="tab-learn" hidden>
     <p class="tabnote">A distiller reads every exchange once a day and files what reached the
@@ -7862,6 +7920,26 @@ function drawSpark(hist){
   });
   el.innerHTML=bars+`<polyline class="sl" points="${pts.join(' ')}" vector-effect="non-scaling-stroke"/>`;
 }
+function renderDrafts(D){
+  const box=$('#drafts'); if(!box) return;
+  const rows=(D&&D.rows)||[];
+  $('#dr-n').textContent=(D&&D.total)||0;
+  if(!rows.length){ box.innerHTML='<div class="empty">Nothing drafted yet.</div>'; return; }
+  // EVERY row says NOT SENT in its own markup, not only in the tab note above: a screenshot of
+  // one row has to carry that too, or a draft travels without the one word that makes it honest.
+  box.innerHTML=rows.map(r=>
+    `<div class="xc dr">`
+    +`<div class="drhead"><span class="drtag">not sent</span>`
+    +`<span class="lmeta">${r.ts?daystamp(r.ts):''}${r.why_silent?' &middot; '+esc(r.why_silent):''}`
+    +`${r.shape?' &middot; '+esc(r.shape):''}`
+    +`${(r.doers&&r.doers.length)?' &middot; a doer would have answered: '+esc(r.doers.join(', ')):''}`
+    +`${r.faithful===false?' &middot; <span class="lwarn">drafted after the fact</span>':''}</span></div>`
+    +`<div class="drheard">${esc(r.text||'')}</div>`
+    +`<div class="drdraft">${esc(r.draft||'')}</div>`
+    +(r.sent_reply?`<div class="drsent">actually sent: ${esc(r.sent_reply)}</div>`:'')
+    +(r.grade?`<div class="lmeta">graded <b>${esc(r.grade.verdict)}</b>${r.grade.note?' &mdash; '+esc(r.grade.note):''}</div>`:'')
+    +`</div>`).join('');
+}
 function renderLearning(L){
   const sb=L.scoreboard||{};
   const H=L.health||null;
@@ -7869,6 +7947,7 @@ function renderLearning(L){
   // deliberately OUT of the signature below. Folding them in would make the signature differ
   // on every single tick and re-run every innerHTML write underneath it -- which is precisely
   // the cost the signature exists to avoid.
+  renderDrafts(d.drafts);
   paintAges(H);
   const lsig=JSON.stringify([sb,L.armed,L.untriaged,L.corrections,L.history,
     H&&[H.state,H.flags,H.stale,H.audited,H.last_run,H.last_input,H.next_expected]]);
