@@ -152,6 +152,8 @@ the answer path** — that is the whole safety story. Taxonomy and specs in `doc
 | Weather (current conditions, NWS) | fetch | narrates the fetched fact only | **ARMED** |
 | Arithmetic / units / RF pack | compute | **no — Python owns every digit** | **ARMED** |
 | Sun / moon / twilight | compute | **no — Python formats the whole reply** | **ARMED** — works offline |
+| Signal report (range/signal test) | measured | **no — every number is the radio's own** | **ARMED** — runs *first*, see below |
+| Capability list ("what can you do") | flags | no — composed from the live config flags | **ARMED** |
 | Greeting ack (off-list senders) | fixed table | no | **ARMED** |
 | Wire gauge, fasteners (TABLE) | table | no — the harness returns the row | measured, not built |
 | Load and rigging | — | — | **refuted, will not ship** (see below) |
@@ -190,6 +192,29 @@ budget — but the disqualifier is not length. OSHA *deleted* these tables from 
 1926.251 (2012) as obsolete and unsafe, replacing them with a duty to read the sling tag. Serving
 one over radio rebuilds the artifact the regulator retired, and it is most tempting exactly where
 it is most wrong. Full measurement in `docs/proposals/level3-table-doer-and-field-reference.md` §8.2.
+
+## Signal report: the doer that runs first
+Every other capability answers a question somebody chose to ask Cal. A range test is addressed to
+*whoever can hear it*, so this one sits **ahead of the whole ladder** and answers senders who are
+not on the allow list. That position is what makes its failure mode asymmetric: **a false fire is
+a message no other capability will ever see.** A miss costs a reply; a false fire silently eats
+somebody else's question.
+
+So the shape rules are about who is being addressed, not about which words mean "test":
+
+- **A greeting may precede the trigger.** `Hey Cal, this is a test` addresses Cal exactly as much
+  as `Cal, this is a test`. Anchoring the strip to position 0 meant it did not, and the log has
+  the miss: 2026-08-08, answered by the model while measured SNR sat on disk.
+- **Talking about a test is not running one.** A determiner or possessive immediately before
+  test/check makes the phrase a *reference* — `got the test`, `Cal's test`, `Cal aced the test`.
+  Deliberately not a vocabulary of test words: that design already died on `tange test`. This is
+  the short, closed list of words that turn any noun into a reference.
+- **Another capability's word makes the message that capability's.** `weather check` is a weather
+  question, and answering it from here means weather never sees it.
+
+Being *named* is not being *asked* — the referential rule applies whether or not Cal is addressed,
+because `Cal aced the test` is a sentence about Cal. That exemption was in the first draft and an
+adversarial review refuted it in one line.
 
 ## How a capability ships
 Nothing goes on air because it looked right. The gate is the same for every tier:
@@ -249,6 +274,15 @@ Two things this has already caught that testing did not: a diagram that read to 
 *"your message failed to send"* when the message had arrived fine and was what caused the reply,
 and a trace asserting one cause for a blank that had several. If the page cannot explain a reply
 honestly, that is a defect in the reply.
+
+**The page has two surfaces and they mean different things.** The ground is a warm mid neutral
+(v6, 2026-09-05); the trace panel — and only the trace panel — is a dark well. The page is a
+status board you scan, the trace is an instrument you read one record on, and dropping it well
+below the ground gives the boxes, wires and dots a plane of their own. The ground moved off white
+because the page had been at both ends and neither was it, and the middle is not the midpoint
+between them: that is a mid grey no text sits on comfortably from either direction. Contrast is
+measured rather than eyeballed, in both directions — a raised plane must be lighter than its
+ground and a well darker.
 
 **Every trace is bound to its message by packet id**, because a trace shown under the wrong
 exchange is worse than no trace at all: it reads as evidence. The responder stamps the radio's
