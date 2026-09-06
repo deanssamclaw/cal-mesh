@@ -146,7 +146,7 @@ RECORDS = (
         "oracle_key": None,
     },
     {
-        "flag": "DRAFTS_ENABLED", "name": "drafts", "kind": "observer",
+        "flag": "DRAFTS_ENABLED", "name": "simulated replies", "kind": "observer",
         "module": "drafts.py", "model_runs": True,
         "answers": "Nobody. It answers no one and transmits nothing. For every message that is "
                    "not Cal's own it drafts the reply he WOULD have sent and publishes it on "

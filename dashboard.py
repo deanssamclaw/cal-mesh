@@ -6713,7 +6713,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     <button class="tab" role="tab" id="tab-open" aria-controls="pane-open" aria-selected="true">💬 Open Exchanges <span class="badge" id="xc-n">0</span></button>
     <button class="tab" role="tab" id="tab-dm" aria-controls="pane-dm" aria-selected="false">🔒 Direct Messages <span class="badge" id="dm-n">0</span></button>
     <button class="tab" role="tab" id="tab-learn" aria-controls="pane-learn" aria-selected="false">🔁 Learning Loops <span class="badge" id="lrn-untriaged">0</span></button>
-    <button class="tab" role="tab" id="tab-drafts" aria-controls="pane-drafts" aria-selected="false">✍️ Drafts <span class="badge" id="dr-n">0</span></button>
+    <button class="tab" role="tab" id="tab-drafts" aria-controls="pane-drafts" aria-selected="false">✍️ Simulated Replies <span class="badge" id="dr-n">0</span></button>
    </div>
    <div class="pane" id="pane-open" role="tabpanel" aria-labelledby="tab-open">
     <p class="xcmore" id="xc-more"></p><div id="exchanges"></div></div>
@@ -6728,11 +6728,11 @@ details.tr[open]>summary:hover{border-color:#4478ad;
    </div>
    <div class="pane" id="pane-drafts" role="tabpanel" aria-labelledby="tab-drafts" hidden>
     <p class="tabnote"><b>None of this was transmitted.</b> Cal hears far more than he answers.
-    For every message that is not his own, he drafts the reply he <i>would</i> have sent &mdash;
+    For every message that is not his own, he simulates the reply he <i>would</i> have sent &mdash;
     locally, never on air &mdash; so the question &ldquo;should Cal say more?&rdquo; can be
-    looked at instead of guessed at. The drafting runs in a separate process that has no path to
+    looked at instead of guessed at. The simulation runs in a separate process with no path to
     the radio at all, and the reply that actually went out (where there was one) is shown beside
-    the draft rather than replaced by it.</p>
+    the simulated one rather than replaced by it.</p>
     <div id="drafts"></div>
    </div>
    <div class="pane" id="pane-learn" role="tabpanel" aria-labelledby="tab-learn" hidden>
@@ -7924,7 +7924,7 @@ function renderDrafts(D){
   const box=$('#drafts'); if(!box) return;
   const rows=(D&&D.rows)||[];
   $('#dr-n').textContent=(D&&D.total)||0;
-  if(!rows.length){ box.innerHTML='<div class="empty">Nothing drafted yet.</div>'; return; }
+  if(!rows.length){ box.innerHTML='<div class="empty">Nothing simulated yet.</div>'; return; }
   // EVERY row says NOT SENT in its own markup, not only in the tab note above: a screenshot of
   // one row has to carry that too, or a draft travels without the one word that makes it honest.
   box.innerHTML=rows.map(r=>
@@ -7933,7 +7933,7 @@ function renderDrafts(D){
     +`<span class="lmeta">${r.ts?daystamp(r.ts):''}${r.why_silent?' &middot; '+esc(r.why_silent):''}`
     +`${r.shape?' &middot; '+esc(r.shape):''}`
     +`${(r.doers&&r.doers.length)?' &middot; a doer would have answered: '+esc(r.doers.join(', ')):''}`
-    +`${r.faithful===false?' &middot; <span class="lwarn">drafted after the fact</span>':''}</span></div>`
+    +`${r.faithful===false?' &middot; <span class="lwarn">simulated after the fact</span>':''}</span></div>`
     +`<div class="drheard">${esc(r.text||'')}</div>`
     +`<div class="drdraft">${esc(r.draft||'')}</div>`
     +(r.sent_reply?`<div class="drsent">actually sent: ${esc(r.sent_reply)}</div>`:'')
