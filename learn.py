@@ -241,7 +241,7 @@ BUCKETS = ("HIT", "GAP", "CLARIFY", "NO_TABLE", "THROTTLED", "REFUSED", "GREETIN
            "FILTERED", "OTHER")
 
 CLUSTERED = ("GAP", "CLARIFY", "NO_TABLE", "THROTTLED")
-SCHEMA = 2
+SCHEMA = 3
 
 
 def total(c, bucket=None):
@@ -278,16 +278,36 @@ def migrate(agg):
     older than the rotation and the ledger would look like the mesh had gone quiet."""
     if agg.get("schema") == SCHEMA:
         return agg, 0
-    n = 0
-    for c in agg.get("clusters", {}).values():
+    # Counted as DISTINCT CLUSTERS TOUCHED, not as edits applied: one cluster needing both the
+    # v2 and the v3 rewrite is one migrated cluster, and counting the steps made the run line
+    # over-report the moment a second migration existed.
+    touched = set()
+    for key, c in agg.get("clusters", {}).items():
         if "counts" in c:
             continue
         c["counts"] = {"GAP": c.pop("count", 0)}
         c["dm_counts"] = {"GAP": c.pop("dm_count", 0)}
         c["last_by_bucket"] = {"GAP": c.get("last_ts", "")}
-        n += 1
+        touched.add(key)
+
+    # v3: last_seen. Backfilled by SCANNING the log, not by rebuilding the aggregate --
+    # `--reset` would drop every cluster older than the 5000-line rotation, which is the
+    # same trap the note above describes. A scan only adds a field and can lose nothing.
+    if any("last_seen" not in c for c in agg.get("clusters", {}).values()):
+        newest = {}
+        for rec in iter_decisions():
+            k = normalize(rec.get("text", "")) or "(empty)"
+            ts = rec.get("ts", "")
+            if ts > newest.get(k, ""):
+                newest[k] = ts
+        for key, c in agg.get("clusters", {}).items():
+            # last_ts is the floor: the ask was certainly seen when it last went unanswered,
+            # even if the record proving it has since rotated out of the log.
+            c["last_seen"] = max(c.get("last_ts", ""), newest.get(key, ""))
+            touched.add(key)
+
     agg["schema"] = SCHEMA
-    return agg, n
+    return agg, len(touched)
 
 
 def fold(reset=False):
@@ -326,15 +346,32 @@ def fold(reset=False):
         # Three buckets cluster, not one. A GAP that becomes a CLARIFY is progress and has to be
         # visible as such; a NO_TABLE is a request for a capability by name. Counting only GAPs
         # means the loop goes blind at exactly the moment a doer starts half-working.
+        key = normalize(rec.get("text", "")) or "(empty)"
+        # LAST_SEEN vs LAST_TS, and they are not the same question.
+        #
+        # last_ts moves only when an ask goes UNANSWERED, because only those buckets cluster.
+        # That is right for ranking a build queue and wrong for every other reading: an ask a
+        # doer now answers correctly stops updating, so the page dated `test` to 2026-08-22
+        # while sigreport had answered it four times on 09-04. The entries that looked most
+        # neglected were the ones working best -- exactly backwards for a reader deciding
+        # where to look.
+        #
+        # So a HIT touches last_seen and nothing else. Only the clustered buckets below may
+        # CREATE a cluster; an answered ask must never mint one, or the queue fills with work
+        # that is already done.
+        existing = clusters.get(key)
+        if existing is not None:
+            if ts > existing.get("last_seen", ""):
+                existing["last_seen"] = ts
         if bucket not in CLUSTERED:
             continue
         if bucket == "GAP":
             run["new_gaps"] += 1
         run["new_" + bucket.lower()] = run.get("new_" + bucket.lower(), 0) + 1
-        key = normalize(rec.get("text", "")) or "(empty)"
         c = clusters.setdefault(key, {
             "counts": {}, "dm_counts": {}, "streams": {}, "examples": [], "replies": [],
-            "froms": [], "first_ts": ts, "last_ts": ts, "last_by_bucket": {},
+            "froms": [], "first_ts": ts, "last_ts": ts, "last_seen": ts,
+            "last_by_bucket": {},
             "generic_smell": False})
         c.setdefault("streams", {})
         c["streams"][strm] = c["streams"].get(strm, 0) + 1
@@ -342,6 +379,8 @@ def fold(reset=False):
         if dm:
             c["dm_counts"][bucket] = c["dm_counts"].get(bucket, 0) + 1
         c["last_ts"] = ts
+        if ts > c.get("last_seen", ""):
+            c["last_seen"] = ts
         c["last_by_bucket"][bucket] = ts
         frm = rec.get("from", "")
         if frm and frm not in c["froms"]:
@@ -424,7 +463,11 @@ def _cluster_lines(i, key, c, v, lines):
         flag += " 🟡 **still asking for input after arming**"
     lines.append(f"### {i}. `{key}`{flag}")
     meta = ", ".join(bits) + (f" · {dm} over DM" if dm else "")
-    lines.append(f"{meta} · {len(c['froms'])} node(s) · last {c['last_ts']}")
+    seen = c.get("last_seen") or c["last_ts"]
+    asked = f"last asked {seen[:10]}"
+    # Only worth showing both when they disagree; when they agree the second is noise.
+    unans = "" if seen[:10] == c["last_ts"][:10] else f" · last unanswered {c['last_ts'][:10]}"
+    lines.append(f"{meta} · {len(c['froms'])} node(s) · {asked}{unans}")
     if v:
         src = f" — {v['source']}" if v.get("source") else ""
         sha = ""

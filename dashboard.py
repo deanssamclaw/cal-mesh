@@ -543,13 +543,18 @@ def build_learning(top=6, runs=20):
     for k, c in ranked:
         v = vd(k)
         if v and v.get("armed"):
+            # `seen` is the last time the ask ARRIVED; `last_ts` is the last time it went
+            # unanswered. An armed doer that is working keeps the first moving and freezes the
+            # second, so showing only the second made a working doer look abandoned.
             armed.append({"ask": k, "oracle": v.get("oracle"), "source": v.get("source"),
                           "armed": v.get("armed"), "commit": v.get("commit"),
                           "pushed": bool(v.get("pushed")),
                           "corrections": len(v.get("corrections", [])),
-                          "recurred": rec_flag(k, c), "count": tot(c)})
+                          "recurred": rec_flag(k, c), "count": tot(c),
+                          "seen": c.get("last_seen") or c.get("last_ts", "")})
         elif not v:
-            untriaged.append({"ask": k, "count": tot(c), "last": c.get("last_ts", "")})
+            untriaged.append({"ask": k, "count": tot(c),
+                              "last": c.get("last_seen") or c.get("last_ts", "")})
     # Corrections live on triage entries that may have no cluster at all — a doer fixed after
     # arming that never appeared as a gap. Counting only clusters would hide exactly those.
     corrections = [{"ask": k, "ts": co.get("ts"), "what": co.get("what")}
@@ -7888,13 +7893,17 @@ function renderLearning(L){
     +`<div class="lmeta">${a.source?esc(a.source):'no source recorded'}</div>`
     +`<div class="lmeta">${shaLink(a.commit,a.pushed)}`
     +(a.armed?` · armed ${daystamp(a.armed)}`:'')
+    // When the ask was last HEARD, which is the number that shows a doer is being used. The
+    // row previously carried only the arming date, so a doer answering every day looked as
+    // idle as one nothing had touched since it shipped.
+    +(a.seen?` · last asked ${daystamp(a.seen)}`:'')
     +(a.corrections?` · <span class="lwarn">${a.corrections} correction${a.corrections>1?'s':''}</span>`:'')
     +(a.recurred?' · <span class="lwarn">still reaching the model</span>':'')
     +`</div></div>`).join(''):'<div class="empty">nothing armed from the queue yet</div>';
   const Q=L.untriaged||[];
   $('#lrn-queue').innerHTML=Q.length?Q.map(q=>
     `<div class="lrow split"><div class="lask">${esc(q.ask)}</div>`
-    +`<div class="lmeta">seen ${q.count}×${q.last?' · last '+daystamp(q.last):''}</div></div>`
+    +`<div class="lmeta">seen ${q.count}×${q.last?' · last asked '+daystamp(q.last):''}</div></div>`
    ).join(''):'<div class="empty">queue is empty — every ask has a verdict</div>';
   const C=L.corrections||[];
   $('#lrn-corr').innerHTML=C.length?C.map(c=>

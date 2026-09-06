@@ -137,6 +137,36 @@ check("migration is idempotent", learn.migrate(migrated)[1], 0)
 check("total() reads a v1 cluster", learn.total(v1["clusters"]["old ask"]), 3)
 check("total() of a v1 cluster by non-GAP bucket", learn.total(v1["clusters"]["old ask"], "CLARIFY"), 0)
 
+# v3 adds last_seen. It must be backfilled by the migration rather than left empty, or every
+# existing cluster reads as never-asked until it next goes unanswered.
+check("last_seen is backfilled, not left blank",
+      bool(migrated["clusters"]["old ask"].get("last_seen")), True)
+check("and its floor is last_ts",
+      migrated["clusters"]["old ask"]["last_seen"] >= "2026-02-02", True)
+
+print("\nlast_seen vs last_ts — when the ask ARRIVED vs when it went UNANSWERED")
+# The defect this exists for: only GAP/CLARIFY/NO_TABLE/THROTTLED cluster, so an ask a doer
+# now answers correctly stopped updating any date at all. The page dated `test` to 2026-08-22
+# while sigreport had answered it four times on 09-04 — the entries that looked most neglected
+# were the ones working best.
+_c = {"counts": {"GAP": 1}, "dm_counts": {}, "streams": {}, "examples": [], "replies": [],
+      "froms": [], "first_ts": "2026-01-01", "last_ts": "2026-02-02",
+      "last_seen": "2026-02-02", "last_by_bucket": {"GAP": "2026-02-02"},
+      "generic_smell": False}
+# A HIT arriving later moves last_seen and must NOT move last_ts.
+_after = dict(_c, last_seen="2026-03-03")
+check("a later answered ask moves last_seen", _after["last_seen"], "2026-03-03")
+check("and leaves last_ts alone", _after["last_ts"], "2026-02-02")
+# recurred() reads the GAP timestamp only, so a HIT must never trip the regression alarm.
+_v = {"armed": "2026-02-10"}
+check("an answered ask does not read as a recurrence", learn.recurred(_after, _v), False)
+# and a real GAP after arming still does
+_gap = dict(_after, last_by_bucket={"GAP": "2026-03-04"})
+check("but an unanswered one still does", learn.recurred(_gap, _v), True)
+# HIT is not a clustering bucket: an answered ask must never MINT a queue entry.
+check("HIT does not cluster", "HIT" in learn.CLUSTERED, False)
+check("GAP does", "GAP" in learn.CLUSTERED, True)
+
 print("\nrecurred() — coverage is whether the ask still reaches the MODEL")
 ARMED = {"oracle": "derivable", "armed": "2026-08-21T12:00:00Z"}
 after = {"last_by_bucket": {"GAP": "2026-08-21T18:00:00Z"}}
