@@ -157,6 +157,14 @@ DEFAULTS = {
     # is only as good as the id it keys on.
     "SIGREPORT_MAX_PER_DAY": "20",
     "SIGREPORT_MAX_CHARS": "64",
+    # --- PROACTIVE WELCOME for a NODE'S FIRST MESSAGE (default OFF) ---
+    "WELCOME_ENABLED": "false",
+    "WELCOME_TEXT": "",               # operator override. EMPTY = the built-in behaviour
+    "WELCOME_MAX_PER_DAY": "4",       # global amplification budget — the real control, since
+                                      # node ids are spoofable and "once per node" is not.
+    "WELCOME_MIN_GAP_S": "300",       # floor between welcomes, so a burst of new nodes cannot
+                                      # turn the channel into a welcome flood.
+    "WELCOME_MAX_CHARS": "96",        # a measured welcome is longer than a bare one
     # The firmware's own polite threshold (airtime.h:71 polite_channel_util_percent = 25), the
     # same constant the traceroute gate uses. Adding airtime to a busy channel to tell someone
     # their signal is fine is the one case where the courteous act is silence. UNKNOWN channel
@@ -1243,6 +1251,149 @@ def resolve_relay(relay_byte):
     return sigreport.clean_name(hits[0])
 
 
+# ══ PROACTIVE WELCOME ═════════════════════════════════════════════════════════════════════
+# A node's FIRST message on the public channel earns one short public welcome. Distinct from
+# the greeting ACK (which mirrors a bare greeting, per day): this fires on first contact
+# whatever the message says, exactly once per node, and is tried AHEAD of the ack.
+#
+# IT CARRIES THE MEASUREMENT, and that is the point of it rather than a decoration. A bare
+# "good to hear you" is a CLAIM: it reads identically whether the newcomer arrived direct and
+# strong or scraped in at three hops, so it cannot show the one thing a newcomer wants to know
+# — that they were actually received, and how well. This module exists in a repo that already
+# paid for that lesson once: sigreport was written because the model answered "Link's solid and
+# steady over here" with no access to a number at all.
+#
+# The numbers come from sigreport.report() rather than a second formatter here. One formatter
+# means one place to be wrong about whose signal it is (last leg into Cal, not the sender's
+# journey), and it already refuses to invent a measurement the radio did not record.
+
+# The bare lines, for when there is nothing measured to say. 5-7 words, naming no place.
+_WELCOME_LINES = [
+    "Welcome to the mesh, glad you're here",
+    "New signal — welcome to the mesh!",
+    "Welcome aboard, good to hear you",
+    "Great to have you on the mesh",
+]
+# With a measurement attached the rotation earns nothing — every reply is already unique,
+# because the numbers are — and it would only spend airtime. One short lead instead.
+_WELCOME_LEAD = "Welcome to the mesh"
+
+
+def welcome_reply(override="", n=0, rec=None, max_chars=96):
+    """The n-th welcome. `override` wins verbatim. Never returns None: by the time this is
+    called the caller has decided to welcome, so it always has something to say.
+
+    With a record it reports what the radio measured. WITHOUT a measurement it falls back to
+    the bare line rather than dressing silence up as reception — a welcome that says "heard
+    you" when nothing was recorded is the exact failure this feature is meant to avoid."""
+    if override:
+        return override
+    line = _WELCOME_LINES[n % len(_WELCOME_LINES)]
+    if rec is None:
+        return line
+    measured, _meta = sigreport.report(rec, max_chars=max(24, int(max_chars) - len(_WELCOME_LEAD) - 3))
+    if not measured:
+        return line
+    return f"{_WELCOME_LEAD} — {measured}"
+
+
+def welcome_is_new(st, sender, ours):
+    """A node is new for welcome purposes only if we have never recorded seeing it. Self and
+    empty ids are never new. Pure read — the caller marks it seen."""
+    if not sender or sender == ours:
+        return False
+    return sender not in (st.get("welcome_seen") or {})
+
+
+def mark_welcome_seen(st, sender, ts=None):
+    """Record that this node has now been seen, so it is never later welcomed as 'new'. Runs
+    for EVERY inbound message on every path, armed or not — the known set has to stay warm or
+    arming later would treat the regulars as newcomers."""
+    if not sender:
+        return
+    ts = time.time() if ts is None else ts
+    st.setdefault("welcome_seen", {}).setdefault(sender, ts)
+
+
+def seed_welcome_seen(st):
+    """One-shot: fold every node already in the node DB into `welcome_seen`, so the feature can
+    be armed at any time without welcoming the existing crowd. Idempotent behind a flag; a
+    failure to read the DB must not wedge the loop and must not set the flag, so a later run
+    with a readable DB still seeds."""
+    if st.get("welcome_seeded"):
+        return
+    try:
+        db = json.load(open(NODES))
+    except Exception:
+        return
+    now_ts = time.time()
+    seen = st.setdefault("welcome_seen", {})
+    for node in db.get("nodes", []):
+        nid = node.get("id")
+        if nid:
+            seen.setdefault(nid, now_ts)
+    st["welcome_seeded"] = True
+
+
+def commit_welcome(st, sender, ts=None):
+    """Spend the budget. Separate from plan_welcome so a send that fails costs nothing. Records
+    once-ever (welcome_sent), the min-gap clock, and the daily counter."""
+    ts = time.time() if ts is None else ts
+    st.setdefault("welcome_sent", {})[sender] = ts
+    st["welcome_last_ts"] = ts
+    day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+    d = st.setdefault("welcome_day", {})
+    d[day] = d.get(day, 0) + 1
+    for k in [k for k in d if k < day]:     # keep the counter from growing without bound
+        del d[k]
+
+
+def plan_welcome(cfg, st, rec, ours, is_new, ts=None):
+    """Decide whether a new node's first message earns a public welcome. Same contract as
+    plan_greeting: pure, returns (should, reason, dest, ch, text, gates), mutates nothing.
+    `is_new` is passed in — captured by the caller BEFORE it marks the node seen — so this
+    stays a pure read. The caller commits the budget only if it actually sends."""
+    ts = time.time() if ts is None else ts
+    ch = rec.get("channel", 0)
+    sender = rec.get("from")
+    gates = []
+
+    def mark(name, ok):
+        gates.append({"gate": name, "pass": bool(ok)})
+        return ok
+
+    if not mark("welcome_enabled", cfg.get("WELCOME_ENABLED", "false").lower() == "true"):
+        return False, "welcome_disabled", None, ch, None, gates
+    if not mark("not_self", bool(sender) and sender != ours):
+        return False, "self", None, ch, None, gates
+    # A public act on the public channel. A welcome DM'd to a stranger is a stranger thing to
+    # receive, and Cal's PSK channel has too small an audience to encourage anyone.
+    if not mark("broadcast", rec.get("to") in ("^all", None)):
+        return False, "welcome_not_broadcast", None, ch, None, gates
+    if not mark("public_channel", ch == 0):
+        return False, "welcome_not_public_channel", None, ch, None, gates
+    if not mark("not_a_reaction", rec.get("reaction") in (None, False)):
+        return False, "welcome_is_reaction", None, ch, None, gates
+    if not mark("has_text", bool((rec.get("text") or "").strip())):
+        return False, "welcome_no_text", None, ch, None, gates
+    if not mark("is_new_node", bool(is_new)):
+        return False, "welcome_not_new", None, ch, None, gates
+    if not mark("not_already_welcomed", sender not in (st.get("welcome_sent") or {})):
+        return False, "welcome_already_sent", None, ch, None, gates
+    last = st.get("welcome_last_ts", 0)
+    if not mark("min_gap", ts - last >= _int_cfg(cfg, "WELCOME_MIN_GAP_S",
+                                                 DEFAULTS["WELCOME_MIN_GAP_S"])):
+        return False, "welcome_min_gap", None, ch, None, gates
+    day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+    used = (st.get("welcome_day") or {}).get(day, 0)
+    if not mark("daily_budget", used < _int_cfg(cfg, "WELCOME_MAX_PER_DAY",
+                                                DEFAULTS["WELCOME_MAX_PER_DAY"])):
+        return False, "welcome_budget_spent", None, ch, None, gates
+    text = welcome_reply(cfg.get("WELCOME_TEXT", ""), used, rec,
+                         _int_cfg(cfg, "WELCOME_MAX_CHARS", DEFAULTS["WELCOME_MAX_CHARS"]))
+    return True, "welcome", "^all", ch, text, gates
+
+
 def plan_sigreport(cfg, st, rec, ours, ts=None):
     """Decide whether a range/signal test gets a measured signal report.
 
@@ -1383,6 +1534,11 @@ def main():
     lf.flush()
 
     st = load_state()
+    # Fold the known node DB into welcome_seen once, so proactive welcome can be armed at any
+    # time without welcoming the existing crowd. No-op after the first successful seed; inert
+    # while WELCOME_ENABLED is false.
+    seed_welcome_seen(st)
+    save_state(st)
     last_trim = time.time()
     log("cal-mesh responder starting")
     log(f"our node: {our_id()}")
@@ -1396,6 +1552,11 @@ def main():
             for rec, new_off in read_new(st):
                 try:
                     if rec is not None:
+                        # Was this node new BEFORE this message? Capture first, then mark it
+                        # seen — every inbound on every path warms the known set, so newness is
+                        # judged once, at genuine first contact, and never re-triggers.
+                        w_is_new = welcome_is_new(st, rec.get("from"), ours)
+                        mark_welcome_seen(st, rec.get("from"))
                         gates = []
                         should, reason, dest, ch = evaluate(cfg, st, rec, ours, trace=gates)
                         # `channel` rides along because `to` alone cannot separate the streams:
@@ -1580,6 +1741,31 @@ def main():
                             # Off-list sender. The ladder is right to refuse a GENERATED
                             # reply; a bare greeting still gets a fixed acknowledgement so
                             # silence doesn't read as a snub. No model, no fetch, no prose.
+                            #
+                            # A brand-new node's first message earns ONE public welcome, tried
+                            # AHEAD of the ack: a warm hello beats a mirrored one for a
+                            # newcomer, and it covers the common case the ack cannot — a first
+                            # message that is not a greeting at all. Off-list by design, like
+                            # the ack: it SELECTS a line and reports what the radio measured,
+                            # runs no model, so the allow list (which gates generated prose) is
+                            # the wrong question to ask of it.
+                            w_ok, w_reason, w_dest, w_ch, w_text, w_gates = plan_welcome(
+                                cfg, st, rec, ours, w_is_new)
+                            d["welcome_gates"] = w_gates
+                            if w_ok:
+                                enqueue(w_text, w_dest, w_ch)
+                                commit_welcome(st, rec.get("from"))
+                                save_state(st)
+                                d.update({"matched": True, "reason": w_reason,
+                                          "reply": w_text, "dest": w_dest,
+                                          "capability": "welcome", "prompt_kind": "fixed",
+                                          "gen_status": "fixed_welcome"})
+                                log(f"WELCOME {rec.get('from')} -> {w_dest}: {w_text!r}")
+                                record_decision(d)
+                                st["inbox_offset"] = new_off
+                                save_state(st)
+                                continue
+                            d["welcome_reason"] = w_reason
                             g_ok, g_reason, g_dest, g_ch, g_text, g_gates = plan_greeting(
                                 cfg, st, rec, ours)
                             d["greeting_gates"] = g_gates
