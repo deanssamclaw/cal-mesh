@@ -26,10 +26,74 @@ The cases below build REAL protobuf packets and convert them with the REAL libra
 "key is missing" condition is produced by the library rather than asserted by hand. A hand-made
 dict would have passed the old buggy code too — which is the whole lesson.
 
-Run:  ~/.local/pipx/venvs/meshtastic/bin/python eval_routing.py     (exit 0 = pass)
+Run:  python3 eval_routing.py     (exit 0 = pass)
+
+This suite needs the interpreter that HAS the meshtastic library, because the point is that the
+library — not the test — produces the missing-key condition. It used to have to be invoked with
+that interpreter by hand, so a plain corpus run reported it as a FAILURE for an environmental
+reason. That is worse than it sounds: a suite that is always red teaches the reader to skip red,
+and this one guards two defects that shipped precisely because they looked plausible.
+
+It now finds that interpreter itself, from the installed CLI's shebang rather than a hardcoded
+path, and re-executes into it once.
 """
 import importlib.util
 import os
+import shutil
+import sys
+
+
+def _library_python():
+    """The interpreter that has the meshtastic library, or None.
+
+    Read from the `meshtastic` CLI's shebang. pipx writes an absolute path there, so this
+    resolves wherever pipx put the venv without this file naming anybody's home directory.
+    """
+    exe = shutil.which("meshtastic")
+    if not exe:
+        return None
+    try:
+        with open(exe) as fh:
+            first = fh.readline().strip()
+    except OSError:
+        return None
+    if not first.startswith("#!"):
+        return None
+    cand = first[2:].split()[0]
+    return cand if os.path.exists(cand) else None
+
+
+def _ensure_library():
+    """Re-exec into the library's interpreter once, then give up cleanly.
+
+    The sentinel is what stops a loop: if the target interpreter ALSO lacks the library, the
+    second run skips instead of exec'ing again forever.
+    """
+    try:
+        import pubsub  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    if os.environ.get("CALMESH_EVAL_REEXEC") == "1":
+        return False
+    py = _library_python()
+    # Compared as LITERAL paths, not realpath. A venv's bin/python is a symlink to the base
+    # interpreter, so realpath() calls them the same file and this guard then refuses to
+    # re-exec into the one environment that has the library -- which silently turned the whole
+    # mechanism off while looking correct.
+    if not py or os.path.abspath(py) == os.path.abspath(sys.executable):
+        return False
+    env = dict(os.environ, CALMESH_EVAL_REEXEC="1")
+    os.execve(py, [py, os.path.abspath(__file__)] + sys.argv[1:], env)
+
+
+if not _ensure_library():
+    # Loud, and exit 0: a missing library is not a regression in the bridge. The line has to
+    # say what is not being covered, because a silent skip is how a suite stops existing.
+    print("SKIP eval_routing: no interpreter with the meshtastic library — packet-capture "
+          "coverage (hop_limit default-omission, fromId at first contact) did NOT run. "
+          "Install with: pipx install meshtastic")
+    raise SystemExit(0)
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
