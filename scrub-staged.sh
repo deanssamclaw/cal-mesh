@@ -3,8 +3,19 @@
 # History: (1) it was once chained into the push with && so it reported and pushed anyway;
 # (2) the first fix used `grep -qv`, which on this system returns SUCCESS for empty input, so it
 # aborted on a clean diff. Test for CONTENT, never for an exit code.
-cd ~/cal-mesh || exit 2
-DEP=$(grep '^WEATHER_POINT=' config | cut -d= -f2)
+# The REPOSITORY THIS COMMIT IS IN, not a hardcoded path. `cd ~/cal-mesh` read the main
+# checkout's index while the commit came from a worktree, so `git diff --cached` was EMPTY and
+# every scan below passed on nothing. There are eight live worktrees; most of today's commits
+# came from one, and each was scrubbed against an empty staged set. A guard that inspects the
+# wrong index is worse than none, because it prints PASS.
+TOP=$(git rev-parse --show-toplevel 2>/dev/null) || exit 2
+cd "$TOP" || exit 2
+# config is gitignored and lives only in the main checkout, so read it from there; a worktree
+# has no copy and an empty DEP would silently disable the observer-point scan.
+MAIN=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+MAIN=${MAIN%/.git}
+DEP=$(grep '^WEATHER_POINT=' "$MAIN/config" 2>/dev/null | cut -d= -f2)
+[ -z "$DEP" ] && DEP=$(grep '^WEATHER_POINT=' config 2>/dev/null | cut -d= -f2)
 FAIL=0
 if [ -n "$DEP" ] && git diff --cached | grep -qF "$DEP"; then
   echo "  SCRUB FAIL: deployed observer point in the staged set"; FAIL=1
