@@ -48,7 +48,18 @@ sigreport = _load("sigreport")
 failures, checked = [], 0
 
 
-def ck(cond, msg):
+def expect(cond, msg):
+    """Assert COND, describe it with MSG. Deliberately NOT named `ck`.
+
+    26 suites in this repo define `expect(name, cond)` -- label first. This one and eval_tracer take
+    (cond, msg) -- condition first. A check copied from one convention into the other still runs,
+    because a non-empty label is truthy: `expect("some label", cond)` here would assert the LABEL and
+    can never fail. Nothing detects that, and this repo has already shipped several checks that
+    could not fail.
+
+    Renaming the odd one out turns a silent inversion into a NameError. eval_guards.py asserts
+    that no suite defines a reversed `ck`.
+    """
     global checked
     checked += 1
     if not cond:
@@ -115,12 +126,12 @@ if os.path.exists(CORPUS):
     got = {shape(t) for t in fired}
     # A FALSE FIRE IS THE FAILURE THAT MATTERS: this doer sits ahead of every ladder, so
     # anything it claims is a message no other capability will ever see.
-    ck(got <= ALLOWED_SHAPES,
+    expect(got <= ALLOWED_SHAPES,
        f"corpus: fired on {sorted(got - ALLOWED_SHAPES)} — not a test shape, and it pre-empts "
        f"every other doer")
-    ck(MUST_FIRE_SHAPES <= got,
+    expect(MUST_FIRE_SHAPES <= got,
        f"corpus: stopped firing on {sorted(MUST_FIRE_SHAPES - got)} — a regression")
-    ck(len(fired) >= 10, f"corpus: only {len(fired)} fires over {len(rows)} messages — "
+    expect(len(fired) >= 10, f"corpus: only {len(fired)} fires over {len(rows)} messages — "
                          f"the trigger has narrowed")
 
     # THE PRE-EMPT IS ONLY SAFE IF NOTHING ELSE WANTED THESE MESSAGES. Checked against the
@@ -140,11 +151,11 @@ if os.path.exists(CORPUS):
             sm = sunmoon.explain_match(t)
             if sm and sm.get("via"):
                 stolen.append((t, "sunmoon"))
-        ck(not stolen, f"corpus: sigreport pre-empts another doer on {stolen}")
+        expect(not stolen, f"corpus: sigreport pre-empts another doer on {stolen}")
     except Exception as e:                                     # noqa: BLE001
-        ck(False, f"collision check could not run: {e!r}")
+        expect(False, f"collision check could not run: {e!r}")
 else:
-    ck(False, "inbox.jsonl missing — the trigger has no oracle to be graded against")
+    expect(False, "inbox.jsonl missing — the trigger has no oracle to be graded against")
 
 # Shapes that must NEVER fire. Each is a sentence a human would plausibly send.
 for t in ("the range test we ran yesterday failed", "Cal", "Good morning", "test the antenna",
@@ -152,28 +163,28 @@ for t in ("the range test we ran yesterday failed", "Cal", "Good morning", "test
           "Cal whats the torque for a 1/2 inch bolt", "I failed my drivers test",
           "protest", "contest results", "Cal hows the weather", "5 mi in km",
           "we should test that later this week", "latest news"):
-    ck(sigreport.match(t) is None, f"trigger: must not fire on {t!r}")
+    expect(sigreport.match(t) is None, f"trigger: must not fire on {t!r}")
 
 # A NUMBERED TEST — the shape a sequence actually takes, and the live miss of 2026-08-23.
 for t, idx in (("Test 12", "12"), ("test 1", "1"), ("Range test 3", "3"), ("check 2", "2"),
                ("signal test 7", "7"), ("test #4", "4"), ("Cal test 9", "9")):
     m = sigreport.match(t)
-    ck(m is not None, f"numbered test must fire: {t!r}")
-    ck(m and m.get("index") == idx, f"index of {t!r} should be {idx!r}, got {m and m.get('index')}")
-ck(sigreport.match("test")["index"] is None, "an unnumbered test carries no index")
+    expect(m is not None, f"numbered test must fire: {t!r}")
+    expect(m and m.get("index") == idx, f"index of {t!r} should be {idx!r}, got {m and m.get('index')}")
+expect(sigreport.match("test")["index"] is None, "an unnumbered test carries no index")
 # The counter is echoed so a reply can be matched to its test mid-sequence.
-ck(sigreport.try_answer("Test 12", rec())[0] == "Copy 12: 2 hops, last leg RSSI -32, SNR 6.0",
+expect(sigreport.try_answer("Test 12", rec())[0] == "Copy 12: 2 hops, last leg RSSI -32, SNR 6.0",
    f"index must be echoed: {sigreport.try_answer('Test 12', rec())[0]!r}")
-ck(sigreport.try_answer("Test test", rec())[0].startswith("Copy: "),
+expect(sigreport.try_answer("Test test", rec())[0].startswith("Copy: "),
    "no index means no number in the head")
 # NOTHING BUT DIGITS EVER REACHES THE AIR. The index is re-derived from the capture rather
 # than passed through, so even a hand-built call cannot inject text into a broadcast reply.
-ck(sigreport.report(rec(), index="12<script>")[0].startswith("Copy 12:"),
+expect(sigreport.report(rec(), index="12<script>")[0].startswith("Copy 12:"),
    "index is re-derived from digits, never echoed as text")
-ck(sigreport.report(rec(), index="abc")[0].startswith("Copy: "), "a digitless index is dropped")
-ck(sigreport.report(rec(), index="999999")[0].startswith("Copy 999:"), "index bounded to 3 digits")
+expect(sigreport.report(rec(), index="abc")[0].startswith("Copy: "), "a digitless index is dropped")
+expect(sigreport.report(rec(), index="999999")[0].startswith("Copy 999:"), "index bounded to 3 digits")
 # The bound is real: four digits is not a test index.
-ck(sigreport.match("test 1234") is None, "a four-digit tail is not a test index")
+expect(sigreport.match("test 1234") is None, "a four-digit tail is not a test index")
 
 # Shapes that must fire — the vocabulary this was built for, plus the typo family.
 for t in ("Range test", "range test", "RANGE TEST", "Tange test", "test", "Cal test",
@@ -181,124 +192,124 @@ for t in ("Range test", "range test", "RANGE TEST", "Tange test", "test", "Cal t
           "you copy?", "do you copy", "hows my copy", "signal report", "sig report",
           "this is a test", "Cal this is another test", "testing 1 2 3", "hows my signal",
           "anyone copy me", "Cal, latency test", "link test", "coverage check"):
-    ck(sigreport.match(t) is not None, f"trigger: should fire on {t!r}")
+    expect(sigreport.match(t) is not None, f"trigger: should fire on {t!r}")
 
 # The trigger word is stripped only as a WHOLE WORD at the FRONT.
-ck(sigreport.match("Calibration test") is not None, "a node named Calibration may still test")
-ck(sigreport.match("Cal") is None, "a bare hail is not a test")
-ck(sigreport.match("test cal") is None, "trigger stripped from the front only")
+expect(sigreport.match("Calibration test") is not None, "a node named Calibration may still test")
+expect(sigreport.match("Cal") is None, "a bare hail is not a test")
+expect(sigreport.match("test cal") is None, "trigger stripped from the front only")
 
 # A GREETING MAY PRECEDE THE TRIGGER. Anchoring the strip to position 0 meant `Hey Cal, ...`
 # was never recognised as addressed, so the phrase rules never ran on it. Both of these are
 # real lines from the log that fell through to the model with measured SNR sitting on disk.
-ck(sigreport.match("Hey Cal, this is a test") is not None, "a greeting before the trigger")
-ck(sigreport.match("Hey Cal - this is a test") is not None, "a dash after the greeting")
-ck(sigreport.match("Hello Cal, range test") is not None, "hello + trigger + range test")
-ck(sigreport.match("hey cal, test 5")["index"] == "5", "the index survives a greeting")
-ck(sigreport.match("Cal, this is a test") is not None, "the bare trigger still works")
+expect(sigreport.match("Hey Cal, this is a test") is not None, "a greeting before the trigger")
+expect(sigreport.match("Hey Cal - this is a test") is not None, "a dash after the greeting")
+expect(sigreport.match("Hello Cal, range test") is not None, "hello + trigger + range test")
+expect(sigreport.match("hey cal, test 5")["index"] == "5", "the index survives a greeting")
+expect(sigreport.match("Cal, this is a test") is not None, "the bare trigger still works")
 # and it must not manufacture a trigger that is not there
-ck(sigreport.match("heycal") is None, "a greeting rule does not fillet a word")
+expect(sigreport.match("heycal") is None, "a greeting rule does not fillet a word")
 
 # TALKING ABOUT A TEST IS NOT RUNNING ONE. This doer pre-empts every other ladder, so a
 # message it claims is one nothing else will ever see. A determiner immediately before the
 # word is the tell: `the test` is a reference, `range test` is a test.
-ck(sigreport.match("got the test") is None, "a determiner makes it a reference")
-ck(sigreport.match("I got the test") is None, "and so does a longer report of one")
-ck(sigreport.match("did you get my test") is None, "a possessive is referential too")
-ck(sigreport.match("a test") is None, "an article alone is not a test")
-ck(sigreport.match("your test") is None, "somebody else's test is not Cal's to answer")
+expect(sigreport.match("got the test") is None, "a determiner makes it a reference")
+expect(sigreport.match("I got the test") is None, "and so does a longer report of one")
+expect(sigreport.match("did you get my test") is None, "a possessive is referential too")
+expect(sigreport.match("a test") is None, "an article alone is not a test")
+expect(sigreport.match("your test") is None, "somebody else's test is not Cal's to answer")
 # the qualifier rule must not eat the tests it exists to keep
-ck(sigreport.match("range test") is not None, "range test still fires")
-ck(sigreport.match("tange test") is not None, "and so does the typo")
-ck(sigreport.match("latency test") is not None, "so does an unlisted qualifier")
-ck(sigreport.match("test") is not None, "a bare test still fires")
+expect(sigreport.match("range test") is not None, "range test still fires")
+expect(sigreport.match("tange test") is not None, "and so does the typo")
+expect(sigreport.match("latency test") is not None, "so does an unlisted qualifier")
+expect(sigreport.match("test") is not None, "a bare test still fires")
 # BEING NAMED IS NOT BEING ASKED. This first exempted anything addressed, on the reasoning
 # that saying Cal's name settled it. Adversarial review refuted that in one line: `Cal aced
 # the test` is a sentence ABOUT Cal. The guard now applies whether or not Cal is named.
-ck(sigreport.match("Cal, got the test") is None, "named, but still talking about a test")
-ck(sigreport.match("cal aced the test") is None, "a sentence about Cal is not a test")
-ck(sigreport.match("cal ran the test") is None, "nor is reporting that Cal ran one")
+expect(sigreport.match("Cal, got the test") is None, "named, but still talking about a test")
+expect(sigreport.match("cal aced the test") is None, "a sentence about Cal is not a test")
+expect(sigreport.match("cal ran the test") is None, "nor is reporting that Cal ran one")
 
 # AN INDEX MUST NOT BYPASS THE GUARD. Reading the qualifier as words[-2] landed on the DIGIT's
 # neighbour once an index matched, so appending a number defeated the rule entirely -- and a
 # numbered sequence is the exact traffic this module documents.
-ck(sigreport.match("got the test 2") is None, "an index does not bypass the guard")
-ck(sigreport.match("got your test 5") is None, "nor with a possessive")
-ck(sigreport.match("the test 12") is None, "nor with a bare determiner")
-ck(sigreport.match("Test 12")["index"] == "12", "and a real numbered test still fires")
+expect(sigreport.match("got the test 2") is None, "an index does not bypass the guard")
+expect(sigreport.match("got your test 5") is None, "nor with a possessive")
+expect(sigreport.match("the test 12") is None, "nor with a bare determiner")
+expect(sigreport.match("Test 12")["index"] == "12", "and a real numbered test still fires")
 
 # A POSSESSIVE NAMES AN OWNER, so the test belongs to someone and is being discussed.
-ck(sigreport.match("cal's test") is None, "the trigger's possessive is not an address")
-ck(sigreport.match("dean's check") is None, "and neither is anybody else's")
+expect(sigreport.match("cal's test") is None, "the trigger's possessive is not an address")
+expect(sigreport.match("dean's check") is None, "and neither is anybody else's")
 
 # ANOTHER DOER'S WORD MAKES IT THAT DOER'S MESSAGE. sigreport runs ahead of every ladder, so
 # claiming these is how a weather question stops reaching weather.
-ck(sigreport.match("cal weather check") is None, "weather check belongs to weather")
-ck(sigreport.match("hey cal weather check") is None, "including behind a greeting")
-ck(sigreport.match("cal sunset check") is None, "sunset check belongs to sun/moon")
-ck(sigreport.match("cal capabilities check") is None, "capabilities check belongs to capabilities")
+expect(sigreport.match("cal weather check") is None, "weather check belongs to weather")
+expect(sigreport.match("hey cal weather check") is None, "including behind a greeting")
+expect(sigreport.match("cal sunset check") is None, "sunset check belongs to sun/moon")
+expect(sigreport.match("cal capabilities check") is None, "capabilities check belongs to capabilities")
 
 # THE SEPARATOR CLASS IS THE SAME ON BOTH SIDES of the trigger. It was not, so an exclamation
 # after the name killed the match while one before it was fine.
-ck(sigreport.match("Cal! test") is not None, "an exclamation after the trigger")
-ck(sigreport.match("Hey Cal! test") is not None, "greeting and exclamation together")
-ck(sigreport.match("Cal. test") is not None, "a full stop after the trigger")
-ck(sigreport.match("Cal? range test") is not None, "a question mark after the trigger")
+expect(sigreport.match("Cal! test") is not None, "an exclamation after the trigger")
+expect(sigreport.match("Hey Cal! test") is not None, "greeting and exclamation together")
+expect(sigreport.match("Cal. test") is not None, "a full stop after the trigger")
+expect(sigreport.match("Cal? range test") is not None, "a question mark after the trigger")
 
 # A NON-STRING MUST NOT TAKE THE RESPONDER DOWN. A malformed record can put a number or a list
 # in `text`, and responder.py passes it straight in.
 for _bad in (123, b"cal test", True, ["cal test"], 3.5, {"a": 1}):
-    ck(sigreport.match(_bad) is None, "non-string input returns None rather than raising")
+    expect(sigreport.match(_bad) is None, "non-string input returns None rather than raising")
 
 # --- 2. the report says only what was measured ----------------------------------------------
 # THE SHAPE SAYS WHOSE MEASUREMENT IT IS. `RSSI -63` on a relayed packet is the RELAY's
 # signal into Cal, not the sender's, and reported bare it reads as the sender's. That misread
 # was made by this module's own author against real 28-mile traffic before it was fixed.
 txt, meta = sigreport.report(rec())
-ck(txt == "Copy: 2 hops, last leg RSSI -32, SNR 6.0", f"nominal report wrong: {txt!r}")
-ck(sigreport.report(rec(hops=2), relay_name="MDNO")[0]
+expect(txt == "Copy: 2 hops, last leg RSSI -32, SNR 6.0", f"nominal report wrong: {txt!r}")
+expect(sigreport.report(rec(hops=2), relay_name="MDNO")[0]
    == "Copy: 2 hops via MDNO, last leg RSSI -32, SNR 6.0", "a resolved relay is named")
-ck(sigreport.report(rec(hops=0))[0] == "Copy: direct, RSSI -35, SNR 6.0".replace("-35", "-32"),
+expect(sigreport.report(rec(hops=0))[0] == "Copy: direct, RSSI -35, SNR 6.0".replace("-35", "-32"),
    f"direct must claim the sender's own signal: {sigreport.report(rec(hops=0))[0]!r}")
-ck("last leg" not in sigreport.report(rec(hops=0))[0],
+expect("last leg" not in sigreport.report(rec(hops=0))[0],
    "a direct packet IS the sender's signal — no last-leg qualifier")
-ck("last leg" in sigreport.report(rec(hops=1))[0], "one hop is still a relayed measurement")
-ck(sigreport.report(rec(hops=1))[0].startswith("Copy: 1 hop,"), "one hop must be singular")
+expect("last leg" in sigreport.report(rec(hops=1))[0], "one hop is still a relayed measurement")
+expect(sigreport.report(rec(hops=1))[0].startswith("Copy: 1 hop,"), "one hop must be singular")
 # ROUTING LEADS. It is the field that moved across a 28-mile walk while SNR moved 1.25 dB.
-ck(sigreport.report(rec())[0].split(": ")[1].startswith("2 hops"), "hop count leads")
+expect(sigreport.report(rec())[0].split(": ")[1].startswith("2 hops"), "hop count leads")
 # A relay is one byte, so an unresolved name must simply vanish, never become a guess.
-ck("via" not in sigreport.report(rec(hops=2), relay_name=None)[0], "unresolved relay is unnamed")
+expect("via" not in sigreport.report(rec(hops=2), relay_name=None)[0], "unresolved relay is unnamed")
 
 # A MISSING HOP COUNT IS NOT 'DIRECT'. This is failure #2 in the docstring, and it is the one
 # the bridge's own history makes likely: hopLimit is omitted by MessageToDict when it is 0.
 t_nohop, _ = sigreport.report({"snr": 6.0, "rssi": -32})
-ck("direct" not in t_nohop and "hop" not in t_nohop,
+expect("direct" not in t_nohop and "hop" not in t_nohop,
    f"absent hops must be omitted, never rendered: {t_nohop!r}")
 # An unknown hop count means we cannot say whose signal it is, so the reply makes NO claim
 # either way — neither "direct" nor "last leg".
-ck("last leg" not in t_nohop, f"unknown routing must not claim a leg: {t_nohop!r}")
-ck(t_nohop == "Copy: RSSI -32, SNR 6.0", f"neutral shape wrong: {t_nohop!r}")
+expect("last leg" not in t_nohop, f"unknown routing must not claim a leg: {t_nohop!r}")
+expect(t_nohop == "Copy: RSSI -32, SNR 6.0", f"neutral shape wrong: {t_nohop!r}")
 
 # Field-by-field degradation. A bad field costs that field and nothing else.
-ck(sigreport.report(rec(snr=None))[0] == "Copy: 2 hops, last leg RSSI -32",
+expect(sigreport.report(rec(snr=None))[0] == "Copy: 2 hops, last leg RSSI -32",
    f"missing snr costs only snr: {sigreport.report(rec(snr=None))[0]!r}")
-ck(sigreport.report(rec(rssi=None))[0] == "Copy: 2 hops, SNR 6.0",
+expect(sigreport.report(rec(rssi=None))[0] == "Copy: 2 hops, SNR 6.0",
    f"missing rssi costs only rssi: {sigreport.report(rec(rssi=None))[0]!r}")
 
 # JSON true converts to 1.0 and would ship as a plausible SNR. This exact shape aired once
 # already, as a heat index of 34F, and it pointed the reassuring direction.
 for bad in (True, False, "strong", "", [], {}, float("nan"), float("inf")):
     r2 = sigreport.report(rec(snr=bad))
-    ck(r2[1]["snr"] is None, f"snr {bad!r} must be rejected, got {r2[1]['snr']!r}")
+    expect(r2[1]["snr"] is None, f"snr {bad!r} must be rejected, got {r2[1]['snr']!r}")
 
 # Out-of-range values are instrument faults, not remarkable links.
-ck(sigreport.report(rec(snr=99))[1]["snr"] is None, "an impossible SNR is dropped")
-ck(sigreport.report(rec(rssi=40))[1]["rssi"] is None, "a positive RSSI is corrupt, not strong")
+expect(sigreport.report(rec(snr=99))[1]["snr"] is None, "an impossible SNR is dropped")
+expect(sigreport.report(rec(rssi=40))[1]["rssi"] is None, "a positive RSSI is corrupt, not strong")
 
 # Nothing measured at all -> silence, and a stated reason.
 none_txt, none_meta = sigreport.report({"hops": 3})
-ck(none_txt is None, "a report with no signal in it must refuse")
-ck(none_meta["refused"] == "no_measurements", f"refusal reason: {none_meta['refused']!r}")
+expect(none_txt is None, "a report with no signal in it must refuse")
+expect(none_meta["refused"] == "no_measurements", f"refusal reason: {none_meta['refused']!r}")
 
 # TRUNCATION DROPS WHOLE FIELDS FROM THE RIGHT. A truncated "RSSI -3" is a different and
 # better-looking measurement than "RSSI -32", which is the shape every wrong answer this
@@ -307,21 +318,21 @@ short, smeta = sigreport.report(rec(), max_chars=22)
 # The EXACT value, not a property. "len <= 22 and no dangling -3" is satisfied by returning
 # None, so a mutation that truncates the string and then refuses the over-long result passed
 # a property test while destroying the behaviour. Naming the answer is what makes it fail.
-ck(short == "Copy: 2 hops", f"truncation must shed whole fields from the right: {short!r}")
-ck(smeta["parts"] == ["2 hops"], f"meta must record what actually shipped: {smeta['parts']}")
+expect(short == "Copy: 2 hops", f"truncation must shed whole fields from the right: {short!r}")
+expect(smeta["parts"] == ["2 hops"], f"meta must record what actually shipped: {smeta['parts']}")
 # The hop count is now the LAST thing to go, because it is the field carrying information.
-ck("hops" in short, "routing survives truncation; the flat number does not")
-ck(len(short or "") <= 22, f"length budget not honoured: {short!r}")
-ck(not re.search(r"-3$", short or ""), f"truncated mid-field: {short!r}")
+expect("hops" in short, "routing survives truncation; the flat number does not")
+expect(len(short or "") <= 22, f"length budget not honoured: {short!r}")
+expect(not re.search(r"-3$", short or ""), f"truncated mid-field: {short!r}")
 # One field still over budget is a refusal, not a shaved string.
-ck(sigreport.report(rec(), max_chars=6)[0] is None, "an unfittable report refuses")
+expect(sigreport.report(rec(), max_chars=6)[0] is None, "an unfittable report refuses")
 
 # The reply carries no value that was not in the record — the whole point, asserted directly.
 for h in (0, 1, 2, 5, None):
     r3 = rec(hops=h) if h is not None else {"snr": 6.0, "rssi": -32}
     out, _ = sigreport.report(r3)
     for n in re.findall(r"-?\d+\.?\d*", out or ""):
-        ck(n in {"6.0", "32", "-32", str(h), "1", "0", "2", "5"},
+        expect(n in {"6.0", "32", "-32", str(h), "1", "0", "2", "5"},
            f"report {out!r} contains {n!r}, which is not in the record")
 
 # --- 3. the gates ---------------------------------------------------------------------------
@@ -336,9 +347,9 @@ def plan(cfg=None, r=None, st=None, ts=None):
 
 
 # DEFAULT OFF is the house gate, and it is asserted rather than assumed.
-ck(responder.DEFAULTS["SIGREPORT_ENABLED"] == "false", "SIGREPORT_ENABLED must default to false")
+expect(responder.DEFAULTS["SIGREPORT_ENABLED"] == "false", "SIGREPORT_ENABLED must default to false")
 off = responder.plan_sigreport({}, {}, rec(text="Range test"), "!cccccccc")
-ck(off[0] is False and off[1] == "sigreport_disabled", f"disabled config must refuse: {off[1]}")
+expect(off[0] is False and off[1] == "sigreport_disabled", f"disabled config must refuse: {off[1]}")
 
 # The channel gate needs a quiet, fresh status file to pass; build one so the gates below are
 # testing themselves rather than the fixture.
@@ -358,27 +369,27 @@ def with_status(payload, age_s=0):
 QUIET = {"metrics": {"chUtil": 5.0}}
 with_status(QUIET)
 ok = plan()
-ck(ok[0] is True and ok[1] == "sigreport", f"a clean range test should be answered: {ok[1]}")
-ck(ok[4] == "Copy: 2 hops, last leg RSSI -32, SNR 6.0", f"gate returned {ok[4]!r}")
-ck(ok[2] == "^all", "a broadcast test is answered on the broadcast")
-ck(plan(r=rec(text="Range test", to="!aaaaaaaa"))[2] == "!aaaaaaaa", "a DM test gets a DM")
+expect(ok[0] is True and ok[1] == "sigreport", f"a clean range test should be answered: {ok[1]}")
+expect(ok[4] == "Copy: 2 hops, last leg RSSI -32, SNR 6.0", f"gate returned {ok[4]!r}")
+expect(ok[2] == "^all", "a broadcast test is answered on the broadcast")
+expect(plan(r=rec(text="Range test", to="!aaaaaaaa"))[2] == "!aaaaaaaa", "a DM test gets a DM")
 
 # THE PATH THAT ACTUALLY TRANSMITS, graded end to end. plan_sigreport calls match() and
 # report() separately; try_answer() joins them. On 2026-08-23 the index echo was written and
 # green through try_answer while the transmitting path silently dropped it, because nothing
 # graded the two-call path. These four lines are that gap closed.
-ck(plan(r=rec(text="Test 12"))[4] == "Copy 12: 2 hops, last leg RSSI -32, SNR 6.0",
+expect(plan(r=rec(text="Test 12"))[4] == "Copy 12: 2 hops, last leg RSSI -32, SNR 6.0",
    f"the transmitting path must echo the index: {plan(r=rec(text='Test 12'))[4]!r}")
-ck(plan(r=rec(text="Test test"))[4] == "Copy: 2 hops, last leg RSSI -32, SNR 6.0",
+expect(plan(r=rec(text="Test test"))[4] == "Copy: 2 hops, last leg RSSI -32, SNR 6.0",
    "no index means no number in the head, on the transmitting path too")
 # The RELAY NAME reaches the air only through the resolver, and only unambiguously.
-ck(plan(r=rec(text="Test 12", relay_byte=198))[4]
+expect(plan(r=rec(text="Test 12", relay_byte=198))[4]
    == "Copy 12: 2 hops via MDNO, last leg RSSI -32, SNR 6.0",
    f"a resolvable relay is named on the transmitting path: "
    f"{plan(r=rec(text='Test 12', relay_byte=198))[4]!r}")
-ck("via" not in plan(r=rec(text="Test 12", relay_byte=7))[4],
+expect("via" not in plan(r=rec(text="Test 12", relay_byte=7))[4],
    "an unplaceable relay byte is never guessed at")
-ck(responder.resolve_relay(None) is None, "no relay byte, no name")
+expect(responder.resolve_relay(None) is None, "no relay byte, no name")
 # SOMEONE ELSE'S TEXT ON OUR AIR. A short name is chosen by a third party, so it is
 # whitelisted rather than escaped, and bounded to the four characters the protocol allows.
 # It REJECTS rather than repairs: stripping and truncating turned "MD<script>" into "MDsc",
@@ -387,27 +398,27 @@ ck(responder.resolve_relay(None) is None, "no relay byte, no name")
 for bad, want in (("MD<script>", None), ("../../etc", None), ("MDNO EXTRA", None),
                   ("\n\nCal:", None), ("!!!!", None), ("", None), (None, None), (42, None),
                   ("MDNO", "MDNO"), ("MDNO ", "MDNO"), ("MD", "MD"), ("M-1", "M-1")):
-    ck(sigreport.clean_name(bad) == want,
+    expect(sigreport.clean_name(bad) == want,
        f"clean_name({bad!r}) should be {want!r}, got {sigreport.clean_name(bad)!r}")
-ck(plan(r=rec(text="Test 12"))[1] == "sigreport", "a numbered test is claimed by the doer")
-ck(plan(r=rec(text="Test 12"))[3] == 0, "the report answers on the channel it arrived on")
+expect(plan(r=rec(text="Test 12"))[1] == "sigreport", "a numbered test is claimed by the doer")
+expect(plan(r=rec(text="Test 12"))[3] == 0, "the report answers on the channel it arrived on")
 # THE 7th ELEMENT IS THE PUBLIC TRACE'S EVIDENCE. Without it the dashboard has nothing to show
 # but a mechanism it would have to describe from memory — which is exactly how a range test came
 # to be published as "a weather question" whose lookup failed.
 m7 = plan(r=rec(text="Test 12"))[6]
-ck(isinstance(m7, dict), f"the gate must return its measurement meta: {m7!r}")
-ck(m7.get("parts") == ["2 hops", "last leg RSSI -32", "SNR 6.0"], f"meta parts: {m7.get('parts')}")
-ck(m7.get("hops") == 2 and m7.get("snr") == 6.0 and m7.get("rssi") == -32, "meta carries the numbers")
-ck(plan(r=rec(text="Test 12", relay_byte=198))[6].get("relay_name") == "MDNO",
+expect(isinstance(m7, dict), f"the gate must return its measurement meta: {m7!r}")
+expect(m7.get("parts") == ["2 hops", "last leg RSSI -32", "SNR 6.0"], f"meta parts: {m7.get('parts')}")
+expect(m7.get("hops") == 2 and m7.get("snr") == 6.0 and m7.get("rssi") == -32, "meta carries the numbers")
+expect(plan(r=rec(text="Test 12", relay_byte=198))[6].get("relay_name") == "MDNO",
    "meta carries the resolved relay for the trace")
 # Every refusal returns the same arity, or the caller unpacks a different shape depending on
 # which gate said no — a crash that only happens on the failing path.
 for r_ in (rec(text="Range test", reaction=True), rec(text="not a test"),
            rec(text="Range test", **{"from": "!cccccccc"})):
-    ck(len(plan(r=r_)) == 7, f"every return is a 7-tuple: {r_.get('text')!r}")
-ck(len(responder.plan_sigreport({}, {}, rec(text="Range test"), "!cccccccc")) == 7,
+    expect(len(plan(r=r_)) == 7, f"every return is a 7-tuple: {r_.get('text')!r}")
+expect(len(responder.plan_sigreport({}, {}, rec(text="Range test"), "!cccccccc")) == 7,
    "including the disabled path")
-ck(plan(r=rec(text="Test 12", channel=1))[3] == 1, "including Cal's own channel")
+expect(plan(r=rec(text="Test 12", channel=1))[3] == 1, "including Cal's own channel")
 
 # CHANNEL STATE: unknown must FAIL CLOSED, in every one of its flavours.
 for name, payload, age in (("stale", QUIET, 9999),
@@ -417,33 +428,33 @@ for name, payload, age in (("stale", QUIET, 9999),
                            ("busy", {"metrics": {"chUtil": 40.0}}, 0)):
     with_status(payload, age)
     g = plan()
-    ck(g[0] is False and g[1].startswith("sigreport_channel_"),
+    expect(g[0] is False and g[1].startswith("sigreport_channel_"),
        f"channel {name} must refuse, got {g[0]}/{g[1]}")
 responder.STATUS = os.path.join(HERE, ".eval_missing.json")
-ck(plan()[1] == "sigreport_channel_status_unreadable", "a missing status file fails closed")
+expect(plan()[1] == "sigreport_channel_status_unreadable", "a missing status file fails closed")
 with_status(QUIET)
 
 # A tapback is not a test. Absent reads as a real message; anything unexpected refuses.
-ck(plan(r=rec(text="Range test", reaction=True))[1] == "sigreport_is_reaction", "reaction refused")
-ck(plan(r=rec(text="Range test", reaction="true"))[1] == "sigreport_is_reaction",
+expect(plan(r=rec(text="Range test", reaction=True))[1] == "sigreport_is_reaction", "reaction refused")
+expect(plan(r=rec(text="Range test", reaction="true"))[1] == "sigreport_is_reaction",
    "an unexpected reaction value must fail the SAFE way, not sail through")
 r_norx = rec(text="Range test")
 r_norx.pop("reaction")
-ck(plan(r=r_norx)[0] is True, "a record with no reaction field is a real message")
+expect(plan(r=r_norx)[0] is True, "a record with no reaction field is a real message")
 
 # Cal never answers himself.
-ck(plan(r=rec(text="Range test", **{"from": "!cccccccc"}))[1] == "self", "self refused")
+expect(plan(r=rec(text="Range test", **{"from": "!cccccccc"}))[1] == "self", "self refused")
 
 # BUDGET IS SPENT ONLY WHEN THERE IS SOMETHING TO SAY. A record with no measurements must not
 # consume a slot — otherwise a stream of unmeasured packets exhausts the day in silence.
 st = {}
 nm = responder.plan_sigreport(CFG_ON, st, {"text": "Range test", "from": "!bbbbbbbb",
                                            "to": "^all", "reaction": False}, "!cccccccc")
-ck(nm[0] is False and nm[1].startswith("sigreport_"), f"no measurements must refuse: {nm[1]}")
-ck(not st.get("sig_day"), "a refused report must not have spent budget")
-ck([g["gate"] for g in nm[5]].index("has_measurements") < len(nm[5]),
+expect(nm[0] is False and nm[1].startswith("sigreport_"), f"no measurements must refuse: {nm[1]}")
+expect(not st.get("sig_day"), "a refused report must not have spent budget")
+expect([g["gate"] for g in nm[5]].index("has_measurements") < len(nm[5]),
    "has_measurements is gated before the budget")
-ck("daily_budget" not in [g["gate"] for g in nm[5]],
+expect("daily_budget" not in [g["gate"] for g in nm[5]],
    "the budget gate must not even be reached when nothing was measured")
 
 # Cooldown and daily cap.
@@ -452,14 +463,14 @@ now_ts = time.time()
 responder.commit_sigreport(st, "!aaaaaaaa", ts=now_ts)
 # Boundary read from DEFAULTS, so a retuned cooldown cannot silently stop being tested.
 COOL = int(responder.DEFAULTS["SIGREPORT_SENDER_COOLDOWN_S"])
-ck(plan(st=st, ts=now_ts + COOL - 1)[1] == "sigreport_sender_cooldown",
+expect(plan(st=st, ts=now_ts + COOL - 1)[1] == "sigreport_sender_cooldown",
    "cooldown holds inside the window")
-ck(plan(st=st, ts=now_ts + COOL + 1)[0] is True, "cooldown releases after the window")
+expect(plan(st=st, ts=now_ts + COOL + 1)[0] is True, "cooldown releases after the window")
 # The value itself is a decision, not an accident: the real log carries two tests from one
 # walking node 33 s apart, and both are worth answering.
-ck(COOL <= 33, f"cooldown {COOL}s would swallow the 33 s gap observed in the live log")
+expect(COOL <= 33, f"cooldown {COOL}s would swallow the 33 s gap observed in the live log")
 st2 = {"sig_day": {time.strftime("%Y-%m-%d", time.gmtime(now_ts)): 20}}
-ck(plan(st=st2, ts=now_ts)[1] == "sigreport_budget_spent", "daily cap holds")
+expect(plan(st=st2, ts=now_ts)[1] == "sigreport_budget_spent", "daily cap holds")
 
 for p in (os.path.join(HERE, ".eval_status.json"),):
     if os.path.exists(p):

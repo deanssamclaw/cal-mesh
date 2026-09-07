@@ -40,7 +40,18 @@ NOW = 1_787_500_000.0
 OURS = "!cccccccc"
 
 
-def ck(cond, msg):
+def expect(cond, msg):
+    """Assert COND, describe it with MSG. Deliberately NOT named `ck`.
+
+    26 suites in this repo define `expect(name, cond)` -- label first. This one and eval_tracer take
+    (cond, msg) -- condition first. A check copied from one convention into the other still runs,
+    because a non-empty label is truthy: `expect("some label", cond)` here would assert the LABEL and
+    can never fail. Nothing detects that, and this repo has already shipped several checks that
+    could not fail.
+
+    Renaming the odd one out turns a silent inversion into a NameError. eval_guards.py asserts
+    that no suite defines a reversed `ck`.
+    """
     global checked
     checked += 1
     if not cond:
@@ -71,10 +82,10 @@ def route(traced, ts, requester=OURS, kind="response"):
 A, B, C = "!aaaaaaaa", "!bbbbbbbb", "!deadbeef"
 
 # --- the gate ---------------------------------------------------------------------------
-ck(tracer.DEFAULTS["TRACER_ENABLED"] == "false", "TRACER_ENABLED must default to false")
+expect(tracer.DEFAULTS["TRACER_ENABLED"] == "false", "TRACER_ENABLED must default to false")
 off = tracer.plan([node(A)], {}, [], OURS, dict(tracer.DEFAULTS), now=NOW)
-ck(off[0] is None and off[1] == "tracer_disabled", f"disabled must refuse: {off[1]}")
-ck(off[2] == [] and off[3] == [], "a disabled loop must not even rank")
+expect(off[0] is None and off[1] == "tracer_disabled", f"disabled must refuse: {off[1]}")
+expect(off[2] == [] and off[3] == [], "a disabled loop must not even rank")
 
 # --- budget, read from the bridge's own record -------------------------------------------
 # Derived from the bridge's probe list on purpose: a counter of our own would be a second
@@ -82,11 +93,11 @@ ck(off[2] == [] and off[3] == [], "a disabled loop must not even rank")
 # sent, or sent but not recorded.
 day = NOW - (NOW % 86400)
 full = state([(A, day + i) for i in range(12)])
-ck(tracer.spent_today(full, NOW) == 12, "today's probes counted from the bridge record")
-ck(tracer.spent_today(state([(A, day - 10)]), NOW) == 0, "yesterday's probes do not count")
+expect(tracer.spent_today(full, NOW) == 12, "today's probes counted from the bridge record")
+expect(tracer.spent_today(state([(A, day - 10)]), NOW) == 0, "yesterday's probes do not count")
 p = tracer.plan([node(B)], full, [], OURS, cfg(), now=NOW)
-ck(p[0] is None and p[1].startswith("budget_spent"), f"cap must hold: {p[1]}")
-ck(tracer.plan([node(B)], full, [], OURS, cfg(TRACER_MAX_PER_DAY=20), now=NOW)[0] is not None,
+expect(p[0] is None and p[1].startswith("budget_spent"), f"cap must hold: {p[1]}")
+expect(tracer.plan([node(B)], full, [], OURS, cfg(TRACER_MAX_PER_DAY=20), now=NOW)[0] is not None,
    "a raised cap releases it")
 
 # --- exclusions, each tested by instance --------------------------------------------------
@@ -99,100 +110,100 @@ CASES = [
 ]
 for why, n, desc in CASES:
     t, reason, ranked, skipped = tracer.plan([n], {}, [], OURS, cfg(), now=NOW)
-    ck(t is None, f"{desc} must not be probed")
-    ck(any(s["why"] == why and s["node"] == A for s in skipped),
+    expect(t is None, f"{desc} must not be probed")
+    expect(any(s["why"] == why and s["node"] == A for s in skipped),
        f"{desc} must be EXPLAINED as {why!r}, got {skipped}")
 # lastHeard as a bool is not a timestamp.
-ck(tracer.plan([{"id": A, "lastHeard": True, "hops": 1}], {}, [], OURS, cfg(), now=NOW)[0] is None,
+expect(tracer.plan([{"id": A, "lastHeard": True, "hops": 1}], {}, [], OURS, cfg(), now=NOW)[0] is None,
    "a bool lastHeard is not a measurement")
 # TOO FAR IS AN EXCLUSION, NOT A REFUSAL. A node that cannot be reached has not declined; if
 # it were counted silent it would enter the responder map as a routing fact wearing a
 # behavioural label.
 t, _, _, sk = tracer.plan([node(A, hops=9)], state([(A, NOW - 100)]), [], OURS, cfg(), now=NOW)
-ck(any(s["why"] == "too_far" for s in sk), "unreachable is excluded before it is judged")
+expect(any(s["why"] == "too_far" for s in sk), "unreachable is excluded before it is judged")
 # Cal never probes himself.
-ck(tracer.plan([node(OURS)], {}, [], OURS, cfg(), now=NOW)[0] is None, "never probe ourselves")
+expect(tracer.plan([node(OURS)], {}, [], OURS, cfg(), now=NOW)[0] is None, "never probe ourselves")
 # A malformed id is never queued.
 for bad in ("!nothex01", "aaaaaaa1", "!aaa", None, 42, "!aaaaaaaaextra"):
-    ck(tracer.plan([{"id": bad, "lastHeard": NOW - 10, "hops": 1}], {}, [], OURS, cfg(),
+    expect(tracer.plan([{"id": bad, "lastHeard": NOW - 10, "hops": 1}], {}, [], OURS, cfg(),
                    now=NOW)[0] is None, f"malformed id {bad!r} must never be a target")
 
 # --- priority --------------------------------------------------------------------------
 nodes = [node(A), node(B), node(C)]
 hist = state([(B, NOW - 5000), (C, NOW - 100)])
 t, _, ranked, _ = tracer.plan(nodes, hist, [], OURS, cfg(), now=NOW)
-ck(t["node"] == A, f"an unasked node comes first — discovery is the point; got {t['node']}")
+expect(t["node"] == A, f"an unasked node comes first — discovery is the point; got {t['node']}")
 order = [r["node"] for r in ranked]
-ck(order.index(B) < order.index(C), "among asked nodes, the longest-waiting goes first")
+expect(order.index(B) < order.index(C), "among asked nodes, the longest-waiting goes first")
 # A known responder whose probe record has been TRIMMED is not a discovery candidate.
 routes_old = [route(A, NOW - 99999)]
 t2, _, ranked2, _ = tracer.plan(nodes, hist, routes_old, OURS, cfg(), now=NOW)
-ck(t2["node"] != A or t2["tier"] == 1,
+expect(t2["node"] != A or t2["tier"] == 1,
    "a node we know answered is not 'never probed' just because the record was trimmed")
-ck([r for r in ranked2 if r["node"] == A][0]["tier"] == 1, "trimmed responder ranks as tier 1")
+expect([r for r in ranked2 if r["node"] == A][0]["tier"] == 1, "trimmed responder ranks as tier 1")
 
 # --- freshness and backoff ---------------------------------------------------------------
 fresh = [route(A, NOW - 60)]
 t3, _, _, sk3 = tracer.plan([node(A)], state([(A, NOW - 120)]), fresh, OURS, cfg(), now=NOW)
-ck(t3 is None and any(s["why"] == "path_fresh" for s in sk3),
+expect(t3 is None and any(s["why"] == "path_fresh" for s in sk3),
    "a path we just measured is not re-measured")
-ck(tracer.plan([node(A)], state([(A, NOW - 120)]), [route(A, NOW - 99999)], OURS, cfg(),
+expect(tracer.plan([node(A)], state([(A, NOW - 120)]), [route(A, NOW - 99999)], OURS, cfg(),
                now=NOW)[0] is not None, "a stale path is refreshed")
 # Three silences and it stops asking — then the retry window lets it back in.
 sil = state([(A, NOW - 300), (A, NOW - 200), (A, NOW - 100)])
 t4, _, _, sk4 = tracer.plan([node(A)], sil, [], OURS, cfg(), now=NOW)
-ck(t4 is None and any(s["why"].startswith("silent_x") for s in sk4),
+expect(t4 is None and any(s["why"].startswith("silent_x") for s in sk4),
    f"a node that ignores us is left alone: {sk4}")
 old_sil = state([(A, NOW - 9 * 86400), (A, NOW - 9 * 86400), (A, NOW - 9 * 86400)])
-ck(tracer.plan([node(A)], old_sil, [], OURS, cfg(), now=NOW)[0] is not None,
+expect(tracer.plan([node(A)], old_sil, [], OURS, cfg(), now=NOW)[0] is not None,
    "a long-silent node rejoins the population — it may simply have been switched off")
 
 # --- the responder map -------------------------------------------------------------------
 # It predicts OUR probes, so somebody else's traceroute is not evidence about us.
 theirs = [route(A, NOW - 100, requester="!ffffffff")]
-ck(tracer.responders(theirs, OURS) == {}, "a third party's response is not our evidence")
-ck(tracer.responders([route(A, NOW - 100, kind="request")], OURS) == {},
+expect(tracer.responders(theirs, OURS) == {}, "a third party's response is not our evidence")
+expect(tracer.responders([route(A, NOW - 100, kind="request")], OURS) == {},
    "a request is not a response")
-ck(set(tracer.responders([route(A, NOW - 100)], OURS)) == {A}, "our own response counts")
-ck(tracer.responders([{"kind": "response", "requester": OURS, "traced": "bogus",
+expect(set(tracer.responders([route(A, NOW - 100)], OURS)) == {A}, "our own response counts")
+expect(tracer.responders([{"kind": "response", "requester": OURS, "traced": "bogus",
                        "ts": "x"}], OURS) == {}, "a malformed row is dropped, not guessed")
 
 # --- the queue entry ---------------------------------------------------------------------
 d = tempfile.mkdtemp()
 path = tracer.enqueue(d, {"node": A, "why": "never probed"}, now=NOW)
 files = os.listdir(d)
-ck(len(files) == 1, f"exactly one queue entry per run, got {files}")
-ck(not any(f.endswith(".tmp") for f in files), "the write is atomic — no .tmp left behind")
-ck(json.load(open(path))["dest"] == A, "the entry names the node")
-ck(A.lstrip("!") in os.path.basename(path), "the filename is legible in the queue directory")
+expect(len(files) == 1, f"exactly one queue entry per run, got {files}")
+expect(not any(f.endswith(".tmp") for f in files), "the write is atomic — no .tmp left behind")
+expect(json.load(open(path))["dest"] == A, "the entry names the node")
+expect(A.lstrip("!") in os.path.basename(path), "the filename is legible in the queue directory")
 
 # --- the queue depth cap: the second half of the budget --------------------------------
 # spent_today() counts probes SENT. While the bridge holds for a busy channel, nothing is
 # spent and entries pile up, so the daily cap alone would let a backlog build that all goes
 # out at one per measurement window once the air clears.
 qd = tempfile.mkdtemp()
-ck(tracer.pending(qd) == (0, set()), "an empty queue is empty")
-ck(tracer.pending(os.path.join(qd, "nope"))[0] == 0, "a missing queue directory is not a crash")
+expect(tracer.pending(qd) == (0, set()), "an empty queue is empty")
+expect(tracer.pending(os.path.join(qd, "nope"))[0] == 0, "a missing queue directory is not a crash")
 tracer.enqueue(qd, {"node": A, "why": "x"}, now=NOW)
-ck(tracer.pending(qd)[0] == 1 and tracer.pending(qd)[1] == {A}, "one entry, one node")
+expect(tracer.pending(qd)[0] == 1 and tracer.pending(qd)[1] == {A}, "one entry, one node")
 # A NODE ALREADY WAITING IS NOT A CANDIDATE. The ranker cannot see the queue by itself.
 t5, r5, ranked5, sk5 = tracer.plan([node(A), node(B)], {}, [], OURS, cfg(), now=NOW, queue_dir=qd)
-ck(t5 and t5["node"] == B, f"a queued node is not re-queued; got {t5 and t5['node']}")
-ck(any(s2["why"] == "already_queued" and s2["node"] == A for s2 in sk5),
+expect(t5 and t5["node"] == B, f"a queued node is not re-queued; got {t5 and t5['node']}")
+expect(any(s2["why"] == "already_queued" and s2["node"] == A for s2 in sk5),
    "and the exclusion is explained")
 tracer.enqueue(qd, {"node": B, "why": "x"}, now=NOW + 1)
 t6, r6, _, _ = tracer.plan([node(A), node(B), node(C)], {}, [], OURS, cfg(), now=NOW,
                            queue_dir=qd)
-ck(t6 is None and r6.startswith("queue_backed_up"), f"depth cap must hold: {r6}")
-ck(tracer.plan([node(C)], {}, [], OURS, cfg(TRACER_MAX_QUEUED=9), now=NOW,
+expect(t6 is None and r6.startswith("queue_backed_up"), f"depth cap must hold: {r6}")
+expect(tracer.plan([node(C)], {}, [], OURS, cfg(TRACER_MAX_QUEUED=9), now=NOW,
                queue_dir=qd)[0] is not None, "a raised depth cap releases it")
 # An unreadable entry still occupies the queue.
 with open(os.path.join(qd, "junk"), "w") as fh:
     fh.write("not json")
-ck(tracer.pending(qd)[0] == 3, "a malformed entry still counts toward depth")
+expect(tracer.pending(qd)[0] == 3, "a malformed entry still counts toward depth")
 # Without a queue_dir the cap is simply not applied — callers that do not pass one are not
 # silently told the queue is full.
-ck(tracer.plan([node(A)], {}, [], OURS, cfg(), now=NOW)[0] is not None,
+expect(tracer.plan([node(A)], {}, [], OURS, cfg(), now=NOW)[0] is not None,
    "no queue_dir means no depth claim")
 
 if "--self-test" in sys.argv:

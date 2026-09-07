@@ -118,6 +118,29 @@ _declared = [f for f in sorted(os.listdir(HERE))
 ck("every skip is announced with the word SKIP so the runner can see it",
    all("SKIP" in code_of(f) for f in _declared), _declared[:3])
 
+print("\nthe assert helper has ONE signature across the corpus")
+# 26 suites define ck(name, cond) -- label first. Two defined ck(cond, msg) -- condition first.
+# A check copied between conventions still RUNS, because a non-empty label is truthy:
+# ck("some label", cond) under the reversed form asserts the LABEL and can never fail. Nothing
+# detected it. The odd ones are renamed to expect(), so a paste is a NameError instead.
+_rev = []
+for fn in sorted(f for f in os.listdir(HERE) if f.startswith("eval_") and f.endswith(".py")):
+    c = code_of(fn)
+    if re.search(r"^def ck\(\s*cond", c, re.M):
+        _rev.append(fn)
+ck("no suite defines a reversed ck(cond, ...)", not _rev, _rev)
+# What distinguishes the two conventions is the FIRST parameter's role, and the only reliable
+# tell in this corpus is its name: `ck(name, cond)` and `ck(n, c)` are the same shape, while
+# `ck(cond, msg)` is the inversion. Assert the first parameter is not the condition.
+_bad = []
+for f in sorted(os.listdir(HERE)):
+    if not (f.startswith("eval_") and f.endswith(".py")):
+        continue
+    m = re.search(r"^def ck\(\s*([A-Za-z_]\w*)", code_of(f), re.M)
+    if m and m.group(1) in ("cond", "condition", "ok", "passed", "test"):
+        _bad.append(f)
+ck("no ck() takes the condition first", not _bad, _bad)
+
 # --- mutations -------------------------------------------------------------------------------
 MUTANTS = {
     # MUT4b, the one that survived everything
