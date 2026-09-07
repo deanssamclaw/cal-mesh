@@ -1,0 +1,468 @@
+{
+  "adjudicated": 31,
+  "armed": 14,
+  "by_hand": 4,
+  "by_loop": 3,
+  "clusters": 29,
+  "draft_verdicts": {},
+  "rows": [
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-22",
+      "id": "ef2d127de37b942b",
+      "kind": "ask",
+      "last_seen": "2026-09-05",
+      "last_unanswered": "2026-08-22",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    },
+    {
+      "armed": "2026-09-05T18:57:39.485402+00:00",
+      "commit": "2607a34",
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-17",
+      "id": "aa06ed70cd9252e4",
+      "kind": "ask",
+      "last_seen": "2026-08-17",
+      "last_unanswered": "2026-08-17",
+      "nodes": 1,
+      "note": "calc:convert matches.",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "NIST SP 811: 1 mi = 1.609344 km exactly"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-18",
+      "id": "7847578aee04b6cf",
+      "kind": "ask",
+      "last_seen": "2026-08-18",
+      "last_unanswered": "2026-08-18",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    },
+    {
+      "armed": "2026-08-21T19:26:34.209298+00:00",
+      "commit": "b7e8cac",
+      "found_by": "manual",
+      "id": "ddd3babb1bac259f",
+      "kind": "doer",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "reporting, not a doer"
+    },
+    {
+      "armed": "2026-08-19T00:00:00Z",
+      "commit": "4259e6c",
+      "corrections": 1,
+      "found_by": "manual",
+      "id": "9d874bcdfd84d02e",
+      "kind": "doer",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "ARRL 234/f(MHz) for the end-effect factor"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-22",
+      "id": "16c049b9e49d0b83",
+      "kind": "ask",
+      "last_seen": "2026-08-22",
+      "last_unanswered": "2026-08-22",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-08",
+      "id": "dad33b07487db4b5",
+      "kind": "ask",
+      "last_seen": "2026-08-08",
+      "last_unanswered": "2026-08-08",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-14",
+      "id": "2cf24dba5fb0a30e",
+      "kind": "ask",
+      "last_seen": "2026-08-29",
+      "last_unanswered": "2026-08-14",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    },
+    {
+      "armed": "2026-09-06T00:41:38.666645+00:00",
+      "commit": "18977d0",
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-08",
+      "found_by": "loop",
+      "id": "a05781e7486acfc6",
+      "kind": "ask",
+      "last_seen": "2026-08-08",
+      "last_unanswered": "2026-08-08",
+      "nodes": 1,
+      "note": "sigreport now matches a greeting before the trigger; armed on deploy of 18977d0.",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "snr-history.jsonl measured SNR/RSSI for the sending node"
+    },
+    {
+      "armed": "2026-09-05T18:57:40.877982+00:00",
+      "commit": "2607a34",
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-08",
+      "id": "cee8f3d70027a12e",
+      "kind": "ask",
+      "last_seen": "2026-08-08",
+      "last_unanswered": "2026-08-08",
+      "nodes": 1,
+      "note": "Reply 'No live weather access' predates the weather doer; weather:strong now matches.",
+      "oracle": "needs-source",
+      "pushed": true,
+      "source": "live weather feed, harness-fetched by weather.py"
+    },
+    {
+      "counts": {
+        "GAP": 2
+      },
+      "first_seen": "2026-08-14",
+      "id": "67c8d98b730870e8",
+      "kind": "ask",
+      "last_seen": "2026-08-22",
+      "last_unanswered": "2026-08-22",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    },
+    {
+      "armed": "2026-08-21T17:19:16Z",
+      "commit": "4259e6c",
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-21",
+      "found_by": "manual",
+      "id": "bb10c120fda21db6",
+      "kind": "ask",
+      "last_seen": "2026-08-21",
+      "last_unanswered": "2026-08-21",
+      "nodes": 1,
+      "note": "Model aired a 5-6 bag range keyed on an unstated bag size.",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "Quikrete published bag yields; hole volume from geometry; nominal lumber per softwood dimension standard"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-09",
+      "found_by": "loop",
+      "id": "4059e54c5f82cc03",
+      "kind": "ask",
+      "last_seen": "2026-08-09",
+      "last_unanswered": "2026-08-09",
+      "nodes": 1,
+      "note": "[withheld: quotes message text]",
+      "oracle": "derivable",
+      "source": "snr-history.jsonl measured SNR/RSSI for the sending node"
+    },
+    {
+      "counts": {
+        "GAP": 1,
+        "THROTTLED": 1
+      },
+      "first_seen": "2026-08-17",
+      "found_by": "loop",
+      "id": "9801f083aebee41b",
+      "kind": "ask",
+      "last_seen": "2026-08-17",
+      "last_unanswered": "2026-08-17",
+      "nodes": 1,
+      "note": "No doer matches; answered by vibe ('signal's solid') when measured SNR was on disk. sigreport is the natural owner.",
+      "oracle": "derivable",
+      "source": "snr-history.jsonl measured SNR/RSSI for the sending node"
+    },
+    {
+      "armed": "2026-09-05T18:57:40.498688+00:00",
+      "commit": "2607a34",
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-08",
+      "id": "54325fbcee20d90b",
+      "kind": "ask",
+      "last_seen": "2026-08-08",
+      "last_unanswered": "2026-08-08",
+      "nodes": 1,
+      "note": "sigreport:tail.",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "snr-history.jsonl measured SNR/RSSI for the sending node"
+    },
+    {
+      "armed": "2026-09-05T18:57:39.915338+00:00",
+      "commit": "2607a34",
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-18",
+      "id": "382c4e3d33fd7232",
+      "kind": "ask",
+      "last_seen": "2026-08-18",
+      "last_unanswered": "2026-08-18",
+      "nodes": 1,
+      "note": "Model aired a generic LLM blurb; capabilities:list now owns it.",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "the live DOER_CAPS table"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-09-01",
+      "id": "eb5c10fe18d97509",
+      "kind": "ask",
+      "last_seen": "2026-09-01",
+      "last_unanswered": "2026-09-01",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    },
+    {
+      "armed": "2026-09-05T18:57:40.314475+00:00",
+      "commit": "2607a34",
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-22",
+      "id": "9f86d081884c7d65",
+      "kind": "ask",
+      "last_seen": "2026-09-04",
+      "last_unanswered": "2026-08-22",
+      "nodes": 1,
+      "note": "sigreport:tail.",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "snr-history.jsonl measured SNR/RSSI for the sending node"
+    },
+    {
+      "armed": "2026-09-05T18:57:40.107630+00:00",
+      "commit": "2607a34",
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-23",
+      "id": "477432cc064ea3f5",
+      "kind": "ask",
+      "last_seen": "2026-08-23",
+      "last_unanswered": "2026-08-23",
+      "nodes": 1,
+      "note": "sigreport:tail, index 12.",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "snr-history.jsonl measured SNR/RSSI for the sending node"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-22",
+      "id": "a6a2729cbf6bcadc",
+      "kind": "ask",
+      "last_seen": "2026-08-22",
+      "last_unanswered": "2026-08-22",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    },
+    {
+      "armed": "2026-09-05T18:57:40.669079+00:00",
+      "commit": "2607a34",
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-08",
+      "id": "f69bff44070ba35d",
+      "kind": "ask",
+      "last_seen": "2026-08-08",
+      "last_unanswered": "2026-08-08",
+      "nodes": 1,
+      "note": "sigreport:phrase.",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "snr-history.jsonl measured SNR/RSSI for the sending node"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-19",
+      "id": "40ad91a7a3fd8906",
+      "kind": "ask",
+      "last_seen": "2026-08-19",
+      "last_unanswered": "2026-08-19",
+      "nodes": 1,
+      "note": "Bounded by buffer depth; Cal stating the limit was the honest answer. Low value.",
+      "oracle": "derivable",
+      "source": "dm-memory.json conversation buffer"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-22",
+      "id": "b1f53a5f06ebca54",
+      "kind": "ask",
+      "last_seen": "2026-08-22",
+      "last_unanswered": "2026-08-22",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-19",
+      "id": "350dd4b1dacb8b14",
+      "kind": "ask",
+      "last_seen": "2026-08-19",
+      "last_unanswered": "2026-08-19",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-19",
+      "id": "311f7645b941705b",
+      "kind": "ask",
+      "last_seen": "2026-08-19",
+      "last_unanswered": "2026-08-19",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    },
+    {
+      "armed": "2026-09-05T18:57:39.720628+00:00",
+      "commit": "2607a34",
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-17",
+      "id": "961af460ee62030e",
+      "kind": "ask",
+      "last_seen": "2026-08-17",
+      "last_unanswered": "2026-08-17",
+      "nodes": 1,
+      "note": "Long-form variant of the same ask; calc:convert matches.",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "NIST SP 811: 1 mi = 1.609344 km exactly"
+    },
+    {
+      "armed": "2026-09-05T18:57:39.249732+00:00",
+      "commit": "2607a34",
+      "counts": {
+        "CLARIFY": 2
+      },
+      "first_seen": "2026-08-22",
+      "id": "bbfbadeff6536b81",
+      "kind": "ask",
+      "last_seen": "2026-08-22",
+      "last_unanswered": "2026-08-22",
+      "nodes": 1,
+      "note": "Asking for the grade is the correct answer, not a failure; calc:torque owns this.",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "Machinery's Handbook bolt torque tables, grade-dependent"
+    },
+    {
+      "armed": "2026-08-21T18:49:34Z",
+      "commit": "4cc9920",
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-21",
+      "found_by": "manual",
+      "id": "da308b5486c3a717",
+      "kind": "ask",
+      "last_seen": "2026-08-21",
+      "last_unanswered": "2026-08-21",
+      "nodes": 1,
+      "note": "Model aired 30 ft-lb against a true 75 - the 3/8 row, right method wrong diameter.",
+      "oracle": "derivable",
+      "pushed": true,
+      "source": "SAE J429 proof stress; ASME B1.1 tensile stress area; T=K*D*F"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-14",
+      "id": "ebd60f7d6f1e9eb6",
+      "kind": "ask",
+      "last_seen": "2026-08-14",
+      "last_unanswered": "2026-08-14",
+      "nodes": 1,
+      "note": "Deliberate opsec refusal. Correct as-is. NEVER arm a doer for this.",
+      "oracle": "none"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-19",
+      "id": "758ba8c9f794319b",
+      "kind": "ask",
+      "last_seen": "2026-08-19",
+      "last_unanswered": "2026-08-19",
+      "nodes": 1,
+      "note": "[withheld: quotes message text]",
+      "oracle": "none"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-08-08",
+      "id": "5544e358480b48d3",
+      "kind": "ask",
+      "last_seen": "2026-08-08",
+      "last_unanswered": "2026-08-08",
+      "nodes": 1,
+      "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
+      "oracle": "none"
+    }
+  ],
+  "schema": 1,
+  "unattributed": 24,
+  "what": "Adjudication record. Judgment only: no message text, no replies, no node ids. Cluster keys are one-way digests. See export_judgment.py for why."
+}
