@@ -886,12 +886,25 @@ def cmd_triage(args):
         v["armed"] = args.arm if args.arm != "now" else datetime.now(timezone.utc).isoformat()
     if args.commit:
         if args.commit == "auto":
+            # HEAD AT TRIAGE TIME, WHICH IS NOT THE SAME AS THE COMMIT THAT ARMED THIS.
+            # On 2026-09-05 nine clusters were triaged in one 1.6-second batch and every one
+            # recorded the same sha -- a commit about neighbour position, unrelated to torque,
+            # unit conversion, sigreport or the capability list. dashboard.py publishes this
+            # field, and the page calls it "the commit that armed each answer": 9 of 14 were
+            # wrong, presented as evidence.
+            #
+            # `auto` is honest only when the triage IS the arming, i.e. run right after the
+            # commit that shipped it. It cannot know that, so it records HOW the sha was
+            # obtained and lets the reader weigh it. Pass an explicit sha for anything armed
+            # earlier; `git log --diff-filter=A -- <module>` finds it.
             sha, on_origin = git_head()
             if sha:
                 v["commit"], v["pushed"] = sha, on_origin
+                v["commit_source"] = "auto: HEAD at triage time, not verified as the arming commit"
         else:
             v["commit"] = args.commit
             v["pushed"] = args.pushed
+            v["commit_source"] = "stated"
     if args.correct:
         v.setdefault("corrections", []).append(
             {"ts": datetime.now(timezone.utc).isoformat(), "what": args.correct})
