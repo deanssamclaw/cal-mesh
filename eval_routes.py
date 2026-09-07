@@ -35,6 +35,51 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+def _library_python():
+    """The interpreter that has the meshtastic library, read from the installed CLI's shebang
+    so no home directory is hardcoded."""
+    import shutil
+    exe = shutil.which("meshtastic")
+    if not exe:
+        return None
+    try:
+        with open(exe) as fh:
+            first = fh.readline().strip()
+    except OSError:
+        return None
+    if not first.startswith("#!"):
+        return None
+    cand = first[2:].split()[0]
+    return cand if os.path.exists(cand) else None
+
+
+def _ensure_library():
+    """Re-exec into that interpreter once, then give up cleanly.
+
+    This suite covers the bridge's SEND path. It used to print SKIP and exit 0 when the library
+    was missing, so under the default interpreter it reported success without executing a single
+    check -- the exact defect eval_routes.py:621 refuses to tolerate in its own mutants. Compared
+    as LITERAL paths: a venv's bin/python is a symlink to the base interpreter, so realpath()
+    calls them the same file and the guard would refuse to switch into the only environment that
+    works.
+    """
+    try:
+        import pubsub  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    if os.environ.get("CALMESH_EVAL_REEXEC") == "1":
+        return False
+    py = _library_python()
+    if not py or os.path.abspath(py) == os.path.abspath(sys.executable):
+        return False
+    os.execve(py, [py, os.path.abspath(__file__)] + sys.argv[1:],
+              dict(os.environ, CALMESH_EVAL_REEXEC="1"))
+
+
+_ensure_library()
+
+
 # bridge.py opens a radio only under main(); importing it is safe. It does import the
 # meshtastic package at module scope, so run this under the same interpreter the bridge uses.
 _spec = importlib.util.spec_from_file_location("bridge_mod", os.path.join(HERE, "bridge.py"))
@@ -42,8 +87,10 @@ bridge = importlib.util.module_from_spec(_spec)
 try:
     _spec.loader.exec_module(bridge)
 except ModuleNotFoundError as e:
-    print(f"SKIP: {e} — run with the bridge's interpreter "
-          f"(~/.local/pipx/venvs/meshtastic/bin/python)")
+    # Reached only when the re-exec above could not find an interpreter with the library. Say
+    # loudly what did NOT run; the runner treats an announced SKIP as not-green.
+    print(f"SKIP: {e} — no interpreter with the meshtastic library; the bridge send-path "
+          f"checks in this suite DID NOT RUN. Install with: pipx install meshtastic")
     sys.exit(0)
 
 # Fixtures use ONLY the ids scrub-staged.sh recognises as placeholders. That is not a style
