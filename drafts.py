@@ -62,6 +62,7 @@ STATE = os.path.join(BASE, "drafts-state.json")
 GRADES = os.path.join(BASE, "draft-grades.json")
 
 RETAIN_DAYS = 365               # Dean's call 2026-09-06. ~3,000 records, about a megabyte.
+SCHEMA = 1                      # bump when a row's meaning changes, not merely its fields
 DEFAULTS = {"DRAFTS_ENABLED": "false", "DRAFTS_MAX_PER_RUN": "40", "DRAFTS_MAX_PER_DAY": "120"}
 VERDICTS = ("good", "wrong", "harmful")
 
@@ -101,6 +102,39 @@ def load_cfg():
     except OSError:
         pass
     return cfg
+
+
+def regime(cfg):
+    """WHAT CODE PRODUCED THIS ROW. Computed once per run and stamped on every row.
+
+    This is the one thing here that cannot be added later. A row keeps its text for a year; the
+    conditions that produced it are destroyed at write time. The gap is not hypothetical -- on
+    2026-09-06 the input contract changed mid-afternoon (drafts began sanitizing before the
+    model, as the responder always had) and the only way to tell an old row from a new one was
+    the ACCIDENTAL absence of a key. A 365-day corpus lost regime-legibility on day one.
+
+    Four fields, because four things change what a draft would have been: the code, the model,
+    which capabilities were armed (an armed doer means the model never sees that ask), and the
+    row schema itself. `armed` is a sorted digest rather than the list, so it stays one short
+    field and still changes whenever the set does.
+    """
+    import hashlib
+    # learn.git_head() already does this, is tested, and also reports whether the sha is on
+    # origin. Writing a second `rev-parse` here would have added a subprocess site to a module
+    # whose whole safety story is that it shells out to nothing -- and the eval caught exactly
+    # that, which is the check doing its job rather than getting in the way.
+    try:
+        sha, pushed = _learn.git_head()
+    except Exception:
+        sha, pushed = "", False
+    armed = sorted(k for k, v in cfg.items()
+                   if k.endswith("_ENABLED") and str(v).lower() == "true")
+    return {"schema": SCHEMA,
+            "commit": sha or "",
+            "pushed": bool(pushed),
+            "model": cfg.get("RESPONDER_MODEL", ""),
+            "armed": hashlib.sha256(",".join(armed).encode()).hexdigest()[:12],
+            "armed_n": len(armed)}
 
 
 def _load(path, dflt):
@@ -191,6 +225,7 @@ def run(cfg, limit=None, now=None):
     cap = limit if limit is not None else _int_cfg(cfg, "DRAFTS_MAX_PER_RUN",
                                                   DEFAULTS["DRAFTS_MAX_PER_RUN"])
     made = 0
+    reg = regime(cfg)
     for rec in candidates(our):
         if made >= cap:
             break
@@ -236,6 +271,7 @@ def run(cfg, limit=None, now=None):
             "doers": doer_coverage(text),
             "chars": len(reply or ""),
             "gen_ms": int((time.time() - t0) * 1000),
+            **reg,
         })
         made += 1
     return rows, made

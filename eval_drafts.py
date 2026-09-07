@@ -170,6 +170,25 @@ ck("an unparseable budget falls back rather than going unlimited",
 ck("an absent budget falls back", mod._int_cfg({}, "DRAFTS_MAX_PER_RUN", "40") == 40)
 ck("there is no --reset", "--reset" not in CODE)
 
+print("\nevery row records the regime that produced it")
+# The only irreversible gap in this design. A row keeps its text for a year; the conditions
+# that produced it are destroyed at write time unless written down. It already bit: the input
+# contract changed on 2026-09-06 and old rows are distinguishable from new ones only by the
+# accidental absence of a key.
+_reg = mod.regime({"RESPONDER_MODEL": "m", "A_ENABLED": "true", "B_ENABLED": "false"})
+for _k in ("schema", "commit", "model", "armed", "armed_n"):
+    ck("regime carries %s" % _k, _k in _reg, _reg)
+ck("armed counts only what is on", _reg["armed_n"] == 1, _reg)
+ck("the armed digest changes when the set does",
+   mod.regime({"A_ENABLED": "true"})["armed"] != mod.regime({"B_ENABLED": "true"})["armed"])
+ck("and is stable for the same set",
+   mod.regime({"A_ENABLED": "true"})["armed"] == mod.regime({"A_ENABLED": "true"})["armed"])
+_rows2 = []
+run_with_outbox_tripwire(mod, _rows2)
+ck("a written row carries the stamp",
+   bool(_rows2) and all(r.get("schema") == mod.SCHEMA and "armed" in r for r in _rows2),
+   _rows2[0].keys() if _rows2 else None)
+
 print("\nthe model never sees raw stranger text")
 # build_prompt's contract is that msg_text is already sanitized; the responder honours it and
 # this module did not, so an attacker's instruction reached the user turn verbatim. Every check
@@ -293,6 +312,9 @@ MUTANTS = {
     "the arming flag stops being readable": (
         '                if k.strip() in DEFAULTS:',
         '                if False:'),
+    "rows stop recording their regime": (
+        "            **reg,",
+        "            "),
     "raw stranger text reaches the model again": (
         "        clean, flagged = _r.sanitize_inbound(text)",
         "        clean, flagged = text, False"),
@@ -321,6 +343,10 @@ for name, (old, new) in MUTANTS.items():
             caught = [r["draft_id"] for r in m.prune(pair)] != ["b"]
         elif name == "the budget goes unlimited on garbage":
             caught = m._int_cfg({"X": "abc"}, "X", "40") != 40
+        elif name == "rows stop recording their regime":
+            rr = []
+            run_with_outbox_tripwire(m, rr)
+            caught = not (rr and all("schema" in r for r in rr))
         elif name == "raw stranger text reaches the model again":
             seen = {}
             m._r.build_prompt = lambda short, txt, weather_fact=None: seen.setdefault("p", txt)
