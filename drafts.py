@@ -16,8 +16,9 @@ note that the weather doer matched. 13 of 143 stored rows were wrong that way.
 
 Transmission gates -- cooldown, the daily sigreport budget, channel utilisation -- are
 deliberately NOT applied: they decide whether Cal speaks, not what he would say, and the row
-already carries the true answer to "did he speak" in `why_silent`. ALLOW_FROM IS honoured,
-because it changes the arm rather than the volume.
+already carries the true answer to "did he speak" in `why_silent`. ALLOW_FROM is consulted
+only to place the greeting arm where production mounts it; it does NOT suppress a draft. So an
+off-list row with no doer match shows what Cal COULD have said, not what he would have sent.
 
 THREE STRUCTURAL RULES, all graded by eval_drafts.py:
 
@@ -312,9 +313,18 @@ def cal_reply(cfg, rec, our):
     question using TODAY's channel instead of that day's -- a draft that flips because the
     airwaves are busy this morning is measuring the wrong thing.
 
-    ALLOW_FROM is the one gate that IS honoured, because it changes the arm rather than the
-    volume: an off-list sender never reaches generated prose in production, so drafting model
-    prose for one would put words in Cal's mouth he had no path to say.
+    ALLOW_FROM IS CONSULTED, BUT NOT OBEYED, and the distinction matters. In production it
+    stops an off-list sender from ever reaching generated prose, so a strict reading would draft
+    SILENCE for most of this corpus -- 103 of 143 stored rows are off-list asks no doer claims,
+    and the tab would go blank exactly where it is most worth reading. So it decides only where
+    the GREETING arm mounts (production mounts it in the off-list branch, and for a stranger the
+    fixed ack is the only thing Cal ever sends, so falling through to the model there would
+    invent conversation he does not offer). It does NOT suppress the model draft.
+
+    The consequence, stated plainly because the row does not otherwise say it: for an off-list
+    sender with no doer match, the draft is what Cal COULD have said, not what he would have
+    sent -- he would have said nothing. `why_silent` carries "sender_not_allowed" on exactly
+    those rows, copied from the responder's own record, and that is where the truth lives.
 
     Returns (reply, gen_status, via).
     """
