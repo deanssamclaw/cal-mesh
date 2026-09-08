@@ -620,6 +620,16 @@ def build_learning(top=6, runs=20):
         health = _learn.health() if _learn else None
     except Exception:
         health = None
+    # COMPUTED LIVE, not read back from the history record like the counters beside it. Those
+    # are snapshots of a distiller run; a grade is given by a person at an arbitrary moment and
+    # would otherwise not appear until the next 06:15 run -- up to a day of a reader wondering
+    # whether their verdict registered. Nothing a person does by hand should need a cron job to
+    # become visible.
+    try:
+        graded = _learn.grade_queue(tr) if _learn else []
+    except Exception:
+        graded = []
+    open_grades = [g for g in graded if not g.get("triaged")]
     return {
         "health": health,
         "scoreboard": {
@@ -628,7 +638,9 @@ def build_learning(top=6, runs=20):
             "recurred": last.get("recurred", 0),
             "corrections": last.get("corrections", len(corrections)),
             "by_loop": last.get("by_loop", 0), "by_hand": last.get("by_hand", 0),
+            "graded_open": len(open_grades),
         },
+        "graded": open_grades[:top],
         "armed": armed[:top],
         "untriaged": untriaged[:top],
         "corrections": corrections[-top:],
@@ -6778,6 +6790,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     the open queue. A bar in <span class="lwarn">warning colour</span> is a run that landed more
     than 26 h after the one before it, which is the schedule slipping.</p>
     <div class="tiles" id="lrn-stats"></div>
+    <div class="lsec"><h3>Graded from the page</h3><div id="lrn-graded"></div></div>
     <div class="lsec"><h3>Armed</h3><div id="lrn-armed"></div></div>
     <div class="lsec"><h3>Waiting on an oracle</h3>
      <p class="lnote">Nothing is built from these until someone decides what the right answer is
@@ -8027,7 +8040,24 @@ function renderLearning(L){
     tile('recurred after arming', sb.recurred??0, '', (sb.recurred||0)>0?'alarm':''),
     tile('corrections', sb.corrections??0, '', (sb.corrections||0)>0?'alarm':''),
     tile('found by', (sb.by_loop??0)+' / '+(sb.by_hand??0), 'loop / by hand'),
+    // Kept out of `needs an oracle` on purpose: a person taking the trouble to say a reply was
+    // wrong is a scarcer signal than the distiller noticing an ask went unanswered, and adding
+    // the two together would bury it inside a bigger number.
+    tile('graded, still open', sb.graded_open??0, 'from the page'),
   ].join('');
+  const G=L.graded||[];
+  const gbox=$('#lrn-graded');
+  if(gbox){
+    gbox.innerHTML=G.length?G.map(g=>
+      `<div class="lrow"><div class="lask">${esc(g.key||'')}</div>`
+      +`<div class="lmeta">graded <b>${esc(g.verdict||'')}</b>`
+      +(g.via?` &middot; answered by ${esc(g.via)}`:'')
+      +(g.day?` &middot; ${esc(g.day)}`:'')+`</div>`
+      +(g.draft?`<div class="lmeta">Cal said: ${esc(g.draft)}</div>`:'')
+      +(g.better?`<div class="lmeta">should have been: <b>${esc(g.better)}</b></div>`:'')
+      +`</div>`).join('')
+      :'<div class="empty">No open verdicts. Grade a simulated reply to add one.</div>';
+  }
   const A=L.armed||[];
   $('#lrn-armed').innerHTML=A.length?A.map(a=>
     `<div class="lrow${a.recurred?' bad':''}"><div class="lask">${esc(a.ask)}</div>`

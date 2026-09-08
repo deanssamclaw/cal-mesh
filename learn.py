@@ -602,6 +602,81 @@ def render_md(agg, state, tr):
     return md
 
 
+GRADES = os.path.join(BASE, "draft-grades.json")   # human verdicts on simulated replies
+DRAFTS = os.path.join(BASE, "drafts.jsonl")
+
+
+def grade_queue(tr=None):
+    """Human verdicts on simulated replies that still want work, as cluster keys.
+
+    THE JOIN HAPPENS HERE AND NOWHERE ELSE. A grade is an OPINION about a draft; the ledger is a
+    MEASUREMENT of what actually happened on the radio. They live in separate files on purpose
+    and are joined at read time, so a verdict can never rewrite the measurement it was given
+    about -- which is what would happen if grading appended to gap-ledger.json.
+
+    Until now nothing consumed grades at all. drafts.py could record one, the page could render
+    one, export_judgment.py could project one, and no code anywhere turned a verdict into work.
+    That is the difference between a log and a loop, and it is the reason this exists.
+
+    "doer" is the verdict with leverage: it says an ask got prose where a deterministic answer
+    would have served better, which is exactly the question triage.json already adjudicates. So
+    a "doer" grade lands in the same queue a distilled GAP lands in, and is worked the same way.
+    "wrong" and "harmful" ride along carrying `better` -- the reply the grader typed instead --
+    because a correction is the only feedback that says what SHOULD have been said rather than
+    that something was off.
+
+    An item drops off the queue when its cluster key is TRIAGED, not when it is graded again:
+    the queue measures outstanding work, and a second opinion on the same ask is not progress.
+    """
+    tr = load_triage() if tr is None else tr
+    try:
+        grades = json.load(open(GRADES, encoding="utf-8"))
+        if not isinstance(grades, dict):
+            return []
+    except (OSError, json.JSONDecodeError):
+        return []
+    # draft_id -> the message that was drafted for. Read fresh; drafts.jsonl is rewritten daily.
+    texts = {}
+    try:
+        for ln in open(DRAFTS, encoding="utf-8"):
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                r = json.loads(ln)
+            except json.JSONDecodeError:
+                continue
+            if r.get("draft_id"):
+                texts[r["draft_id"]] = r
+    except OSError:
+        pass
+
+    out = []
+    for did, g in sorted(grades.items()):
+        if not isinstance(g, dict):
+            continue
+        v = g.get("verdict")
+        if v not in ("doer", "wrong", "harmful"):
+            continue                      # "good" is not work
+        row = texts.get(did) or {}
+        key = normalize(row.get("text", "")) or "(empty)"
+        out.append({
+            "key": key,
+            "verdict": v,
+            "better": g.get("better", ""),
+            "note": g.get("note", ""),
+            "by": g.get("by", ""),
+            "day": (g.get("ts") or "")[:10],
+            "draft_id": did,
+            # What Cal said, so the queue shows the thing being objected to. Already published
+            # on the Simulated Replies tab; this is the same sentence, not a new disclosure.
+            "draft": row.get("draft", ""),
+            "via": row.get("via", ""),
+            "triaged": bool(verdict(tr, key)),
+        })
+    return out
+
+
 def snapshot(agg, tr):
     """The scoreboard as numbers, for one run.
 
@@ -629,6 +704,12 @@ def snapshot(agg, tr):
                        if isinstance(v, dict) and v.get("found_by") == "loop"),
         "by_hand": sum(1 for v in tr.values()
                        if isinstance(v, dict) and v.get("found_by") == "manual"),
+        # HUMAN VERDICTS STILL OPEN. Counted separately from `untriaged`, which the distiller
+        # produces on its own: a person taking the trouble to say "this was wrong" is a
+        # different and scarcer signal than a machine noticing an ask went unanswered, and
+        # folding the two into one number would hide it inside a bigger one.
+        "graded_open": sum(1 for g in grade_queue(tr) if not g["triaged"]),
+        "graded_total": len(grade_queue(tr)),
     }
 
 
