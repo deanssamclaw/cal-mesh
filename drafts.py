@@ -6,7 +6,20 @@ Whether that silence is right is currently unknowable, because nothing anywhere 
 Cal WOULD have said. This drafts it, stores it, and publishes it on its own tab. Nothing here
 transmits, and the point is to look before deciding whether Cal should speak more.
 
-TWO STRUCTURAL RULES, both graded by eval_drafts.py:
+THE DRAFT IS CAL'S REASONING, NOT THE MODEL'S. cal_reply() runs the SAME ladder the live
+responder runs, in the same order and out of the same functions: sigreport, then the doer plan
+(calc, sunmoon, weather, capabilities), then the off-list greeting ack, and a model prompt only
+when nothing else claimed the message. Until 2026-09-08 it did none of that -- it called the
+model for every message and separately LABELLED which doer would have answered, so the tab
+published Cal declining a capability he has ("Can't check live weather try online") beside a
+note that the weather doer matched. 13 of 143 stored rows were wrong that way.
+
+Transmission gates -- cooldown, the daily sigreport budget, channel utilisation -- are
+deliberately NOT applied: they decide whether Cal speaks, not what he would say, and the row
+already carries the true answer to "did he speak" in `why_silent`. ALLOW_FROM IS honoured,
+because it changes the arm rather than the volume.
+
+THREE STRUCTURAL RULES, all graded by eval_drafts.py:
 
   1. THE MODEL CALL IS THE RESPONDER'S. This module calls responder.run_claude() and never
      builds an argv. That argv is a lockdown -- `--permission-mode plan` (tools cannot execute,
@@ -20,6 +33,14 @@ TWO STRUCTURAL RULES, both graded by eval_drafts.py:
      transmit boundary is a DIRECTORY, not an import, and "this module does not import enqueue"
      is a check that cannot fail: it passes for open(OUTBOX + "/x", "w"). The eval instead runs
      this module under a wrapper that fails on any write resolving inside outbox/.
+
+  3. A DOER'S ANSWER IS REPLAYED, NEVER RECONSTRUCTED. sigreport is built entirely out of snr,
+     rssi, hops and relay_byte, which live on the PACKET (inbox.jsonl) and not on the decision
+     (decisions.jsonl). Without the packet, a "report" would be invented numbers presented as
+     measurements, so the join refuses when it cannot identify the packet unambiguously and
+     sigreport declines. Validated against an oracle, not by inspection: for the 4 records where
+     Cal really sent a report and the text still matches today's rules, this path reproduces the
+     transmitted string byte for byte.
 
 WHAT LEARNS FROM IT. Deliberately split, because a check that scores its own output cannot fail:
 
@@ -218,6 +239,136 @@ def candidates(our):
     return rows
 
 
+# --- the radio's own measurements -------------------------------------------------------------
+# decisions.jsonl records what Cal DECIDED; it does not carry snr, rssi, hops or relay_byte,
+# because those belong to the packet rather than the decision. sigreport is built entirely out
+# of them, so without the packet its replay is not "a different answer" -- it is a FABRICATION,
+# and sigreport correctly refuses with no_measurements. inbox.jsonl has all four on all rows.
+#
+# THE JOIN IS DELIBERATELY REFUSABLE. The two files stamp different clocks (the bridge's receive
+# time and the responder's decision time), so no exact key exists: measured across 322 records,
+# (from, ts) matches 0 and (from, text) matches all 322 -- but (from, text) is NOT unique, with
+# 28 keys covering 73 rows. Picking the nearest of several is how the trace panel published one
+# exchange's measurements against another's message. So: nearest within a bound, and when more
+# than one candidate sits inside that bound, return nothing and let sigreport refuse.
+#
+# Validated against an oracle rather than by inspection: 8 records show Cal really sent a
+# sigreport, and for the 4 whose text still matches, this join plus sigreport.report() reproduces
+# the transmitted string BYTE FOR BYTE, relay name and all.
+_JOIN_WINDOW_S = 60.0
+_PACKETS = None
+
+
+def _packet_index():
+    global _PACKETS
+    if _PACKETS is None:
+        _PACKETS = {}
+        try:
+            for ln in open(os.path.join(BASE, "inbox.jsonl"), encoding="utf-8"):
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    r = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                _PACKETS.setdefault((r.get("from"), r.get("text")), []).append(r)
+        except OSError:
+            pass
+    return _PACKETS
+
+
+def _when(s):
+    try:
+        return datetime.fromisoformat(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def packet_for(rec, window=_JOIN_WINDOW_S):
+    """The inbound packet behind a decision, or None when it cannot be identified UNAMBIGUOUSLY."""
+    t = _when(rec.get("ts"))
+    if t is None:
+        return None
+    near = [c for c in _packet_index().get((rec.get("from"), rec.get("text")), [])
+            if (_when(c.get("ts")) is not None
+                and abs((_when(c.get("ts")) - t).total_seconds()) <= window)]
+    return near[0] if len(near) == 1 else None
+
+
+def cal_reply(cfg, rec, our):
+    """WHAT CAL WOULD HAVE SAID, through his own ladder rather than a model wearing his name.
+
+    Mirrors the live order exactly -- sigreport (responder.py:1430), the doer/model plan
+    (:1476), then the off-list greeting ack (:1583) -- and calls each arm's OWN content
+    function instead of restating its logic here. Restating it is how the two copies drift,
+    and this module is a read-only observer with no standing to hold a second opinion about
+    what Cal says.
+
+    TRANSMISSION GATES ARE DELIBERATELY NOT APPLIED. Cooldown, the daily sigreport budget and
+    channel utilisation decide whether Cal SPEAKS; none of them changes what he would have
+    said. The row already carries the true answer to "did he speak" in `why_silent`, copied
+    from the responder's own record at the time. Re-deciding it here would answer a settled
+    question using TODAY's channel instead of that day's -- a draft that flips because the
+    airwaves are busy this morning is measuring the wrong thing.
+
+    ALLOW_FROM is the one gate that IS honoured, because it changes the arm rather than the
+    volume: an off-list sender never reaches generated prose in production, so drafting model
+    prose for one would put words in Cal's mouth he had no path to say.
+
+    Returns (reply, gen_status, via).
+    """
+    text = rec.get("text") or ""
+    trig = cfg.get("TRIGGER_WORD", "cal")
+    allow = [a.strip() for a in (cfg.get("ALLOW_FROM") or "").split(",") if a.strip()]
+    off_list = rec.get("from") not in allow
+
+    # 1. SIGREPORT. The measurements ride on the record, so this arm replays EXACTLY: the
+    #    numbers are the ones the radio actually heard that day, not today's.
+    #    try_answer() joins match+report and threads `index`, which the separate two-call path
+    #    once dropped -- the 2026-08-23 defect described at responder.py:1283. `relay_name` is
+    #    passed because production passes it; eval_drafts asserts the two agree on real records.
+    if (cfg.get("SIGREPORT_ENABLED", "false").lower() == "true"
+            and rec.get("from") != our
+            and rec.get("reaction") in (None, False)):
+        pkt = packet_for(rec)
+        if pkt is not None and pkt.get("reaction") in (None, False):
+            sr, _m = _sig.try_answer(
+                text, pkt,
+                max_chars=_int_cfg(cfg, "SIGREPORT_MAX_CHARS",
+                                   _r.DEFAULTS["SIGREPORT_MAX_CHARS"]),
+                trigger=trig,
+                relay_name=_r.resolve_relay(pkt.get("relay_byte")))
+            if sr:
+                return sr, "ok", "sigreport"
+
+    # 2. THE DOER LADDER, then the model. plan_response is pure by contract, so calling it and
+    #    then declining to use the prompt costs nothing but the weather fetch -- which a bare
+    #    greeting can never trigger.
+    plan = _r.plan_response(cfg, rec.get("from"), text)
+    if plan["mode"] == "fixed":
+        return (plan["fixed_reply"], "ok",
+                plan.get("capability") or plan.get("fixed_kind") or "fixed")
+
+    # 3. GREETING, off-list only -- which is where production mounts it. For a stranger this is
+    #    the ONLY thing Cal ever sends, so falling through to the model here would misrepresent
+    #    him in the direction that flatters: inventing conversation he does not actually offer.
+    if (off_list and cfg.get("GREETING_ENABLED", "false").lower() == "true"
+            and rec.get("to") in ("^all", None)
+            and rec.get("reaction") in (None, False)):
+        g = _r.greeting_reply(text, cfg.get("GREET_TEXT", ""))
+        if g:
+            return g, "ok", "greeting"
+
+    reply, why = _r.run_claude(cfg, plan["prompt"])
+    # The weather path is NEITHER arm: plan_response returns mode=generate with
+    # capability="weather" because the harness fetched a real observation and injected it, and
+    # the model only phrases it. "model" would hide the fact; a doer name would claim a
+    # determinism it lacks -- rerun tomorrow and the temperature differs. Name it for what it is.
+    via = "model+" + plan["capability"] if plan.get("capability") else "model"
+    return reply, why, via
+
+
 def run(cfg, limit=None, now=None):
     rows = prune(_load_rows(), now)
     done = already(rows)
@@ -247,9 +398,19 @@ def run(cfg, limit=None, now=None):
         # demoted it to a gate on TRANSMISSION, which was never the deal. Sanitizing restores
         # the responder's actual input path, so the draft is also a more faithful counterfactual,
         # not a less faithful one.
+        # THE REAL LADDER lives in cal_reply(); see it for the order and for which gates are
+        # deliberately not applied. What it replaces here was a direct
+        # sanitize -> build_prompt -> run_claude that reached the model every time and skipped
+        # every doer. 13 of 143 stored rows were for messages a doer owns, and the model,
+        # having no weather tool, DECLINED -- "Can't check live weather try online" -- against a
+        # live weather doer that answers with a temperature. The tab published Cal refusing a
+        # capability he has.
+        #
+        # `clean`/`flagged` are recomputed here rather than returned by cal_reply: they describe
+        # what the SANITIZER did to the inbound, which is a property of the message and true on
+        # every arm, including the ones that never build a prompt at all.
         clean, flagged = _r.sanitize_inbound(text)
-        prompt = _r.build_prompt((rec.get("from") or "")[-4:], clean)
-        reply, why = _r.run_claude(cfg, prompt)
+        reply, why, via = cal_reply(cfg, rec, our)
         rows.append({
             "ts": rec.get("ts"),
             "draft_id": did,
@@ -257,6 +418,10 @@ def run(cfg, limit=None, now=None):
             "text": text,
             "draft": reply,
             "gen_status": why,
+            # WHICH ARM ANSWERED: a doer name, or "model". The single most useful field on the
+            # row -- it separates "Cal knew this" from "Cal improvised", and a doer reply needs
+            # no grading at all.
+            "via": via,
             # The responder's OWN recorded reason, copied not recomputed, so the row says which
             # gate actually stopped it rather than which gate would stop it now.
             "why_silent": rec.get("reason"),

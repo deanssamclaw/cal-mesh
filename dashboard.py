@@ -538,7 +538,14 @@ def build_drafts(limit=40):
     rows.sort(key=lambda r: r.get("ts") or "", reverse=True)
     out = []
     for r in rows[:limit]:
+        # draft_id IS PUBLISHED, and has to be: without it the page can render a grade but has
+        # no way to ADDRESS one. That was the whole reason grading stayed a CLI nobody used --
+        # the tab showed a `grade` field for rows it could not identify.
+        # `via` says which arm answered (a doer name, "model", or "model+weather" for the
+        # fact-injected path). It is the field that makes a grade cheap to give: a deterministic
+        # doer reply needs no judgment at all, so the reader can skip straight to the prose.
         out.append({"ts": r.get("ts"), "text": r.get("text"), "draft": r.get("draft"),
+                    "draft_id": r.get("draft_id"), "via": r.get("via"),
                     "why_silent": r.get("why_silent"), "shape": r.get("shape"),
                     "doers": r.get("doers") or [], "faithful": r.get("faithful"),
                     "sent_reply": r.get("sent_reply"),
@@ -613,6 +620,16 @@ def build_learning(top=6, runs=20):
         health = _learn.health() if _learn else None
     except Exception:
         health = None
+    # COMPUTED LIVE, not read back from the history record like the counters beside it. Those
+    # are snapshots of a distiller run; a grade is given by a person at an arbitrary moment and
+    # would otherwise not appear until the next 06:15 run -- up to a day of a reader wondering
+    # whether their verdict registered. Nothing a person does by hand should need a cron job to
+    # become visible.
+    try:
+        graded = _learn.grade_queue(tr) if _learn else []
+    except Exception:
+        graded = []
+    open_grades = [g for g in graded if not g.get("triaged")]
     return {
         "health": health,
         "scoreboard": {
@@ -621,7 +638,9 @@ def build_learning(top=6, runs=20):
             "recurred": last.get("recurred", 0),
             "corrections": last.get("corrections", len(corrections)),
             "by_loop": last.get("by_loop", 0), "by_hand": last.get("by_hand", 0),
+            "graded_open": len(open_grades),
         },
+        "graded": open_grades[:top],
         "armed": armed[:top],
         "untriaged": untriaged[:top],
         "corrections": corrections[-top:],
@@ -6411,6 +6430,19 @@ padding:2px 7px;border-radius:4px;background:var(--warn);color:var(--card)}
 .drdraft{margin:4px 0;padding:6px 9px;border-radius:6px;background:var(--card2);
 border:1px dashed var(--line);font-style:italic}
 .drsent{margin-top:4px;font-size:12px;color:var(--dim)}
+.drvia{font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+padding:2px 7px;border-radius:4px;background:var(--card2);color:var(--dim);
+border:1px solid var(--line)}
+.drvia.doer{background:var(--ok,#2f6f3e);color:var(--card);border-color:transparent}
+.drgrade{margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.gb{font:inherit;font-size:15px;line-height:1;cursor:pointer;padding:4px 9px;border-radius:6px;
+border:1px solid var(--line);background:var(--card);color:var(--fg)}
+.gb:hover{background:var(--card2)}
+.gb.on{background:var(--fg);color:var(--card);border-color:var(--fg)}
+.gb[disabled]{opacity:.5;cursor:default}
+.gbetter{flex:1 1 220px;min-width:160px;font:inherit;font-size:13px;padding:5px 8px;
+border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+.gsaid{font-size:12px;color:var(--dim)}
 #pane-learn .lchip.unknown{background:#fff8c5;color:var(--warn);border-color:#f0e08a}
 #pane-learn .lhwhy{color:var(--dim);font-size:12.5px}
 #pane-learn .lfacts{display:flex;flex-wrap:wrap;gap:1px;background:var(--line)}
@@ -6758,6 +6790,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     the open queue. A bar in <span class="lwarn">warning colour</span> is a run that landed more
     than 26 h after the one before it, which is the schedule slipping.</p>
     <div class="tiles" id="lrn-stats"></div>
+    <div class="lsec"><h3>Graded from the page</h3><div id="lrn-graded"></div></div>
     <div class="lsec"><h3>Armed</h3><div id="lrn-armed"></div></div>
     <div class="lsec"><h3>Waiting on an oracle</h3>
      <p class="lnote">Nothing is built from these until someone decides what the right answer is
@@ -7928,18 +7961,60 @@ function renderDrafts(D){
   if(!rows.length){ box.innerHTML='<div class="empty">Nothing simulated yet.</div>'; return; }
   // EVERY row says NOT SENT in its own markup, not only in the tab note above: a screenshot of
   // one row has to carry that too, or a draft travels without the one word that makes it honest.
-  box.innerHTML=rows.map(r=>
-    `<div class="xc dr">`
+  box.innerHTML=rows.map(r=>{
+    // `via` replaced the old "a doer would have answered" note. That note existed because the
+    // draft was ALWAYS the model and the doer was only labelled; now the doer actually answers,
+    // so the honest field is which arm did. A name with no "model" in it ran no model at all.
+    const via=r.via||'', isDoer=via&&via.indexOf('model')<0;
+    return `<div class="xc dr" data-id="${esc(r.draft_id||'')}">`
     +`<div class="drhead"><span class="drtag">not sent</span>`
+    +(via?`<span class="drvia${isDoer?' doer':''}">${esc(via)}</span>`:'')
     +`<span class="lmeta">${r.ts?daystamp(r.ts):''}${r.why_silent?' &middot; '+esc(r.why_silent):''}`
     +`${r.shape?' &middot; '+esc(r.shape):''}`
-    +`${(r.doers&&r.doers.length)?' &middot; a doer would have answered: '+esc(r.doers.join(', ')):''}`
     +`${r.faithful===false?' &middot; <span class="lwarn">simulated after the fact</span>':''}</span></div>`
     +`<div class="drheard">${esc(r.text||'')}</div>`
     +`<div class="drdraft">${esc(r.draft||'')}</div>`
     +(r.sent_reply?`<div class="drsent">actually sent: ${esc(r.sent_reply)}</div>`:'')
-    +(r.grade?`<div class="lmeta">graded <b>${esc(r.grade.verdict)}</b>${r.grade.note?' &mdash; '+esc(r.grade.note):''}</div>`:'')
-    +`</div>`).join('');
+    +gradeBar(r)
+    +`</div>`;}).join('');
+  box.querySelectorAll('.gb').forEach(b=>b.addEventListener('click',onGrade));
+}
+// Four verdicts, and each one NAMES ITS CONSEQUENCE. A bare thumb says a draft was bad and
+// nothing about why, so it cannot route anywhere and the reader ends up re-reading every row to
+// act on it. "should have been a doer" is the one with real leverage: it drops the ask into the
+// same triage queue that already turns gaps into armed answers.
+const VERDICTS=[['good','\ud83d\udc4d','this is what Cal should have said'],
+                ['doer','\ud83d\udd27','should have been a doer, not prose'],
+                ['wrong','\u270f\ufe0f','wrong — say what would have been better'],
+                ['harmful','\u26a0\ufe0f','should not have been said at all']];
+function gradeBar(r){
+  const g=r.grade||null, cur=g&&g.verdict||'';
+  return `<div class="drgrade">`
+    +VERDICTS.map(([v,e,t])=>
+      `<button class="gb${cur===v?' on':''}" data-v="${v}" title="${esc(t)}">${e}</button>`).join('')
+    +`<input class="gbetter" data-role="better" placeholder="what Cal should have said (optional)"`
+    +` value="${esc((g&&g.better)||'')}">`
+    +`<span class="gsaid">${g?'graded '+esc(g.verdict)+(g.by?' \u00b7 '+esc(g.by):''):''}</span>`
+    +`</div>`;
+}
+async function onGrade(ev){
+  const btn=ev.currentTarget, card=btn.closest('.dr'), bar=btn.closest('.drgrade');
+  const id=card&&card.getAttribute('data-id');
+  if(!id) return;
+  const better=(bar.querySelector('[data-role=better]')||{}).value||'';
+  bar.querySelectorAll('.gb').forEach(b=>b.disabled=true);
+  const said=bar.querySelector('.gsaid');
+  try{
+    const res=await fetch('/api/grade',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({draft_id:id,verdict:btn.getAttribute('data-v'),better:better})});
+    const j=await res.json();
+    if(j.ok){
+      bar.querySelectorAll('.gb').forEach(b=>b.classList.remove('on'));
+      btn.classList.add('on');
+      said.textContent='graded '+btn.getAttribute('data-v');
+    } else { said.textContent='not saved: '+(j.reason||'error'); }
+  }catch(e){ said.textContent='not saved'; }
+  bar.querySelectorAll('.gb').forEach(b=>b.disabled=false);
 }
 function renderLearning(L){
   const sb=L.scoreboard||{};
@@ -7965,7 +8040,24 @@ function renderLearning(L){
     tile('recurred after arming', sb.recurred??0, '', (sb.recurred||0)>0?'alarm':''),
     tile('corrections', sb.corrections??0, '', (sb.corrections||0)>0?'alarm':''),
     tile('found by', (sb.by_loop??0)+' / '+(sb.by_hand??0), 'loop / by hand'),
+    // Kept out of `needs an oracle` on purpose: a person taking the trouble to say a reply was
+    // wrong is a scarcer signal than the distiller noticing an ask went unanswered, and adding
+    // the two together would bury it inside a bigger number.
+    tile('graded, still open', sb.graded_open??0, 'from the page'),
   ].join('');
+  const G=L.graded||[];
+  const gbox=$('#lrn-graded');
+  if(gbox){
+    gbox.innerHTML=G.length?G.map(g=>
+      `<div class="lrow"><div class="lask">${esc(g.key||'')}</div>`
+      +`<div class="lmeta">graded <b>${esc(g.verdict||'')}</b>`
+      +(g.via?` &middot; answered by ${esc(g.via)}`:'')
+      +(g.day?` &middot; ${esc(g.day)}`:'')+`</div>`
+      +(g.draft?`<div class="lmeta">Cal said: ${esc(g.draft)}</div>`:'')
+      +(g.better?`<div class="lmeta">should have been: <b>${esc(g.better)}</b></div>`:'')
+      +`</div>`).join('')
+      :'<div class="empty">No open verdicts. Grade a simulated reply to add one.</div>';
+  }
   const A=L.armed||[];
   $('#lrn-armed').innerHTML=A.length?A.map(a=>
     `<div class="lrow${a.recurred?' bad':''}"><div class="lask">${esc(a.ask)}</div>`
@@ -8103,6 +8195,77 @@ SUPPLEMENT_PAGES = {
 }
 
 
+# --- grading the simulated replies ------------------------------------------------------------
+# PUBLIC AND UNGATED, on purpose. This page is on the open internet by design, and the whole
+# point of publishing Cal's reasoning is that anyone reading it can say whether it was any good.
+# A grade is an opinion about a sentence Cal already published; there is nothing here to protect.
+#
+# What IS bounded is the write itself, which is a different question from who may write. An
+# unbounded public writer can exhaust a disk without ever being malicious about it: the verdict
+# is a closed set, the note is capped, the body is capped, and -- the one that matters -- the
+# draft_id must already exist in drafts.jsonl, so the keyspace is the set of drafts Cal has
+# actually made rather than anything a client can name.
+#
+# Deliberately NOT imported: drafts.py, and through it responder.py. The responder owns
+# enqueue(), which writes the outbox that bridge.py broadcasts. The always-on public server has
+# no business holding a reference to the transmit path, so the ~20 lines of write logic are
+# restated here instead. eval_grade asserts the two writers agree on the schema.
+GRADES_PATH = os.path.join(BASE, "draft-grades.json")
+GRADE_VERDICTS = ("good", "doer", "wrong", "harmful")
+MAX_GRADE_BODY = 4096
+MAX_NOTE = 400
+_GRADE_LOCK = threading.Lock()
+
+
+def known_draft_ids():
+    """Every draft_id on disk. Rebuilt per call: the file is appended daily, and a grade for a
+    draft made this morning must not need a restart to be accepted."""
+    ids = set()
+    try:
+        for ln in open(os.path.join(BASE, "drafts.jsonl"), encoding="utf-8"):
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                ids.add(json.loads(ln).get("draft_id"))
+            except json.JSONDecodeError:
+                continue
+    except OSError:
+        pass
+    ids.discard(None)
+    return ids
+
+
+def record_grade(draft_id, verdict, note="", better="", by="page"):
+    """Persist one verdict. Returns (ok, reason). Caller has already read the body."""
+    if verdict not in GRADE_VERDICTS:
+        return False, "bad_verdict"
+    if not isinstance(draft_id, str) or draft_id not in known_draft_ids():
+        return False, "unknown_draft"
+    # dashboard.py has no module-level datetime import (only a local one in _ts), and a
+    # NameError here would fire on the FIRST grade anyone ever gave, on the public page.
+    from datetime import datetime, timezone
+    with _GRADE_LOCK:
+        try:
+            g = json.load(open(GRADES_PATH, encoding="utf-8"))
+            if not isinstance(g, dict):
+                g = {}
+        except (OSError, json.JSONDecodeError):
+            g = {}
+        g[draft_id] = {"verdict": verdict,
+                       "note": (note or "")[:MAX_NOTE],
+                       # The corrected reply. This is the only feedback that produces something
+                       # to learn FROM rather than a complaint about what was produced.
+                       "better": (better or "")[:MAX_NOTE],
+                       "by": by,
+                       "ts": datetime.now(timezone.utc).isoformat()}
+        tmp = GRADES_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(g, fh, ensure_ascii=False, indent=2, sort_keys=True)
+        os.replace(tmp, GRADES_PATH)
+    return True, "ok"
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -8120,6 +8283,38 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        if path != "/api/grade":
+            self._send(404, b"not found", "text/plain")
+            return
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._send(400, b'{"ok":false,"reason":"bad_length"}', "application/json")
+            return
+        if n <= 0 or n > MAX_GRADE_BODY:
+            self._send(413, b'{"ok":false,"reason":"body_size"}', "application/json")
+            return
+        if not _SEM.acquire(blocking=False):
+            self._send(503, b'{"ok":false,"reason":"busy"}', "application/json")
+            return
+        try:
+            try:
+                body = json.loads(self.rfile.read(n).decode("utf-8", "replace"))
+            except (json.JSONDecodeError, UnicodeError):
+                self._send(400, b'{"ok":false,"reason":"bad_json"}', "application/json")
+                return
+            if not isinstance(body, dict):
+                self._send(400, b'{"ok":false,"reason":"bad_json"}', "application/json")
+                return
+            ok, reason = record_grade(body.get("draft_id"), body.get("verdict"),
+                                      body.get("note", ""), body.get("better", ""))
+            self._send(200 if ok else 400,
+                       json.dumps({"ok": ok, "reason": reason}).encode(), "application/json")
+        finally:
+            _SEM.release()
 
     def do_GET(self):
         path = urlparse(self.path).path
@@ -8167,6 +8362,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 class Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
+    # The listen backlog, not a thread limit. socketserver defaults to 5, and a connection that
+    # arrives with the queue full is RESET rather than delayed -- measured: 12 simultaneous
+    # posts, one reset, one verdict silently lost. That was tolerable while every route was a
+    # read a browser would retry; it is not tolerable now that one of them is the only write
+    # path a grader has, on a page published to the open internet.
+    request_queue_size = 128
 
 
 if __name__ == "__main__":
