@@ -40,8 +40,9 @@ crash/restart without ever dropping packet capture. The dashboard only observes.
 |-------|------|------|
 | `com.cal.mesh-bridge`    | `bridge.py`    | Owns Cal HT (serial or TCP). Capture → `inbox.jsonl`; send ← `outbox/`. Emits `status.json`, `sent.jsonl`, `nodes.json`. |
 | `com.cal.mesh-responder` | `responder.py` | Autonomous Cal. Gates inbound → generates a terse reply via headless `claude` → `outbox/`. Logs every verdict to `decisions.jsonl`. |
-| `com.cal.mesh-dashboard` | `dashboard.py` | Read-only web view of every lever. No deps (stdlib). Funnel-exposed. |
+| `com.cal.mesh-dashboard` | `dashboard.py` | Web view of every lever, plus one write: `POST /api/grade`. No deps (stdlib). Funnel-exposed. |
 | `com.cal.mesh-learn`     | `learn.py`     | Daily 06:15. Distils `decisions.jsonl` into a ranked ledger of what Cal could not answer, and audits that ledger against its own classifier. Reads only; proposes, never arms. |
+| `com.cal.mesh-drafts`    | `drafts.py`    | Daily 06:30. Runs Cal's own ladder over every message that was not his, stores what he would have said, and transmits nothing. |
 
 Restart any: `launchctl kickstart -k gui/$(id -u)/com.cal.mesh-<name>`
 
@@ -360,6 +361,55 @@ genuinely a fragment. Measured over 292 known nodes, a two-character fragment ma
 one node only **28%** of the time and one value is shared by **nine**. So a relay is named only
 on a unique match and otherwise reports how many candidates it has. Guessing the likeliest is
 the mistake `clean_name` already exists for.
+
+## Simulated replies, and grading them
+
+Cal hears far more than he answers. Nothing recorded what he *would* have said, so whether the
+silence was right was unknowable. `drafts.py` runs his real ladder over every message that was
+not his own — sigreport, then the doer plan, then the off-list greeting ack, and a model prompt
+only when nothing else claims it — and writes the result to its own tab. It cannot transmit, and
+that is tested at the filesystem rather than asserted: the eval runs the module under a wrapper
+that fails on any write resolving inside `outbox/`.
+
+It did not always work that way. Until 2026-09-08 it called the model for every message and
+separately *labelled* which doer would have answered, so the tab published Cal declining a
+capability he has — "Can't check live weather try online" beside a note that the weather doer
+matched. 40 of 143 stored rows were wrong that way and were re-drafted in place.
+
+Each row says which arm answered. `sigreport` or `weather` means no model ran at all.
+`model+weather` means the harness fetched a real observation and the model only phrased it —
+neither a doer nor free prose, so it is named for what it is.
+
+**One honest limit.** `ALLOW_FROM` stops an off-list sender from ever reaching generated prose
+in production. Drafts consult it only to place the greeting arm; they do not obey it, because
+obeying it would draft silence for 103 of 143 rows and blank the tab where it is worth reading.
+So an off-list row with no doer match shows what Cal *could* have said, not what he would have
+sent — he would have said nothing. `why_silent` carries `sender_not_allowed` on those rows.
+
+### Grading is public and ungated
+
+`POST /api/grade` takes a verdict from anyone who can open the page. That is deliberate: the
+page is on the open internet by design, and a grade is an opinion about a sentence Cal already
+published there. What is bounded is the *write*, which is a different question from the writer —
+a closed verdict set, capped note and body, and a `draft_id` that must already exist, so the
+keyspace is the set of drafts Cal actually made rather than anything a client can name.
+
+Four verdicts, each naming its own consequence, because a bare thumb says a draft was bad and
+nothing about why — so it cannot route anywhere:
+
+| verdict | means | what happens |
+|---|---|---|
+| 👍 `good` | this is what Cal should have said | counts toward a baseline |
+| 🔧 `doer` | should have been deterministic, not prose | enters the triage queue that arms doers |
+| ✏️ `wrong` | carries the reply that would have been better | the only feedback with training signal |
+| ⚠️ `harmful` | should not have been said at all | queued as work |
+
+`learn.grade_queue()` is the join that makes this a loop rather than a log. It keys each verdict
+with the distiller's own `normalize()`, so a graded ask and a distilled gap land in one namespace
+instead of two spellings of the same thing, and an item clears when its ask is **triaged** — not
+when it is graded again. The join happens at read time and nowhere else: a grade is an opinion,
+`gap-ledger.json` is a measurement of what happened on the radio, and appending one to the other
+would leave nothing downstream able to tell them apart.
 
 ## The learning loop, and whether it is running
 
