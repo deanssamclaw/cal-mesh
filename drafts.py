@@ -379,6 +379,36 @@ def cal_reply(cfg, rec, our):
     return reply, why, via
 
 
+# Arms whose injected fact is fetched LIVE at generation time and therefore cannot be replayed
+# for a message from last week. sigreport is deliberately absent: it is rebuilt from snr/rssi on
+# the PACKET, so it is contemporaneous by construction, which is the whole reason that path
+# refuses when it cannot identify the packet.
+_TIME_DEPENDENT = ("weather", "sunmoon")
+
+
+def faithful_draft(rec, via):
+    """Is this draft a faithful account of what Cal WOULD have said, at the time?
+
+    Two ways it is not, and only the first was checked until 2026-09-12:
+
+      1. Cal actually replied. Then the real reply is on the record and a draft beside it is a
+         guess about a question already answered.
+      2. A LIVE, TIME-DEPENDENT FACT went into it. A weather draft made today for an August
+         message carries today's observation. Measured: an 2026-08-21 heat-index ask and a
+         2026-09-10 storm ask hold the IDENTICAL fact, twenty days apart, and one row answered
+         "Moderate rain" with "75F clear south wind 7 mph". Both rendered with no caveat,
+         because `faithful` was keyed on (1) alone and Cal had never replied to either.
+
+    This mislabelling is not cosmetic: it produced two wrong verdicts in the 2026-09-12 review,
+    where three heat-index drafts were graded "never answered the heat index" while the real
+    on-air replies had answered it ("Clear skies, 88F, heat index 98F"). A grading surface that
+    manufactures defects is worse than one that reports none.
+    """
+    if rec.get("reply"):
+        return False
+    return not any(k in (via or "") for k in _TIME_DEPENDENT)
+
+
 def run(cfg, limit=None, now=None):
     rows = prune(_load_rows(), now)
     done = already(rows)
@@ -438,7 +468,7 @@ def run(cfg, limit=None, now=None):
             "sent_reply": rec.get("reply"),
             # A draft made later is not what the responder would have said: the weather fact,
             # sun/moon times and DM memory are all read live at generation time.
-            "faithful": not bool(rec.get("reply")),
+            "faithful": faithful_draft(rec, via),
             # What the sanitizer did, so the tab can show that a message was redacted rather
             # than silently publishing a draft of something that never reached the model whole.
             "flagged": flagged,
