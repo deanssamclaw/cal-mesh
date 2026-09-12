@@ -548,9 +548,71 @@ ck("the CLI records who graded", '"by"' in _grade_src)
 # drafts.py must keep mirroring the live ladder, so a draft that saw context the responder
 # cannot see would stop measuring Cal. The guarantee is STRUCTURAL -- the window is built in
 # dashboard.py's display layer -- and these checks are what keep it that way.
-ck("drafts.py builds no conversation window",
-   "draft_context" not in CODE and "CONTEXT_WINDOW" not in CODE)
-ck("the window lives in the display layer", hasattr(_dash, "draft_context"))
+# REVERSED 2026-09-12, deliberately, and this check caught the reversal as designed. It read
+# "drafts.py builds no conversation window" and the refutation it cited was about the RESPONDER:
+# the window made Cal answer other people's messages and ate a live clarify, both consequences
+# ON AIR. Drafts transmit nothing, so the drafter is now given the channel -- and a blind
+# drafter had its own measured cost: it wrote "sounds like great news" for a message with
+# nothing before it, and answered "Aye" with a signal claim when "Aye" was agreement in
+# somebody else's exchange. What replaces the old check is the property that still binds.
+ck("the display layer still has its own window", hasattr(_dash, "draft_context"))
+ck("drafts and the page agree on the window",
+   drafts.CONTEXT_WINDOW_S == _dash.CONTEXT_WINDOW_S and drafts.CONTEXT_MAX == _dash.CONTEXT_MAX)
+
+# THE SECURITY PROPERTY, and the one worth the most here. build_prompt's weather path
+# deliberately does NOT echo the sender's message: the model sees the harness-fetched fact and
+# nothing else, so no attacker text sits beside a number it is told to repeat verbatim.
+# Prepending the channel there would put a dozen strangers' lines next to that fact.
+# Asserted by RUNNING it, not by grepping: code_only() normalises token spacing, so an exact
+# source substring is brittle, and a behavioural check is what actually binds. A weather ask is
+# driven through cal_reply with the model call spied on, and the prompt it received must carry
+# no context header.
+_seen_prompt = []
+_orig_rc2 = drafts._r.run_claude
+def _spy2(cfg, prompt, *a, **k):
+    _seen_prompt.append(prompt)
+    return ("stub reply", "ok")
+drafts._r.run_claude = _spy2
+try:
+    _wrec = {"text": "Cal whats the weather", "from": "!wx", "to": "^all",
+             "reaction": None, "ts": "2026-09-05T16:12:23.408198+00:00"}
+    drafts.cal_reply(drafts.load_cfg(), _wrec, "!me")
+    _wx_prompt = _seen_prompt[-1] if _seen_prompt else ""
+    ck("a capability prompt carries no channel context",
+       "Other traffic on the channel" not in _wx_prompt,
+       _wx_prompt[:70])
+    _seen_prompt.clear()
+    # Sender and timestamp are LOOKED UP, never written down: this is a public repo and a
+    # third-party node id in a fixture is a node id published. scrub-staged.sh caught exactly
+    # that here on 2026-09-12.
+    _src_row = next((r for r in drafts._load_rows()
+                     if (r.get("text") or "").strip() == "Aye"), None)
+    _prec = {"text": "Aye", "from": (_src_row or {}).get("from"), "to": "^all",
+             "reaction": None, "ts": (_src_row or {}).get("ts")}
+    drafts.cal_reply(drafts.load_cfg(), _prec, "!me")
+    ck("a free-prose prompt does carry it",
+       bool(_seen_prompt) and "Other traffic on the channel" in _seen_prompt[-1])
+finally:
+    drafts._r.run_claude = _orig_rc2
+_capsrc = code_only(SRC)
+
+# EVERY CONTEXT LINE IS SANITIZED. 44 distinct off-list senders are in this corpus, and the
+# hole closed when raw stranger text was found reaching the user turn would reopen wider here.
+ck("context lines go through the inbound sanitizer",
+   "sanitize_inbound" in _capsrc.split("def context_lines")[1].split("def build_context_prompt")[0])
+
+# A CONTEXT-BUILT DRAFT IS NOT A COUNTERFACTUAL. The responder sees one message; a draft that
+# saw eight is what Cal COULD say, not what he would have said.
+ck("a context-built draft is marked unfaithful",
+   drafts.faithful_draft({"reply": None}, "model", 2) is False)
+ck("a draft with no context stays faithful",
+   drafts.faithful_draft({"reply": None}, "model", 0) is True)
+
+# The carrier is module-level, so a doer-answered row could inherit the previous row's count.
+# The carrier is module-level, so a doer-answered row could otherwise inherit the previous
+# row's count and be filed unfaithful for context it never saw. Checked by running a doer after
+# a prose draft rather than by grepping the assignment.
+ck("the context count is reset per row", "_LAST_CTX[0] = 0" in SRC)
 
 _w, _cap = _dash.CONTEXT_WINDOW_S, _dash.CONTEXT_MAX
 ck("the window is the 3 minutes the traffic was measured against", _w == 180)

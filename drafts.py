@@ -264,6 +264,22 @@ _JOIN_WINDOW_S = 60.0
 _PACKETS = None
 
 
+def _read_jsonl(path):
+    out = []
+    try:
+        for ln in open(path, encoding="utf-8"):
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                out.append(json.loads(ln))
+            except json.JSONDecodeError:
+                continue
+    except OSError:
+        pass
+    return out
+
+
 def _packet_index():
     global _PACKETS
     if _PACKETS is None:
@@ -299,6 +315,75 @@ def packet_for(rec, window=_JOIN_WINDOW_S):
             if (_when(c.get("ts")) is not None
                 and abs((_when(c.get("ts")) - t).total_seconds()) <= window)]
     return near[0] if len(near) == 1 else None
+
+
+CONTEXT_WINDOW_S = 180      # matches dashboard.draft_context; asserted equal in eval_drafts
+CONTEXT_MAX = 8
+
+
+# How many context lines the LAST draft was built with. A module-level carrier rather than a
+# fourth return value: cal_reply's (reply, why, via) tuple is unpacked positionally in three
+# places, and widening it would break them quietly.
+_LAST_CTX = [0]
+
+
+def context_lines(rec, cfg, our):
+    """What else was on the channel around this message, SANITIZED, for the drafter.
+
+    WHY THE DRAFTER GETS THIS AND THE RESPONDER DOES NOT. A conversation window was built for
+    the responder and refused: it made Cal answer messages meant for other people, and it ate a
+    live clarify, turning a deterministic torque figure into a model guess. Both of those are
+    consequences ON AIR. Drafts transmit nothing -- the eval proves it at the filesystem -- so
+    the worst case here is a bad row on a page, not a bad reply on a shared channel.
+
+    And blindness has its own cost, measured on real rows: the model drafted "Right on 33c4,
+    sounds like great news" for a message with NOTHING before it, and answered "Aye" with a
+    signal claim when "Aye" was agreement in somebody else's exchange 20 s earlier.
+
+    EVERY LINE IS SANITIZED. These are strangers' messages -- 44 distinct off-list senders in
+    the corpus -- and build_prompt's contract is that its input is already clean. Skipping it
+    for context would reopen, on a wider surface, exactly the hole that was closed when raw
+    stranger text was found reaching the user turn.
+    """
+    if str(cfg.get("DRAFTS_CONTEXT", "true")).lower() != "true":
+        return []
+    t0 = _when(rec.get("ts"))
+    if t0 is None:
+        return []
+    out = []
+    for kind, name in (("heard", "inbox.jsonl"), ("Cal sent", "sent.jsonl")):
+        for m in _read_jsonl(os.path.join(BASE, name)):
+            t = _when(m.get("ts"))
+            if t is None:
+                continue
+            d = (t - t0).total_seconds()
+            if abs(d) > CONTEXT_WINDOW_S:
+                continue
+            if (kind == "heard" and abs(d) <= 2
+                    and (m.get("from") or "") == (rec.get("from") or "")
+                    and (m.get("text") or "") == (rec.get("text") or "")):
+                continue                      # the message itself is not its own context
+            clean, _flag = _r.sanitize_inbound(m.get("text") or "")
+            if not (clean or "").strip():
+                continue
+            out.append((d, kind, clean[:120]))
+    out.sort(key=lambda x: abs(x[0]))
+    out = sorted(out[:CONTEXT_MAX], key=lambda x: x[0])
+    return ["%+ds %s: %s" % (int(d), k, c) for d, k, c in out]
+
+
+def build_context_prompt(base_prompt, lines):
+    """The responder's own prompt, with the channel around it prepended.
+
+    The base prompt is reused VERBATIM rather than rewritten, so the instruction Cal actually
+    runs under is unchanged and only the evidence is added. The framing is deliberately passive
+    -- it says what was on the channel, never what to conclude from it -- which is the same line
+    the weather fact holds: the harness supplies the fact, the model does the phrasing.
+    """
+    if not lines:
+        return base_prompt
+    return ("Other traffic on the channel around this message, nearest first, for context only. "
+            "Some of it may be addressed to other people:\n" + "\n".join(lines) + "\n\n" + base_prompt)
 
 
 def cal_reply(cfg, rec, our, dry=False):
@@ -381,7 +466,18 @@ def cal_reply(cfg, rec, our, dry=False):
     # this module's docstring forbids.
     if dry:
         return None, "dry", ("model+" + plan["capability"] if plan.get("capability") else "model")
-    reply, why = _r.run_claude(cfg, plan["prompt"])
+    # CONTEXT GOES ONLY ON THE FREE-PROSE PATH, and the exclusion is a security property, not a
+    # tidiness one. On the weather path build_prompt deliberately does NOT echo the sender's
+    # message at all -- the model sees the harness-fetched fact and nothing else, so there is no
+    # attacker-controlled text beside the number. Prepending the channel there would put a dozen
+    # strangers' lines next to a fact the model is told to repeat verbatim, reopening on a wider
+    # surface exactly what that path was shaped to close.
+    prompt, ctx = plan["prompt"], []
+    if not plan.get("capability"):
+        ctx = context_lines(rec, cfg, our)
+        prompt = build_context_prompt(prompt, ctx)
+    reply, why = _r.run_claude(cfg, prompt)
+    _LAST_CTX[0] = len(ctx)
     # The weather path is NEITHER arm: plan_response returns mode=generate with
     # capability="weather" because the harness fetched a real observation and injected it, and
     # the model only phrases it. "model" would hide the fact; a doer name would claim a
@@ -397,7 +493,7 @@ def cal_reply(cfg, rec, our, dry=False):
 _TIME_DEPENDENT = ("weather", "sunmoon")
 
 
-def faithful_draft(rec, via):
+def faithful_draft(rec, via, ctx_n=0):
     """Is this draft a faithful account of what Cal WOULD have said, at the time?
 
     Two ways it is not, and only the first was checked until 2026-09-12:
@@ -416,6 +512,11 @@ def faithful_draft(rec, via):
     manufactures defects is worse than one that reports none.
     """
     if rec.get("reply"):
+        return False
+    # A draft built with the surrounding channel is NOT what Cal would have said: the live
+    # responder sees one message and nothing else. It is what Cal COULD say if context were
+    # armed, which is a proposal rather than a counterfactual, and the row has to say which.
+    if ctx_n:
         return False
     return not any(k in (via or "") for k in _TIME_DEPENDENT)
 
@@ -500,7 +601,8 @@ def redraft(cfg, ids=None, drifted_only=True, with_model=False, now=None):
         row.update({"draft": reply, "gen_status": why, "via": via,
                     "shape": shape(reply), "chars": len(reply or ""),
                     "doers": doer_coverage(row.get("text") or ""),
-                    "faithful": faithful_draft(_rec_for(row), via), **reg})
+                    "faithful": faithful_draft(_rec_for(row), via, _LAST_CTX[0]),
+                    "ctx_n": _LAST_CTX[0], **reg})
         changed += 1
     if changed:
         save(rows)
@@ -525,6 +627,7 @@ def run(cfg, limit=None, now=None):
         if not isinstance(text, str) or not text.strip():
             continue
         t0 = time.time()
+        _LAST_CTX[0] = 0        # per-row: a doer answers without a prompt and must read 0
         # SANITIZE FIRST. build_prompt's contract is "msg_text must already be sanitized", and
         # the responder honours it at responder.py:634 before every live generation. This module
         # did not, so a stranger's raw text was interpolated straight into the user turn --
@@ -566,7 +669,10 @@ def run(cfg, limit=None, now=None):
             "sent_reply": rec.get("reply"),
             # A draft made later is not what the responder would have said: the weather fact,
             # sun/moon times and DM memory are all read live at generation time.
-            "faithful": faithful_draft(rec, via),
+            "faithful": faithful_draft(rec, via, _LAST_CTX[0]),
+            # How many lines of surrounding channel the drafter saw. 0 means it saw only the
+            # message, exactly as the responder does.
+            "ctx_n": _LAST_CTX[0],
             # What the sanitizer did, so the tab can show that a message was redacted rather
             # than silently publishing a draft of something that never reached the model whole.
             "flagged": flagged,

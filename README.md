@@ -437,14 +437,35 @@ Window and cap are measured, not chosen: median 1 neighbour, p90 of 5, busiest m
 10, and 36% of messages have none at all. The cap keeps the **nearest** neighbours rather than
 the first by time, or a busy minute would show only its oldest corner.
 
-**It is evidence for the reader and never input to the draft.** A conversation window was built
-for the *responder* once and refused — see Addressing above: it made Cal answer messages meant
-for other people, and it ate a live clarify, turning a deterministic torque figure into a model
-guess. `drafts.py` has to keep mirroring the live ladder, so a draft that saw context the
-responder cannot see would stop measuring Cal and start measuring a Cal who does not exist. The
-window is therefore built in `dashboard.py`'s display layer, where it **cannot** reach the model
-by construction — the same argument the outbox directory carries for transmission. `eval_drafts`
-asserts `drafts.py` builds no such window.
+**The drafter sees it too, and that is a reversal made the same day.** This section first said
+the window was evidence for the reader and *never* input to the draft, on the grounds that a
+conversation window had already been built for the responder and refused. That refutation is
+real but it is about the AIR: the window made Cal answer messages meant for other people, and it
+ate a live clarify, turning a deterministic torque figure into a model guess. Drafts transmit
+nothing — the eval proves that at the filesystem — so those consequences do not transfer, while
+blindness has a measured cost of its own. Re-drafted with context, `"Aye, loud and clear here."`
+became `"Copy that, thanks for checking in"`: the fabricated signal claim simply disappears.
+
+Two rules bound it.
+
+**Context never touches a capability prompt.** `build_prompt`'s weather path deliberately does
+not echo the sender's message at all — the model sees the harness-fetched fact and nothing else,
+so no attacker-controlled text sits beside a number it is told to repeat verbatim. Prepending a
+dozen strangers' lines there would reopen, wider, exactly what that path was shaped to close. It
+is added only where the model is already writing free prose, and the eval drives a weather ask
+through and reads the prompt to prove it.
+
+**Every line is sanitized**, through the same `sanitize_inbound` the live path uses. There are
+44 distinct off-list senders in this corpus; skipping it would recreate the hole that was closed
+when raw stranger text was found reaching the user turn.
+
+**And a context-built draft is not a counterfactual.** The responder sees one message; a draft
+that saw eight is what Cal *could* say if context were armed, not what he *would* have said. The
+row carries `ctx_n` and such rows are marked **unfaithful**, the same way a live weather fact
+marks one — so the tab never claims a proposal is a record.
+
+If those drafts read better than the blind ones over time, that is the argument for arming
+context on the responder. It is not that argument yet.
 
 ### Grading is public and ungated
 
