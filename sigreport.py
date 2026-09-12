@@ -100,6 +100,67 @@ _REFERENTIAL = frozenset("the a an this that these those my your our their his h
 _OTHER_DOER = frozenset("""weather temp temperature forecast humidity dewpoint wind rain snow
     sun sunrise sunset sunup sundown moon moonrise moonset capabilities capability""".split())
 
+# ---------------------------------------------------------------------------------------
+# CONTACT REPORTS (added 2026-09-12). A neighbour saying "Got you in Olathe" is running the
+# same experiment a range test runs, in the other direction: they are telling Cal they heard
+# him. The reciprocal — how Cal heard THEM — is the one fact Cal holds and they do not, and
+# without this the model answered these by vibe. Measured over the whole log: 27 drafts
+# asserted link quality, Cal held snr/rssi on the packet for all 27, and four of them called a
+# link "loud and clear" at SNR -15 to -19 dB, at or past the usable floor.
+#
+# WHY THIS IS NOT THE PROACTIVE WELCOME, which was refuted for broadcasting exactly this data.
+# The welcome fired on a node's FIRST message whatever it said, so signal and hop count went to
+# someone who had raised no such topic. Here the sender opens the subject of reception with Cal
+# themselves. That is the same consent a range test carries, and it is the whole distinction.
+#
+# THREE CONDITIONS, all required, because this doer pre-empts every other capability:
+#   1. a receipt verb, so the message is about reception at all;
+#   2. a SECOND-PERSON reference, so the report is about hearing *Cal* — this is what refuses
+#      "I heard about that show. Never saw it" and "Pretty good! Just got into town";
+#   3. NO other node named. "871c I hear you in Lee's Summit" and "Hello 63d8 and 6404, both 3
+#      hops" are addressed to a third party, and Cal answering them is barging into someone
+#      else's exchange. This is the condition that does the real work: on the live corpus it is
+#      the only thing separating a report TO Cal from a report ABOUT somebody else.
+# Measured on the full inbox at time of writing: fires on 8 of 386 messages, all genuine.
+_CONTACT_RECEIPT = re.compile(r"\b(got|hear|hearing|heard|receiv\w*|copied|reading)\b", re.I)
+_CONTACT_SECOND = re.compile(r"\b(you|you're|youre|ya)\b", re.I)
+# A 4-hex short name, an @!nodeid, or a callsign-shaped token. Deliberately broad: a false
+# NEGATIVE here is silence, which is what Cal does today, while a false positive answers a
+# stranger's conversation with a third party.
+_CONTACT_OTHER_NODE = re.compile(r"(@!?[0-9a-fA-F]{6,8}\b)"
+                                 r"|(\b[0-9a-f]{4}\b(?![0-9a-f]))"
+                                 r"|(\b[A-Z]{2,4}\d{2,3}\b)")
+_CONTACT_MAX_WORDS = 10
+
+
+def _is_contact_report(s):
+    """Is this the sender telling Cal they received him? Pure text shape, no I/O."""
+    if not s or len(s.split()) > _CONTACT_MAX_WORDS:
+        return False
+    if not _CONTACT_RECEIPT.search(s) or not _CONTACT_SECOND.search(s):
+        return False
+    if _CONTACT_OTHER_NODE.search(s):
+        return False
+    # A word another doer owns makes the message theirs, exactly as in the tail rule -- but
+    # INFLECTED, which the tail rule does not need and this does. `Got you, is it raining?`
+    # fired in testing because _OTHER_DOER holds "rain" and the sender typed "raining", and a
+    # weather question answered from here is a weather question that never reaches weather.
+    #
+    # Deliberately NOT a call into weather.wants_weather: measured 2026-09-12, that returns
+    # False for "is it raining" (the known present-tense trigger gap), so it would guard
+    # nothing here. This is defence in depth on a closed list, not a second matcher claiming
+    # to know what weather wants -- the reimplementation rule is about the DECIDING matcher,
+    # and this one only ever refuses.
+    for w in s.split():
+        w = w.strip(".,!?;:").lower()
+        if w in _OTHER_DOER:
+            return False
+        for suf in ("ing", "ed", "s", "y"):
+            if w.endswith(suf) and w[: -len(suf)] in _OTHER_DOER:
+                return False
+    return True
+
+
 # Punctuation people actually type around a call sign. Used on BOTH sides of the trigger.
 _SEP = r"[\s,:;!.?-]*"
 
@@ -191,6 +252,10 @@ def match(text, trigger="cal"):
         if lead in _OTHER_DOER:
             return None
         return {"via": "tail", "text": s, "index": mt.group("idx")}
+    # LAST, deliberately. Every rule above is a message that asked for a report; this one is
+    # inferred from a statement, so it must never take a message another rule would have taken.
+    if _is_contact_report(s):
+        return {"via": "contact", "text": s, "index": None}
     return None
 
 

@@ -116,7 +116,23 @@ ALLOWED_SHAPES = {
     # rule in sigreport.match, and `got the test` is its regression case.
     "test",
     "test!?",
+    # ADJUDICATED 2026-09-12. A stranger sent this and the fire was CORRECT: Cal answered
+    # "Copy: 2 hops via MTDN, last leg RSSI -32, SNR 6.2" at 00:22:05 and the sender replied
+    # "Awesome thank you!" at 00:26:53. Somebody putting up a new antenna and typing "test" is
+    # running precisely the experiment this doer exists to answer. It reached here through the
+    # tail rule with "antenna" as the qualifier, which is neither referential nor another
+    # doer's word -- so nothing was bypassed, and the guard was asking for a decision, not
+    # reporting a defect. This is that decision.
+    "new antenna test",
 }
+
+# CONTACT REPORTS are allowed as a CLASS, not enumerated, because their tail is a place name
+# and the set would otherwise grow a row per town. This skeleton is written BY HAND here and
+# deliberately does NOT call sigreport._is_contact_report: a fixture built from the thing under
+# test could only ever pass. It is narrower than the matcher on purpose -- it demands the
+# second-person pronoun immediately after the receipt verb -- so if the module ever claims a
+# contact report this shape does not recognise, this eval fails and a human looks at it.
+_CONTACT_SKELETON = re.compile(r"^(?:i\s+)?(?:got|hear|heard|receiv\w*)\s+(?:you|ya)\b", re.I)
 # These specific shapes must ALWAYS fire; losing one is a regression, not a quiet corpus drift.
 MUST_FIRE_SHAPES = {"range test", "tange test", "cal test", "test <n>"}
 
@@ -126,6 +142,7 @@ if os.path.exists(CORPUS):
     got = {shape(t) for t in fired}
     # A FALSE FIRE IS THE FAILURE THAT MATTERS: this doer sits ahead of every ladder, so
     # anything it claims is a message no other capability will ever see.
+    got = {g for g in got if not _CONTACT_SKELETON.match(g)}
     expect(got <= ALLOWED_SHAPES,
        f"corpus: fired on {sorted(got - ALLOWED_SHAPES)} — not a test shape, and it pre-empts "
        f"every other doer")
@@ -585,6 +602,46 @@ if "--self-test" in sys.argv:
         print(f"  {'ok' if caught else 'XX'} {name}: {'CAUGHT' if caught else 'SURVIVED'}")
         if not caught:
             failures.append(f"MUTATION SURVIVED: {name}")
+
+# ---------------------------------------------------------------------------------------
+# CONTACT REPORTS (2026-09-12). Every case below is real traffic from inbox.jsonl. The
+# negatives matter more than the positives: this doer pre-empts every other capability, so a
+# message it wrongly claims is a message nothing else will ever see.
+_CONTACT_FIRE = [
+    "Got you!",
+    "Got you in Olathe Rooftop Solar.",
+    "I got you from Grandview",
+    "Hear you in Olathe",
+    "Got you at 291 and mo river",
+]
+for _t in _CONTACT_FIRE:
+    _m = sigreport.match(_t)
+    expect(_m is not None and _m["via"] == "contact",
+           f"contact report fires: {_t!r}")
+
+_CONTACT_QUIET = [
+    # Addressed to a THIRD party -- Cal answering is barging into someone else's exchange.
+    ("871c I hear you in Lee's Summit", "names another node"),
+    ("Hello 63d8 and 6404, both 3 hops.", "names two other nodes"),
+    ("Heard from the 435 & Metcalf router. 4 hops.", "about a router, not about Cal"),
+    # Ordinary conversation that happens to carry a receipt verb. These are the ones that
+    # would have been embarrassing, and the second-person condition is what refuses them.
+    ("I heard about that show. Never saw it", "no second person; not about reception"),
+    ("Pretty good! Just got into town. ", "no second person; not about reception"),
+    # Another doer's message. sigreport must not pre-empt weather, inflection included.
+    ("Got you, is it raining?", "weather word, inflected"),
+    ("Got you, how windy is it?", "weather word, inflected"),
+]
+for _t, _why in _CONTACT_QUIET:
+    expect(sigreport.match(_t) is None, f"contact report stays quiet ({_why}): {_t!r}")
+
+# The skeleton must be able to REFUSE, or the corpus filter above is a hole rather than a
+# class. If this ever passes, the filter is letting arbitrary shapes through unexamined.
+expect(not _CONTACT_SKELETON.match("got the test"),
+       "the corpus skeleton refuses a non-contact shape")
+expect(not _CONTACT_SKELETON.match("new antenna test"),
+       "the corpus skeleton does not swallow test shapes")
+
 
 for f in failures:
     print("FAIL " + f)
