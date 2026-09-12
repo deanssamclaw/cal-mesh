@@ -247,6 +247,40 @@ Being *named* is not being *asked* — the referential rule applies whether or n
 because `Cal aced the test` is a sentence about Cal. That exemption was in the first draft and an
 adversarial review refuted it in one line.
 
+### Contact reports (2026-09-12)
+
+A neighbour saying "Got you in Olathe" is running the same experiment a range test runs, in the
+other direction: they are telling Cal they heard him. The reciprocal -- how Cal heard *them* --
+is the one fact Cal holds and they do not.
+
+Before this, the model answered those by feel. Read over the whole log: **27 replies asserted
+link quality, Cal held the measured SNR and RSSI on the packet for all 27**, and four called a
+link "loud and clear" at -15 to -19 dB SNR, at or past the usable floor. That is the failure this
+module was built to prevent, happening in a shape the module did not recognise.
+
+**Why this is not the proactive welcome**, which was refuted for broadcasting exactly this data.
+The welcome fired on a node's *first message whatever it said*, so signal and hop count went to
+someone who had raised no such topic. Here the sender opens the subject of reception with Cal
+themselves -- the same consent a range test carries. That is the whole distinction, and it is the
+load-bearing one.
+
+Three conditions, all required, because this doer pre-empts every other capability:
+
+1. **A receipt verb**, so the message is about reception at all.
+2. **A second-person reference**, so the report is about hearing *Cal*. This is what refuses
+   "I heard about that show. Never saw it" and "Pretty good! Just got into town."
+3. **No other node named.** `871c I hear you in Lee's Summit` and `Hello 63d8 and 6404, both 3
+   hops` are addressed to a third party, and Cal answering would barge into an exchange he is not
+   part of. On the live corpus this is the condition doing the real work.
+
+Measured on the full inbox at the time of writing: **fires on 8 of 386 messages**, all genuine.
+A doer-word guard runs too, and here it must be *inflected* -- `Got you, is it raining?` fired in
+testing because the closed list holds "rain" and the sender typed "raining".
+
+The eval allows contact reports as a **class**, via a skeleton written by hand in the eval rather
+than a call into `_is_contact_report`: a fixture built from the thing under test could only ever
+pass. Breaking either condition, or the rule entirely, fails the suite.
+
 ## How a capability ships
 Nothing goes on air because it looked right. The gate is the same for every tier:
 
