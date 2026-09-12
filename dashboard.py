@@ -6214,7 +6214,7 @@ PAGE_V6 = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<title>cal-mesh — levers (v5)</title>
+<title>cal-mesh — levers (v6)</title>
 <style>
 :root{--bg:#d2cbc4;--card:#f4f1ee;--card2:#e5e0da;--line:#aa9e91;--fg:#1f1b16;
 --dim:#5b5248;--accent:#07499a;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--tx:#6639ba;--rx:#1a7f37;}
@@ -6732,7 +6732,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
 </style></head>
 <body>
 <header>
-  <div><h1>📻 cal-mesh <span class="sub">— live levers (v5)</span></h1>
+  <div><h1>📻 cal-mesh <span class="sub">— live levers (v6)</span></h1>
   <div class="sub" id="sub">connecting…</div></div>
   <span class="navlinks"><a class="faqlink" id="anatlink" href="anatomy">Anatomy →</a><a class="faqlink" id="capslink" href="capabilities">Can &amp; cannot →</a><a class="faqlink" id="consolelink" href="console">The console →</a><a class="faqlink" href="#faq">FAQ ↓</a><a class="faqlink" href="#changelog">Changelog ↓</a><a class="faqlink" href="https://github.com/deanssamclaw/cal-mesh" target="_blank" rel="noopener noreferrer">GitHub ↗</a></span>
   <span class="pill" id="conn">…</span>

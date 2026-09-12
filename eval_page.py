@@ -153,6 +153,29 @@ else:
 
 for f in failures:
     print("FAIL " + f)
+
+# ---------------------------------------------------------------------------------------
+# THE CURRENT PAGE MUST NAME ITSELF CORRECTLY (2026-09-12).
+# v6 was promoted 2026-09-05 and its <title> and <h1> both still read "(v5)" a week later, so
+# "/" and "/old-5" advertised the same version while serving different pages -- the exact
+# confusion the permanent old-N slots exist to prevent. Session 136 recorded the identical
+# defect one promotion earlier ("the V5 <h1> had read (v4) since promotion"), which makes it a
+# recurring STEP, not an accident. The promotion check already graded the footer; the title and
+# heading were never asserted against anything, which is why two promotions in a row shipped
+# wrong. Derived from CURRENT_PAGE, so it cannot go stale at v7.
+import re as _re_ver
+_cur_name = [k for k, v in vars(dash).items()
+             if k.startswith("PAGE_V") and v is dash.CURRENT_PAGE]
+if _cur_name:
+    _n = _cur_name[0].replace("PAGE_V", "")
+    _found = _re_ver.findall(r"\(v(\d+)\)", dash.CURRENT_PAGE)
+    _labels = set(_found)
+    if _labels - {_n}:
+        failures.append("current page is PAGE_V%s but carries version label(s) %s"
+                         % (_n, sorted(_labels - {_n})))
+    else:
+        print("  ok   current page names itself v%s in all %d label(s)" % (_n, len(_found)))
+
 print(f"\n{checked} script block(s) checked across {len(PAGES)} page template(s); "
       f"{len(failures)} problem(s)")
 sys.exit(1 if failures else 0)
