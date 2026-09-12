@@ -541,6 +541,54 @@ ck("the CLI records a corrected reply", '"better"' in _grade_src and "--better" 
 # programmatic review) and pooling them made a passer-by indistinguishable from the operator.
 ck("the CLI records who graded", '"by"' in _grade_src)
 
+# ---------------------------------------------------------------------------------------
+# CONTEXT IS EVIDENCE FOR THE GRADER, NEVER INPUT TO THE DRAFT (2026-09-12).
+# A conversation window was built for the RESPONDER and refuted: it made Cal answer messages
+# meant for other people and ate a live clarify, turning a torque figure into a model guess.
+# drafts.py must keep mirroring the live ladder, so a draft that saw context the responder
+# cannot see would stop measuring Cal. The guarantee is STRUCTURAL -- the window is built in
+# dashboard.py's display layer -- and these checks are what keep it that way.
+ck("drafts.py builds no conversation window",
+   "draft_context" not in CODE and "CONTEXT_WINDOW" not in CODE)
+ck("the window lives in the display layer", hasattr(_dash, "draft_context"))
+
+_w, _cap = _dash.CONTEXT_WINDOW_S, _dash.CONTEXT_MAX
+ck("the window is the 3 minutes the traffic was measured against", _w == 180)
+
+# Built from a real row so the bounds are exercised against real timestamps.
+_rows_ctx = drafts._load_rows()
+_t = next((r for r in _rows_ctx if (r.get("text") or "").strip() == "Aye"), None)
+if _t:
+    _c = _dash.draft_context(_t.get("ts"), _t.get("from"), _t.get("text"))
+    ck("every neighbour is inside the window", all(abs(x["d"]) <= _w for x in _c))
+    ck("the window is capped", len(_c) <= _cap)
+    # THE CAP NEEDS AN INSTANCE THAT HITS IT. The fixture row has 2 neighbours against a cap of
+    # 8, so `len <= cap` passed on a build with the cap removed -- measured: that mutation
+    # SURVIVED. Force the branch with a limit the data exceeds, and assert it keeps the NEAREST
+    # rather than the first N by time, or a busy minute shows only its oldest corner.
+    _wide = _dash.draft_context(_t.get("ts"), _t.get("from"), _t.get("text"), limit=99)
+    if len(_wide) >= 2:
+        _one = _dash.draft_context(_t.get("ts"), _t.get("from"), _t.get("text"), limit=1)
+        _nearest = min(abs(x["d"]) for x in _wide)
+        ck("the cap actually truncates", len(_one) == 1)
+        ck("the cap keeps the nearest neighbour",
+           _one and abs(_one[0]["d"]) == _nearest)
+    else:
+        ck("the cap actually truncates", False, "fixture has too few neighbours")
+    ck("neighbours read oldest first", [x["d"] for x in _c] == sorted(x["d"] for x in _c))
+    # THE TARGET MUST NOT BE ITS OWN CONTEXT. A draft row's ts is when the draft was recorded,
+    # not when the packet landed (measured 0.62 s apart), so a d == 0 test never matched and
+    # every message listed itself. Excluded by sender+text instead.
+    ck("a message is never its own context",
+       not any(x["text"] == (_t.get("text") or "").strip() and x["who"] == _t.get("from")
+               for x in _c))
+else:
+    ck("a message is never its own context", False, "fixture row missing")
+
+# A row with nothing around it must say so rather than render an empty box -- "no context" is
+# itself evidence: it is what proves the model invented "sounds like great news".
+ck("an empty window is representable", _dash.draft_context("not-a-timestamp") == [])
+
 print()
 if FAILS:
     print(f"eval_drafts: {len(FAILS)} FAILED — {FAILS}")

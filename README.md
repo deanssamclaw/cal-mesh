@@ -423,6 +423,29 @@ obeying it would draft silence for 103 of 143 rows and blank the tab where it is
 So an off-list row with no doer match shows what Cal *could* have said, not what he would have
 sent — he would have said nothing. `why_silent` carries `sender_not_allowed` on those rows.
 
+### What else was on the channel
+
+A message alone is often unjudgeable and roughly a third of the log is exactly that, so each row
+carries the traffic within **±3 minutes**, oldest first, Cal's own sends included. Measured on
+real rows, it changes the reading: "Aye" reads as a hail until you see it arrived 20 s after a
+*different* node's "Heard from 159th and I-35!"; a 👍 turns out to land 78 s after Cal's own
+signal readback, making it a thank-you rather than noise; and "Right on 33c4, sounds like great
+news" had **nothing** before it, which is what proves the model invented the news. A row with no
+neighbours says so — "no context" is itself evidence.
+
+Window and cap are measured, not chosen: median 1 neighbour, p90 of 5, busiest minute on record
+10, and 36% of messages have none at all. The cap keeps the **nearest** neighbours rather than
+the first by time, or a busy minute would show only its oldest corner.
+
+**It is evidence for the reader and never input to the draft.** A conversation window was built
+for the *responder* once and refused — see Addressing above: it made Cal answer messages meant
+for other people, and it ate a live clarify, turning a deterministic torque figure into a model
+guess. `drafts.py` has to keep mirroring the live ladder, so a draft that saw context the
+responder cannot see would stop measuring Cal and start measuring a Cal who does not exist. The
+window is therefore built in `dashboard.py`'s display layer, where it **cannot** reach the model
+by construction — the same argument the outbox directory carries for transmission. `eval_drafts`
+asserts `drafts.py` builds no such window.
+
 ### Grading is public and ungated
 
 `POST /api/grade` takes a verdict from anyone who can open the page. That is deliberate: the

@@ -549,8 +549,69 @@ def build_drafts(limit=40):
                     "why_silent": r.get("why_silent"), "shape": r.get("shape"),
                     "doers": r.get("doers") or [], "faithful": r.get("faithful"),
                     "sent_reply": r.get("sent_reply"),
+                    # Evidence for the grader, never input to the draft. See draft_context().
+                    "context": draft_context(r.get("ts"), r.get("from"), r.get("text")),
                     "grade": grades.get(r.get("draft_id"))})
     return {"total": len(rows), "rows": out}
+
+
+CONTEXT_WINDOW_S = 180          # Dean's call, 2026-09-12, and the traffic agrees with it.
+CONTEXT_MAX = 8                 # p90 is 5 neighbours and the busiest minute on record is 10.
+
+
+def draft_context(target_ts, target_from=None, target_text=None,
+                  window_s=CONTEXT_WINDOW_S, limit=CONTEXT_MAX):
+    """The traffic around a drafted message, so a grader can see what it was answering.
+
+    WHY THIS EXISTS. A draft was published with only the message it replied to, and a third of
+    the corpus is unjudgeable that way. Measured on real rows: "Aye" arrived 20 s after a
+    DIFFERENT node's "Heard from 159th and I-35!", so it is agreement in someone else's
+    exchange, not a hail; "just the one at 13:26 re: bill sucking" has no antecedent in range at
+    all, which makes Cal's "will pass message along" worse than it reads alone; and the reply
+    "Right on 33c4, sounds like great news" turns out to have NOTHING before it, so the model
+    invented the news. Two verdicts confirmed, one deepened, one made worse -- by context.
+
+    IT LIVES IN THE DISPLAY LAYER AND THAT IS THE POINT. A conversation window was already
+    built for the RESPONDER and refuted (README, "Addressing"): it made Cal answer messages
+    meant for other people, and it ate a live clarify, turning a deterministic torque figure
+    into a model guess. drafts.py must keep mirroring the live ladder exactly, so giving a
+    DRAFT context the responder does not have would stop it measuring Cal and start measuring a
+    Cal that does not exist. Building it here rather than in drafts.py means it cannot reach the
+    model by construction, not by promise -- the same argument the outbox directory carries.
+
+    Read fresh from the logs rather than stored on the row: inbox.jsonl is never trimmed, so
+    the window is always reconstructible, and a stored copy would freeze at draft time and
+    bloat a public payload with text already served on this page.
+    """
+    t0 = _epoch(target_ts)
+    if t0 is None:
+        return []
+    out = []
+    for kind, path in (("rx", os.path.join(BASE, "inbox.jsonl")),
+                       ("tx", os.path.join(BASE, "sent.jsonl"))):
+        for m in tail_jsonl(path, 400):
+            t = _epoch(m.get("ts"))
+            if t is None:
+                continue
+            d = t - t0
+            # EXCLUDE THE TARGET BY IDENTITY, NOT BY d == 0. A draft row's `ts` is when the
+            # draft was recorded, not when the packet landed -- measured 0.62 s apart on a real
+            # row -- so a timestamp test never matches and every message was listed as its own
+            # context. Match sender and text within a couple of seconds instead.
+            if (kind == "rx" and abs(d) <= 2
+                    and (m.get("from") or "") == (target_from or "")
+                    and (m.get("text") or "") == (target_text or "")):
+                continue
+            if abs(d) <= window_s:
+                out.append({"d": int(d), "kind": kind,
+                            "who": "Cal" if kind == "tx" else (m.get("from") or "?"),
+                            "text": (m.get("text") or "")[:160]})
+    out.sort(key=lambda x: x["d"])
+    # Keep the ones NEAREST the message when a burst overflows the cap, not the first N by
+    # time -- a busy minute would otherwise show only its oldest corner.
+    if len(out) > limit:
+        out = sorted(sorted(out, key=lambda x: abs(x["d"]))[:limit], key=lambda x: x["d"])
+    return out
 
 
 def build_learning(top=6, runs=20):
@@ -6427,6 +6488,13 @@ footer{color:var(--dim);font-size:11px;text-align:center;padding:16px}
 .drhead{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
 .drtag{font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
 padding:2px 7px;border-radius:4px;background:var(--warn);color:var(--card)}
+.drctx{margin:0 0 6px;padding:6px 8px;border-left:2px solid var(--line);background:var(--card2);border-radius:4px;font-size:11px;opacity:.85}
+.drctx0{font-style:italic;opacity:.6}
+.drctxl{display:flex;gap:6px;line-height:1.5}
+.drctxl.tx{font-weight:600}
+.drctxd{min-width:44px;text-align:right;opacity:.6;font-variant-numeric:tabular-nums}
+.drctxw{min-width:70px;opacity:.75}
+.drctxt{flex:1}
 .drheard{margin:2px 0}
 .drdraft{margin:4px 0;padding:6px 9px;border-radius:6px;background:var(--card2);
 border:1px dashed var(--line);font-style:italic}
@@ -7007,6 +7075,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-09-12</span><b>A simulated reply now shows what else was on the channel.</b> A message alone is often unjudgeable, and about a third of the log is exactly that. Each row now carries the traffic within <b>&plusmn;3 minutes</b>, oldest first, including Cal&rsquo;s own sends. On real rows it changes the reading: &ldquo;Aye&rdquo; looks like a hail until you see it landed 20&nbsp;s after a <i>different</i> node&rsquo;s &ldquo;Heard from 159th and I-35!&rdquo;, which makes it agreement in someone else&rsquo;s exchange; a &#128077; turns out to have arrived 78&nbsp;s after Cal&rsquo;s own signal readback, so it is a thank-you rather than noise; and &ldquo;sounds like great news&rdquo; had <b>nothing</b> before it, which is what proves the model invented the news. A row with no neighbours says so, because &ldquo;no context&rdquo; is itself evidence. <b>This is evidence for the reader and never input to the draft.</b> A conversation window was built for the responder once and refused &mdash; it made Cal answer messages meant for other people, and it ate a live clarify and turned a deterministic torque figure into a model guess. The window here is built in the page&rsquo;s own display layer, so it cannot reach the model by construction rather than by promise.</div>
       <div class="ci"><span class="cd">2026-09-12</span><b>Cal answers a contact report, and says what he can actually do.</b> Two capabilities changed after every simulated reply on record was read. <b>Signal reports now answer a contact report</b> &mdash; a neighbour saying &ldquo;Got you in Olathe&rdquo; is running the same experiment a range test runs, in the other direction, and the reciprocal is the one fact Cal holds and they do not. Before this the model answered those by feel: across the log <b>27 replies asserted link quality</b>, Cal held the measured SNR and RSSI on the packet for <b>all 27</b>, and four called a link &ldquo;loud and clear&rdquo; at <b>&minus;15 to &minus;19&nbsp;dB SNR</b>, at or past the usable floor. A contact report that names <i>another</i> node is refused: it is a report about a third party, and answering it would barge into an exchange Cal is not part of. <b>The capability question is no longer answered by the model</b>, which had replied &ldquo;coding, writing, research, analysis&rdquo; &mdash; the model&rsquo;s own list, not Cal&rsquo;s. It is now composed from the armed configuration flags at the moment of asking, so it cannot drift from what is really switched on. Separately, a <b>simulated reply that used a live weather reading is now marked unfaithful</b>: those facts are fetched when the draft is written, not when the message arrived, and two rows had been published with no such mark &mdash; one answered &ldquo;Moderate rain&rdquo; with &ldquo;75F clear&rdquo;. That mislabelling had already produced two wrong verdicts in review.</div>
       <div class="ci"><span class="cd">2026-08-31</span><b>Hops gained substance, and a coarse grid.</b> A traceroute reply carries each relay&rsquo;s full node number, so hops are now <i>named</i> from the node database — short and long name, hardware, distance in hops, when it was last heard — rather than listed as bare ids. A hop this node has never heard is shown as the last two characters of its id and said to be unknown, never guessed: across 292 known nodes a two-character fragment matches exactly one of them only <b>28%</b> of the time, and one value is shared by nine. The last-relay byte the firmware reports is the one genuine fragment, and it is named only on a unique match and otherwise reports how many candidates it has. Nodes that broadcast a position now also show a <b>Maidenhead subsquare</b>, about 3 by 4.5 miles, bucketed at capture with the exact coordinate discarded and never written; Cal&rsquo;s own node is excluded. See the map question in the FAQ for what that does and does not give away.</div>
       <div class="ci"><span class="cd">2026-08-22</span><b>The open channel and Cal&rsquo;s own channel are now different colours.</b> Every exchange already carried a <code>ch0</code> or <code>ch1</code> chip, both in the same blue, so telling the KC Mesh open channel apart from Cal&rsquo;s private one meant reading the digit on every row. <code>ch0</code> keeps the blue; <code>ch1</code> is teal. The pair was chosen by measurement rather than taste: the teal holds 6.38:1 against its own chip, and it is the one candidate that stays clearly apart from the blue under both common forms of colour blindness &mdash; teal desaturates toward grey while blue stays blue, where a magenta collapses toward it. Amber and orange were ruled out for a different reason: in this same row they already mean <i>off-list</i> and <i>auto</i>, and a colour that already has a meaning cannot be given a second one. The chip still spells out which channel it was, so the colour only ever reinforces a label that was already there.</div>
@@ -7974,12 +8043,32 @@ function renderDrafts(D){
     +`<span class="lmeta">${r.ts?daystamp(r.ts):''}${r.why_silent?' &middot; '+esc(r.why_silent):''}`
     +`${r.shape?' &middot; '+esc(r.shape):''}`
     +`${r.faithful===false?' &middot; <span class="lwarn">simulated after the fact</span>':''}</span></div>`
+    +ctxHtml(r)
     +`<div class="drheard">${esc(r.text||'')}</div>`
     +`<div class="drdraft">${esc(r.draft||'')}</div>`
     +(r.sent_reply?`<div class="drsent">actually sent: ${esc(r.sent_reply)}</div>`:'')
     +gradeBar(r)
     +`</div>`;}).join('');
   box.querySelectorAll('.gb').forEach(b=>b.addEventListener('click',onGrade));
+}
+// WHAT ELSE WAS ON THE CHANNEL. A message alone is often unjudgeable -- "Aye" reads as a hail
+// until you see it arrived 20s after somebody else's "Heard from 159th and I-35!", and
+// "sounds like great news" reads as friendly until you see there was NOTHING before it. Shown
+// ABOVE the message, oldest first, so it reads in the order it happened.
+// This is evidence for the grader and is never input to the draft: it is built in the server's
+// display layer, so it cannot reach the model by construction. A conversation window WAS tried
+// on the responder and refuted -- it made Cal answer other people's messages.
+function ctxHtml(r){
+  const c=r.context||[];
+  if(!c.length) return `<div class="drctx drctx0">nothing else on the channel &plusmn;3 min</div>`;
+  return `<div class="drctx">`+c.map(x=>{
+    const sign=x.d<0?'':'+';
+    const who=x.kind==='tx'?'Cal':esc(String(x.who||'?'));
+    return `<div class="drctxl${x.kind==='tx'?' tx':''}">`
+      +`<span class="drctxd">${sign}${x.d}s</span> `
+      +`<span class="drctxw">${who}</span> `
+      +`<span class="drctxt">${esc(x.text||'')}</span></div>`;
+  }).join('')+`</div>`;
 }
 // Four verdicts, and each one NAMES ITS CONSEQUENCE. A bare thumb says a draft was bad and
 // nothing about why, so it cannot route anywhere and the reader ends up re-reading every row to
