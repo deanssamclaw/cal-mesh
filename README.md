@@ -374,7 +374,10 @@ that fails on any write resolving inside `outbox/`.
 It did not always work that way. Until 2026-09-08 it called the model for every message and
 separately *labelled* which doer would have answered, so the tab published Cal declining a
 capability he has — "Can't check live weather try online" beside a note that the weather doer
-matched. 40 of 143 stored rows were wrong that way and were re-drafted in place.
+matched. 13 of 143 stored rows were wrong that way and were re-drafted in place. (This read "40" until
+2026-09-12. 40 is `DRAFTS_MAX_PER_RUN` — the per-run cap that appears in `drafts.log` as
+"drafted 40 new", and the number of rows carrying the `bf3fef6` stamp. A run cap had been written
+down as a defect count; the measured figure is 13, in `18644b3` and in `drafts.py`'s docstring.)
 
 Each row says which arm answered. `sigreport` or `weather` means no model ran at all.
 `model+weather` means the harness fetched a real observation and the model only phrased it —
