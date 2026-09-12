@@ -86,7 +86,11 @@ GRADES = os.path.join(BASE, "draft-grades.json")
 RETAIN_DAYS = 365               # Dean's call 2026-09-06. ~3,000 records, about a megabyte.
 SCHEMA = 1                      # bump when a row's meaning changes, not merely its fields
 DEFAULTS = {"DRAFTS_ENABLED": "false", "DRAFTS_MAX_PER_RUN": "40", "DRAFTS_MAX_PER_DAY": "120"}
-VERDICTS = ("good", "wrong", "harmful")
+# MUST match dashboard.GRADE_VERDICTS. They did not until 2026-09-12: this set omitted
+# "doer", which is the ONLY verdict learn.grade_queue() routes into the triage queue, so
+# the local CLI could not record the one judgement with leverage. eval_drafts asserts the
+# two are equal rather than trusting this comment.
+VERDICTS = ("good", "doer", "wrong", "harmful")
 
 
 def _int_cfg(cfg, key, dflt):
@@ -624,6 +628,13 @@ def cmd_grade(args):
         return 2
     g = _load(GRADES, {})
     g[args.grade] = {"verdict": args.verdict, "note": args.note or "",
+                     # The corrected reply. "wrong" and "harmful" are worth far less without it:
+                     # a complaint says something was off, a correction says what to aim at.
+                     "better": args.better or "",
+                     # WHO graded is load-bearing now that three writers exist: the public page
+                     # (anonymous, "page"), this local CLI (the operator), and programmatic
+                     # review ("cal-review"). Pooling them made a passer-by's click and a
+                     # machine's pattern match indistinguishable from the operator's judgement.
                      "by": args.by or "dean", "ts": datetime.now(timezone.utc).isoformat()}
     json.dump(g, open(GRADES, "w"), ensure_ascii=False, indent=2, sort_keys=True)
     print("graded %s = %s" % (args.grade, args.verdict))
@@ -638,6 +649,7 @@ def main():
     ap.add_argument("--verdict", choices=VERDICTS)
     ap.add_argument("--note")
     ap.add_argument("--by")
+    ap.add_argument("--better", help="the reply that would have been better")
     ap.add_argument("--audit", action="store_true",
                     help="read-only: which banked rows would a different arm answer now?")
     ap.add_argument("--redraft", action="store_true",

@@ -130,8 +130,11 @@ MUTANTS = {
     "'good' starts counting as work": (
         '        if v not in ("doer", "wrong", "harmful"):\n            continue',
         '        if v is None:\n            continue'),
+    # Anchor updated 2026-09-12: the call site became cluster_key(), which keeps normalize()
+    # for ordinary text and only changes the fallback so symbol-only asks stop sharing one
+    # bucket. The mutation's MEANING is unchanged -- raw text instead of the distiller's key.
     "the queue stops speaking the distiller's language": (
-        '        key = normalize(row.get("text", "")) or "(empty)"',
+        '        key = cluster_key(row.get("text", ""))',
         '        key = row.get("text", "") or "(empty)"'),
     "triaged items stop being marked done": (
         '            "triaged": bool(verdict(tr, key)),',

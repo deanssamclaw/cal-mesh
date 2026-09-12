@@ -132,6 +132,28 @@ def normalize(text):
     return re.sub(r"\s+", " ", t).strip()
 
 
+def cluster_key(text):
+    """normalize(), or a key that still DISTINGUISHES when normalize strips everything away.
+
+    normalize() drops punctuation and symbols so that "Cal, what do you know?" and "what do you
+    know" are one gap. An emoji-only message has nothing left afterwards, and every one of them
+    was landing on the constant "(empty)". Measured 2026-09-12: 34 of 343 drafts are emoji-only
+    and 9 graded rows shared that single nameless bucket.
+
+    Two things were wrong with that. Triaging "(empty)" would mark every emoji ask handled at
+    once, and a genuinely distinct emoji gap afterwards would be invisible because its key was
+    already triaged. Fixed at the CALL SITES rather than inside normalize(), which is documented
+    as mirroring capabilities._normalize and has to keep doing so.
+
+    "(empty)" is kept for text that really is empty, so the two cases stay tellable apart.
+    """
+    k = normalize(text)
+    if k:
+        return k
+    raw = " ".join((text or "").split())
+    return "(symbols %s)" % raw[:24] if raw else "(empty)"
+
+
 def classify(rec, our):
     """One bucket per record, by priority. Returns a bucket name from the docstring set."""
     if not rec.get("matched"):
@@ -296,7 +318,7 @@ def migrate(agg):
     if any("last_seen" not in c for c in agg.get("clusters", {}).values()):
         newest = {}
         for rec in iter_decisions():
-            k = normalize(rec.get("text", "")) or "(empty)"
+            k = cluster_key(rec.get("text", ""))
             ts = rec.get("ts", "")
             if ts > newest.get(k, ""):
                 newest[k] = ts
@@ -346,7 +368,7 @@ def fold(reset=False):
         # Three buckets cluster, not one. A GAP that becomes a CLARIFY is progress and has to be
         # visible as such; a NO_TABLE is a request for a capability by name. Counting only GAPs
         # means the loop goes blind at exactly the moment a doer starts half-working.
-        key = normalize(rec.get("text", "")) or "(empty)"
+        key = cluster_key(rec.get("text", ""))
         # LAST_SEEN vs LAST_TS, and they are not the same question.
         #
         # last_ts moves only when an ask goes UNANSWERED, because only those buckets cluster.
@@ -659,7 +681,7 @@ def grade_queue(tr=None):
         if v not in ("doer", "wrong", "harmful"):
             continue                      # "good" is not work
         row = texts.get(did) or {}
-        key = normalize(row.get("text", "")) or "(empty)"
+        key = cluster_key(row.get("text", ""))
         out.append({
             "key": key,
             "verdict": v,

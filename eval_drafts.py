@@ -286,11 +286,14 @@ print("\ngrades live in their OWN file, never triage.json")
 # the PUBLIC page within 60 seconds -- asserting a gap was triaged when nothing was built.
 ck("triage.json is never written", "triage" not in CODE.lower())
 ck("grades have their own path", "draft-grades.json" in CODE)
-ck("the human verdicts are a closed set", mod.VERDICTS == ("good", "wrong", "harmful"))
+# CLOSED, but not frozen at three: "doer" was added 2026-09-12 after the CLI turned out to be
+# unable to record the only verdict that routes into triage. The property worth asserting is
+# that the set is closed and MATCHES THE OTHER WRITER, not that it holds a particular three.
+ck("the human verdicts are a closed set", tuple(mod.VERDICTS) == ("good", "doer", "wrong", "harmful"))
 
 print("\nCal does not grade Cal")
 ck("no verdict is ever assigned by the module",
-   not re.search(r'"verdict"\s*:\s*"(good|wrong|harmful)"', CODE.replace('args.verdict', '')),
+   not re.search(r'"verdict"\s*:\s*"(good|doer|wrong|harmful)"', CODE.replace('args.verdict', '')),
    "a verdict literal is assigned somewhere other than the --grade CLI")
 
 print("\nevery inbound except Cal's own")
@@ -517,6 +520,26 @@ ck("redraft documents that it re-stamps only rewritten rows",
 #    spends a model call per row on the largest bucket in the bank.
 ck("redraft skips model-arm rows by default",
    "with_model" in drafts.redraft.__code__.co_varnames)
+
+# ---------------------------------------------------------------------------------------
+# THE TWO GRADING SURFACES MUST AGREE (2026-09-12). There are two writers -- the public page
+# and this local CLI -- and their verdict sets had silently diverged: the CLI omitted "doer",
+# which is the ONLY verdict learn.grade_queue() routes into triage. So the operator, grading
+# from the machine that owns the radio, could not record the one judgement with leverage, while
+# an anonymous visitor could. Asserted rather than commented, because a comment did not stop it.
+ck("CLI and page offer the same verdicts",
+   tuple(drafts.VERDICTS) == tuple(_dash.GRADE_VERDICTS),
+   f"{drafts.VERDICTS} vs {_dash.GRADE_VERDICTS}")
+ck("'doer' is available to the CLI", "doer" in drafts.VERDICTS)
+
+# A correction is the only feedback that says what SHOULD have been said. The CLI could not
+# record one at all until now.
+_grade_src = drafts_code if 'drafts_code' in dir() else code_only(SRC)
+ck("the CLI records a corrected reply", '"better"' in _grade_src and "--better" in SRC)
+
+# WHO graded is load-bearing: three writers now exist (anonymous page, local operator,
+# programmatic review) and pooling them made a passer-by indistinguishable from the operator.
+ck("the CLI records who graded", '"by"' in _grade_src)
 
 print()
 if FAILS:

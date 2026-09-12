@@ -28,6 +28,23 @@ def rec(**kw):
     return kw
 
 
+# ---------------------------------------------------------------------------------------
+# EVERY SYMBOL-ONLY ASK USED TO SHARE ONE CLUSTER KEY (2026-09-12). normalize() strips
+# punctuation and symbols, so an emoji-only message had nothing left and landed on the constant
+# "(empty)". 34 of 343 drafts are emoji-only and 9 graded rows shared that single bucket.
+# Triaging it would have marked every emoji ask handled at once, and a genuinely distinct emoji
+# gap afterwards would be invisible because its key was already triaged.
+_k = learn.cluster_key
+check("two different emoji do not collapse together",
+      _k("\U0001F44D") == _k("\u26a1\u26a1\u26a1"), False)
+check("the same emoji still clusters with itself",
+      _k("\U0001F44D") == _k("\U0001F44D"), True)
+check("genuinely empty text keeps the empty key", _k(""), "(empty)")
+check("whitespace-only text keeps the empty key", _k("   "), "(empty)")
+check("a symbol ask is not the empty key", _k("\U0001F44D") == "(empty)", False)
+check("ordinary text is untouched by the fallback",
+      _k("Cal, what do you know?") == _k("what do you know"), True)
+
 print("classify() — one bucket per record, by exclusion")
 
 # FILTERED: not matched (off-list sender, not addressed). Never a gap.

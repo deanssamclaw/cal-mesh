@@ -441,6 +441,21 @@ nothing about why — so it cannot route anywhere:
 | ✏️ `wrong` | carries the reply that would have been better | the only feedback with training signal |
 | ⚠️ `harmful` | should not have been said at all | queued as work |
 
+**Three writers, and the record says which one.** The public page writes `by: "page"` and
+cannot be told otherwise -- it is ungated, so a value it accepted from the client would let a
+passer-by sign as the operator. The local CLI writes whoever `--by` names, defaulting to the
+operator, because running it means having the machine. Programmatic review writes
+`by: "cal-review"`. Until 2026-09-12 all three pooled into `"page"`, which made a machine's
+pattern match indistinguishable from a person's judgement; the page now shows the author beside
+the verdict.
+
+    python3 drafts.py --grade <draft_id> --verdict doer --better "…" --by dean
+
+The CLI's verdict set had also drifted: it offered `good/wrong/harmful` and omitted **`doer`**,
+the only verdict `grade_queue()` routes into triage. So the operator could not record the one
+judgement with leverage while an anonymous visitor could. The two sets are now asserted equal in
+`eval_drafts.py` rather than kept in step by hand.
+
 `learn.grade_queue()` is the join that makes this a loop rather than a log. It keys each verdict
 with the distiller's own `normalize()`, so a graded ask and a distilled gap land in one namespace
 instead of two spellings of the same thing, and an item clears when its ask is **triaged** — not
