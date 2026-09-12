@@ -178,11 +178,38 @@ RECORDS = (
         "oracle_key": None,
     },
     {
+        "flag": "CAPS_ENABLED", "name": "capabilities", "kind": "doer",
+        "module": "capabilities.py", "model_runs": False,
+        "answers": "What Cal can actually do, composed from the armed config FLAGS at the "
+                   "moment of asking — never a stored sentence, so the list cannot drift away "
+                   "from what is really armed.",
+        "trigger": "A question about Cal's own capabilities or purpose. Mounted at the BOTTOM "
+                   "of the ladder: a mutation test with a maximally greedy matcher still let "
+                   "all four real capabilities win, so PLACEMENT is the guarantee and the "
+                   "pattern is only defence in depth.",
+        "who": "allow-listed senders — it sits below sender_allowed, so a stranger asking "
+               "what Cal does still gets silence.",
+        "out_of_scope": [
+            {"limit": "It cannot describe a capability that is not armed, because it reads the "
+                      "flags rather than a description of them. Arming a doer adds a row; "
+                      "disarming one removes it, with no edit here.",
+             "where": "capabilities.py:answer"},
+            {"limit": "It is not a help system. It names what is armed and stops; it will not "
+                      "explain how to phrase a request or what a doer's limits are.",
+             "where": "capabilities.py"},
+            {"limit": "Armed 2026-09-12 WITHOUT the independent adversarial review the watch "
+                      "list asked for. Dean's explicit call; recorded here rather than left "
+                      "implicit, because the review is still owed.",
+             "where": "capabilities.py:answer"},
+        ],
+        "oracle_key": None,
+    },
+    {
         "flag": "SIGREPORT_ENABLED", "name": "sigreport", "kind": "doer",
         "module": "sigreport.py", "model_runs": False,
         "answers": "The receiver's own reading of the packet that carried your test — hop "
                    "count, and the signal-to-noise and RSSI of the last leg.",
-        "trigger": "A message shaped like a radio check. Matched by shape, not by a "
+        "trigger": "A message shaped like a radio check, or a CONTACT REPORT - the sender telling Cal they heard him (Got you in Olathe), added 2026-09-12. A contact report must name no other node, or it is a report about a third party and Cal answering it barges into an exchange he was not part of. Matched by shape, not by a "
                    "vocabulary list, because the real log contains 'Tange test'.",
         "who": "anyone",
         "out_of_scope": [

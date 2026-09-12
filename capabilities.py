@@ -88,7 +88,7 @@ _MENU = (
     ("CALC_ENABLED", "math, units, RF"),
     ("SUNMOON_ENABLED", "sun and twilight times"),
     ("WEATHER_ENABLED", "current weather"),
-    ("SIGREPORT_ENABLED", "signal reports on a test"),
+    ("SIGREPORT_ENABLED", "signal reports on a test or a contact report"),
     # Armed, and deliberately NOT advertised. The ack is something Cal does TO a greeting, not
     # a service anyone asks for, and "I say good morning back" spends a shared-airtime budget
     # that the four above have a better claim on. Listed here so the omission is a decision
