@@ -448,6 +448,76 @@ for name, (old, new) in MUTANTS.items():
         caught, name = False, name + f" (probe raised {e!r})"
     ck("mutation caught: " + name, caught)
 
+# ---------------------------------------------------------------------------------------
+# AUDIT / REDRAFT (2026-09-12). drafts.jsonl is cumulative and run() skips anything already
+# drafted, so a capability armed later corrects every FUTURE row and cannot reach a banked one.
+# On the day this shipped, 8 banked rows would have answered differently and nothing in the
+# repo could say so. Same failure the gap ledger had in session 150, same remedy shape.
+import json as _js, os as _os, tempfile as _tf
+sys.path.insert(0, HERE)
+import drafts as drafts   # HERE is on sys.path; siblings import
+
+_cfg = drafts.load_cfg()
+
+# 1. THE AUDIT MUST NOT CALL THE MODEL. If it does, auditing the bank costs one model call per
+#    row and nobody will run it. Proven by making the model call explode rather than by reading
+#    the code: cal_reply(dry=True) must never reach run_claude.
+# A RAISING stub cannot prove this: audit() catches Exception per row and continues, so the
+# raise is swallowed and the check passes on a module that calls the model every time. Measured
+# 2026-09-12 -- the mutation "dry mode calls the model" SURVIVED against a raising stub. Record
+# the call instead and assert it never happened.
+_orig_rc = drafts._r.run_claude
+_calls = []
+def _spy(*a, **k):
+    _calls.append(1)
+    return ("", "spy")
+drafts._r.run_claude = _spy
+try:
+    drafts.audit(_cfg)
+finally:
+    drafts._r.run_claude = _orig_rc
+ck("audit runs without ever calling the model", not _calls,
+   f"{len(_calls)} model call(s)")
+
+# 2. THE AUDIT MUST BE READ-ONLY. It reports; --redraft is what rewrites.
+_before = open(drafts.DRAFTS, "rb").read() if _os.path.exists(drafts.DRAFTS) else b""
+drafts.audit(_cfg)
+_after = open(drafts.DRAFTS, "rb").read() if _os.path.exists(drafts.DRAFTS) else b""
+ck("audit writes nothing", _before == _after)
+
+# 3. A ROW WITH NO RECORDED ARM IS NOT DRIFT. Nothing is known to have changed about it, and
+#    counting it would put 103 rows into an alerting path that exists for regressions.
+_rows = [{"draft_id": "x1", "text": "tell me a joke", "from": "!a", "via": None,
+          "ts": "2026-09-01T00:00:00+00:00"}]
+_r1 = drafts.audit(_cfg, rows=_rows, our="!me")
+ck("a row with no recorded arm is counted, not called drift",
+   len(_r1["drift"]) == 0 and _r1["no_arm"] == 1)
+
+# 4. REAL DRIFT IS DETECTED. A contact report banked as `model` must show up.
+# A REAL banked row, because sigreport replays from the PACKET: a synthetic fixture has no
+# packet in inbox.jsonl, so the arm correctly declines and the check would pass vacuously on a
+# module that detects nothing. Same reason this file already grades sigreport on real records.
+_real = next((x for x in drafts._load_rows()
+              if x.get("via") == "sigreport" and (x.get("text") or "").startswith("Got you in")),
+             None)
+_rows2 = [dict(_real, via="model")] if _real else []
+_r2 = drafts.audit(_cfg, rows=_rows2, our="!me")
+_hit = [d for d in _r2["drift"] if d["now"] != "model"]
+ck("a banked row a doer would now claim is reported as drift",
+   bool(_real) and len(_hit) == 1, "" if _real else "no contact-report row in the bank")
+
+# 5. REGIME IS RE-STAMPED ONLY ON A ROW THAT WAS ACTUALLY REWRITTEN. `armed`/`commit` say which
+#    Cal produced the text; stamping a row this did not regenerate asserts something false.
+_src = _js.loads(open("drafts.py", encoding="utf-8").read().count("") and "{}" or "{}")
+_fn = drafts.redraft.__doc__ or ""
+ck("redraft documents that it re-stamps only rewritten rows",
+   "ONLY on a rewritten row" in _fn)
+
+# 6. A ROW WHOSE NEW ARM IS THE MODEL IS SKIPPED UNLESS ASKED. Otherwise --redraft silently
+#    spends a model call per row on the largest bucket in the bank.
+ck("redraft skips model-arm rows by default",
+   "with_model" in drafts.redraft.__code__.co_varnames)
+
 print()
 if FAILS:
     print(f"eval_drafts: {len(FAILS)} FAILED — {FAILS}")

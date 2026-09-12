@@ -297,7 +297,7 @@ def packet_for(rec, window=_JOIN_WINDOW_S):
     return near[0] if len(near) == 1 else None
 
 
-def cal_reply(cfg, rec, our):
+def cal_reply(cfg, rec, our, dry=False):
     """WHAT CAL WOULD HAVE SAID, through his own ladder rather than a model wearing his name.
 
     Mirrors the live order exactly -- sigreport (responder.py:1430), the doer/model plan
@@ -370,6 +370,13 @@ def cal_reply(cfg, rec, our):
         if g:
             return g, "ok", "greeting"
 
+    # DRY: the arm is decided by everything above this line, all of it deterministic. --audit
+    # only needs to know WHICH arm would answer, so it stops here rather than spending a model
+    # call per banked row. The ladder above is the real one either way -- an audit that
+    # restated the order would be a second opinion about what Cal says, which is exactly what
+    # this module's docstring forbids.
+    if dry:
+        return None, "dry", ("model+" + plan["capability"] if plan.get("capability") else "model")
     reply, why = _r.run_claude(cfg, plan["prompt"])
     # The weather path is NEITHER arm: plan_response returns mode=generate with
     # capability="weather" because the harness fetched a real observation and injected it, and
@@ -407,6 +414,93 @@ def faithful_draft(rec, via):
     if rec.get("reply"):
         return False
     return not any(k in (via or "") for k in _TIME_DEPENDENT)
+
+
+def _rec_for(row):
+    """Rebuild the responder record a banked row was drafted from.
+
+    Only the fields the ladder reads. `reply` is restored from `sent_reply` because
+    faithful_draft() keys on it, and dropping it would silently reclassify every row Cal
+    actually answered.
+    """
+    return {"text": row.get("text"), "from": row.get("from"), "to": row.get("to") or "^all",
+            "reaction": None, "reply": row.get("sent_reply"), "id": row.get("packet_id"),
+            "ts": row.get("ts")}
+
+
+def audit(cfg, rows=None, our=None):
+    """Which banked rows would a DIFFERENT arm answer today? Read-only, no model calls.
+
+    The failure this exists for is the one session 150 paid for in the gap ledger: drafts.jsonl
+    is cumulative and `run()` skips anything already drafted (`if did in done: continue`), so a
+    capability armed later corrects every FUTURE row and cannot reach one already banked. On
+    2026-09-12 that was 40 of 44 graded defects still showing the old Cal, with nothing in the
+    repo able to say so.
+
+    Compares the RECORDED arm against the arm the live ladder would choose now. It does not
+    rewrite anything -- `--redraft` does that, and only when asked.
+    """
+    rows = _load_rows() if rows is None else rows
+    our = _learn.our_id() if our is None else our
+    # Two different unknowns, counted apart because they mean different things. A row with no
+    # `armed` hash predates regime stamping; a row with no `via` predates arm recording, and it
+    # is the second one that makes the tab's "each row says which arm answered" untrue.
+    drift, no_regime, no_arm = [], 0, 0
+    for row in rows:
+        if not row.get("armed"):
+            no_regime += 1
+        if not row.get("via"):
+            no_arm += 1
+        was = row.get("via")
+        try:
+            _, _, now_arm = cal_reply(cfg, _rec_for(row), our, dry=True)
+        except Exception:                                          # noqa: BLE001
+            continue
+        # A row with no recorded arm predates via-stamping. It is not drift -- nothing is known
+        # to have changed -- so it is counted separately rather than inflating the number.
+        if was and now_arm != was:
+            drift.append({"draft_id": row.get("draft_id"), "text": row.get("text"),
+                          "was": was, "now": now_arm, "draft": row.get("draft")})
+    return {"total": len(rows), "drift": drift,
+            "no_regime": no_regime, "no_arm": no_arm}
+
+
+def redraft(cfg, ids=None, drifted_only=True, with_model=False, now=None):
+    """Re-run banked rows under the code running NOW and rewrite them in place.
+
+    Re-stamps `armed`/`commit` on a rewritten row, and ONLY on a rewritten row: those fields
+    say which Cal produced the text, so stamping a row this did not regenerate would assert
+    something false about it.
+
+    A row whose new arm is the MODEL needs a model call to get text, so it is skipped unless
+    --with-model is passed. Deterministic arms cost nothing and are rewritten by default; that
+    is also the direction that matters, since the point of arming a doer is to stop improvising.
+    """
+    rows = _load_rows()
+    our = _learn.our_id()
+    reg = regime(cfg)
+    changed = skipped = 0
+    for row in rows:
+        if ids and row.get("draft_id") not in ids:
+            continue
+        try:
+            _, _, now_arm = cal_reply(cfg, _rec_for(row), our, dry=True)
+        except Exception:                                          # noqa: BLE001
+            continue
+        if drifted_only and row.get("via") and now_arm == row.get("via"):
+            continue
+        if now_arm.startswith("model") and not with_model:
+            skipped += 1
+            continue
+        reply, why, via = cal_reply(cfg, _rec_for(row), our)
+        row.update({"draft": reply, "gen_status": why, "via": via,
+                    "shape": shape(reply), "chars": len(reply or ""),
+                    "doers": doer_coverage(row.get("text") or ""),
+                    "faithful": faithful_draft(_rec_for(row), via), **reg})
+        changed += 1
+    if changed:
+        save(rows)
+    return {"changed": changed, "skipped_need_model": skipped}
 
 
 def run(cfg, limit=None, now=None):
@@ -544,10 +638,41 @@ def main():
     ap.add_argument("--verdict", choices=VERDICTS)
     ap.add_argument("--note")
     ap.add_argument("--by")
+    ap.add_argument("--audit", action="store_true",
+                    help="read-only: which banked rows would a different arm answer now?")
+    ap.add_argument("--redraft", action="store_true",
+                    help="re-run banked rows under the current code and rewrite them")
+    ap.add_argument("--all", action="store_true",
+                    help="with --redraft: every row, not only the drifted ones")
+    ap.add_argument("--with-model", action="store_true",
+                    help="with --redraft: also rewrite rows whose new arm is the model "
+                         "(one model call per row)")
     args = ap.parse_args()
 
     if args.grade:
         return cmd_grade(args)
+
+    if args.audit:
+        a = audit(load_cfg())
+        print("drafts audit: %d banked · %d would answer differently now · "
+              "%d with no recorded arm · %d with no regime stamp"
+              % (a["total"], len(a["drift"]), a["no_arm"], a["no_regime"]))
+        for d in a["drift"]:
+            print("  %-14s -> %-14s %r" % (d["was"], d["now"], (d["text"] or "")[:56]))
+        if a["drift"]:
+            print("\n  `--redraft` rewrites these. Deterministic arms cost nothing; a row whose")
+            print("  new arm is the model is skipped unless --with-model.")
+        # Exit codes mirror learn.py --check so this composes with the same alerting path:
+        # 0 nothing to do, 1 drift found. A row with no recorded arm is NOT drift -- nothing is
+        # known to have changed about it -- so it never trips the alert on its own.
+        return 1 if a["drift"] else 0
+
+    if args.redraft:
+        cfg = load_cfg()
+        r = redraft(cfg, drifted_only=not args.all, with_model=args.with_model)
+        print("redrafted %d row(s); %d skipped (new arm is the model, needs --with-model)"
+              % (r["changed"], r["skipped_need_model"]))
+        return 0
 
     if args.check:
         print(json.dumps(summary(prune(_load_rows())), indent=2))

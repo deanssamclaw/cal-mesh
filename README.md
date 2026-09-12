@@ -448,6 +448,33 @@ when it is graded again. The join happens at read time and nowhere else: a grade
 `gap-ledger.json` is a measurement of what happened on the radio, and appending one to the other
 would leave nothing downstream able to tell them apart.
 
+### Auditing the bank
+
+`drafts.jsonl` is cumulative and `run()` skips anything already drafted, so a capability armed
+later corrects every *future* row and cannot reach one already banked. That is the same shape
+the gap ledger had in session 150: a store with a watermark, and nothing comparing it to the
+code that fills it. On 2026-09-12 it was 8 banked rows a doer would now claim, and 40 of 44
+graded defects still showing the old Cal.
+
+    python3 drafts.py --audit      # read-only; 0 nothing to do, 1 drift found
+    python3 drafts.py --redraft    # re-run the drifted rows under today's code
+
+The audit decides which arm *would* answer without generating anything, so it costs no model
+calls -- every arm above the model is deterministic, and `cal_reply(dry=True)` stops there. It
+reuses the real ladder rather than restating the order, because a second copy is how the two
+drift apart. The eval proves the no-model property with a spy rather than a raising stub: a
+raise is swallowed by `audit()`'s own per-row `except`, and that version of the check survived
+the mutation that turned dry mode off.
+
+`--redraft` rewrites only rows whose arm changed, and re-stamps `armed`/`commit` **only on a row
+it actually regenerated** -- those fields say which Cal produced the text, so stamping a row it
+did not touch would assert something false. A row whose new arm is the model needs a model call
+to get text and is skipped unless `--with-model`.
+
+Two counts are reported apart because they mean different things: **drift** (a different arm
+would answer now) is the alerting signal, while a row with **no recorded arm** predates arm
+stamping and is not drift -- nothing is known to have changed about it.
+
 ## The learning loop, and whether it is running
 
 The distiller is a scheduled job that reports its own numbers, which is a shape that can be
