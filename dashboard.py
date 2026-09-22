@@ -360,7 +360,10 @@ def correlate(inbox, sent, decisions):
                          "sunmoon_match", "sunmoon", "sigreport",
                          # authenticated-DM path: so the trace can say the model also got the
                          # injected context + remembered thread, not just the message.
-                         "dm_unlock", "dm_memory_stored")
+                         "dm_unlock", "dm_memory_stored",
+                         # jevroute: route, confidence, model id, whether acted on and why not.
+                         # No message text and no key are ever in it; eval_jevroute asserts that.
+                         "jev_route")
                         if dec.get(k) is not None}
 
     replied = [d for d in decisions if d.get("matched") and d.get("reply")]
@@ -7071,10 +7074,12 @@ details.tr[open]>summary:hover{border-color:#4478ad;
       <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/level3-roadmap.md" target="_blank" rel="noopener noreferrer">Capability roadmap — what Cal could learn next ↗</a>
       <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/level3-weather-intent-layer.md" target="_blank" rel="noopener noreferrer">Two of my own proposals, refuted with measurements ↗</a>
       <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/unknown-sender-tier.md" target="_blank" rel="noopener noreferrer">Answering strangers — "we hear you" ↗</a>
-      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/channel-trust-and-agency.md" target="_blank" rel="noopener noreferrer">Channel trust &amp; agency — how much Cal is allowed to be ↗</a></div></details>
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/channel-trust-and-agency.md" target="_blank" rel="noopener noreferrer">Channel trust &amp; agency — how much Cal is allowed to be ↗</a>
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/jev-routing.md" target="_blank" rel="noopener noreferrer">A second opinion on routing — measured, built, not armed ↗</a></div></details>
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
+      <div class="ci"><span class="cd">2026-09-21</span><b>Built, not switched on: a second opinion on what a message is about.</b> Every capability claims a message with word rules, and a message no rule claims goes to the model &mdash; the one part of Cal that can invent. &ldquo;Cal, hows the link holding up?&rdquo; matched no rule and was once answered &ldquo;Link&rsquo;s solid&rdquo; with no number behind it. Now, <i>only</i> on that fallthrough, Cal can ask a decision model (Jev, from TypeSafe AI) one question: which service should answer this? Jev writes nothing and computes nothing; it can only hand the message to a capability that already exists, which keeps every refusal it had. Measured first on all 319 distinct messages in the log: word rules alone got 245 right, rules plus Jev 287&ndash;293, and <b>nothing that was right became wrong</b>. The honest part: 44 of the 48 fixes were messages nobody had addressed to Cal, and answering those is a separate decision that has not been made. Among messages addressed to Cal it fixes 4 of 56. It is <b>off</b>: switching it on sends message text to a third party, and that is the operator&rsquo;s call. When it runs, the trace shows a <b>routed by Jev</b> step &mdash; and a weather reply it routed no longer says &ldquo;plain word matching, no model involved&rdquo;, which would have been false.</div>
       <div class="ci"><span class="cd">2026-09-12</span><b>A simulated reply now shows what else was on the channel.</b> A message alone is often unjudgeable, and about a third of the log is exactly that. Each row now carries the traffic within <b>&plusmn;3 minutes</b>, oldest first, including Cal&rsquo;s own sends. On real rows it changes the reading: &ldquo;Aye&rdquo; looks like a hail until you see it landed 20&nbsp;s after a <i>different</i> node&rsquo;s &ldquo;Heard from 159th and I-35!&rdquo;, which makes it agreement in someone else&rsquo;s exchange; a &#128077; turns out to have arrived 78&nbsp;s after Cal&rsquo;s own signal readback, so it is a thank-you rather than noise; and &ldquo;sounds like great news&rdquo; had <b>nothing</b> before it, which is what proves the model invented the news. A row with no neighbours says so, because &ldquo;no context&rdquo; is itself evidence. <b>The drafter sees it too</b>, which reverses what this entry said a few hours earlier. The conversation window that was refused was built for the <i>responder</i>, and its failures were on the air &mdash; it made Cal answer messages meant for other people and ate a live clarify, turning a torque figure into a guess. Drafts transmit nothing, so that does not carry over, while blindness cost something measurable: re-drafted with context, &ldquo;Aye, loud and clear here.&rdquo; became &ldquo;Copy that, thanks for checking in&rdquo; &mdash; the invented signal claim simply goes away. Two rules bound it: context never touches a <b>capability</b> prompt, because the weather path deliberately shows the model a fetched fact and no sender text at all, and every line is <b>sanitized</b> exactly as the live path sanitizes. A draft built this way is marked <b>unfaithful</b> and carries its context count, because the responder sees one message &mdash; so it is what Cal <i>could</i> say, not what he <i>would</i> have said.</div>
       <div class="ci"><span class="cd">2026-09-12</span><b>Cal answers a contact report, and says what he can actually do.</b> Two capabilities changed after every simulated reply on record was read. <b>Signal reports now answer a contact report</b> &mdash; a neighbour saying &ldquo;Got you in Olathe&rdquo; is running the same experiment a range test runs, in the other direction, and the reciprocal is the one fact Cal holds and they do not. Before this the model answered those by feel: across the log <b>27 replies asserted link quality</b>, Cal held the measured SNR and RSSI on the packet for <b>all 27</b>, and four called a link &ldquo;loud and clear&rdquo; at <b>&minus;15 to &minus;19&nbsp;dB SNR</b>, at or past the usable floor. A contact report that names <i>another</i> node is refused: it is a report about a third party, and answering it would barge into an exchange Cal is not part of. <b>The capability question is no longer answered by the model</b>, which had replied &ldquo;coding, writing, research, analysis&rdquo; &mdash; the model&rsquo;s own list, not Cal&rsquo;s. It is now composed from the armed configuration flags at the moment of asking, so it cannot drift from what is really switched on. Separately, a <b>simulated reply that used a live weather reading is now marked unfaithful</b>: those facts are fetched when the draft is written, not when the message arrived, and two rows had been published with no such mark &mdash; one answered &ldquo;Moderate rain&rdquo; with &ldquo;75F clear&rdquo;. That mislabelling had already produced two wrong verdicts in review.</div>
       <div class="ci"><span class="cd">2026-08-31</span><b>Hops gained substance, and a coarse grid.</b> A traceroute reply carries each relay&rsquo;s full node number, so hops are now <i>named</i> from the node database — short and long name, hardware, distance in hops, when it was last heard — rather than listed as bare ids. A hop this node has never heard is shown as the last two characters of its id and said to be unknown, never guessed: across 292 known nodes a two-character fragment matches exactly one of them only <b>28%</b> of the time, and one value is shared by nine. The last-relay byte the firmware reports is the one genuine fragment, and it is named only on a unique match and otherwise reports how many candidates it has. Nodes that broadcast a position now also show a <b>Maidenhead subsquare</b>, about 3 by 4.5 miles, bucketed at capture with the exact coordinate discarded and never written; Cal&rsquo;s own node is excluded. See the map question in the FAQ for what that does and does not give away.</div>
@@ -7605,10 +7610,15 @@ function flowHtml(x,t){
           ? 'two weather words together'
           : 'one weather word plus a question mark';
   }
+  const jw=t.jev_route&&t.jev_route.acted==='weather';
   const bx=`<div class="fb bx"><div class="fk">2 · what the software recognised</div>`
     +`<div class="fv">a weather question${t.forecast_asked?' about the <b>future</b>':''}</div>`
-    +`<div class="fn">${chips}${chips?'<br>':''}${why} — plain word matching, `
-    +`<b>no model involved</b></div></div>`;
+    +(jw
+      ? `<div class="fn">no word rule matched &mdash; a decision model (Jev) classified it as a `
+        +`weather question${t.jev_route.conf!=null?', confidence '+Number(t.jev_route.conf).toFixed(2):''}. `
+        +`It chose the capability only; it <b>did not write or look up anything</b></div></div>`
+      : `<div class="fn">${chips}${chips?'<br>':''}${why} — plain word matching, `
+        +`<b>no model involved</b></div></div>`);
   const st=t.obs_station?esc(t.obs_station):null;
   const age=t.obs_age_s!=null?Math.round(t.obs_age_s/60)+' min old':null;
   const warn='border-color:#8a6d1f;background:linear-gradient(180deg,#2a2213,#1f190e)';
@@ -7731,6 +7741,25 @@ function spineHtml(x,t){
     if(q.flagged) b.push('injection-shaped tokens flagged');
     s+=stage('pass','sanitized',`${q.in_chars}&rarr;${q.out_chars} characters`,
       b.length?`<span class="hint">${esc(b.join(' · '))}</span>`:'<span class="hint">nothing removed</span>');}
+  // jevroute: a second opinion asked ONLY when no word rule claimed the message. Drawn whenever it
+  // was asked, acted on or not -- a decision that was consulted and overruled is still part of
+  // how the reply came to exist, and hiding it would make the word rules look like they decided.
+  const jr=t.jev_route||null;
+  if(jr&&jr.asked){
+    const cf=jr.conf!=null?` · confidence ${Number(jr.conf).toFixed(2)}`:'';
+    if(jr.acted)
+      s+=stage('pass','routed by Jev',`sent to <b>${esc(jr.acted)}</b>${cf}`,
+        `<span class="hint">no word rule matched this message. A decision model `
+        +`(<code>${esc(jr.model||'jev')}</code>, TypeSafe AI) was asked one question &mdash; which of `
+        +`a fixed list of services should answer &mdash; and picked one. It writes nothing and `
+        +`computes nothing; the reply below comes from that capability, with its own checks.</span>`);
+    else
+      s+=stage('skip','second opinion',jr.error?`Jev unavailable (<code>${esc(jr.error)}</code>)`
+          :`Jev said <b>${esc(jr.route||'nothing')}</b>${cf} &mdash; not acted on`,
+        `<span class="hint">${jr.error?'so the message took its usual path, exactly as if Jev did not exist'
+          :jr.declined?'the capability it named declined (<code>'+esc(jr.declined)+'</code>), so the usual path answered'
+          :'below the confidence floor, or not a capability Jev may route to &mdash; the usual path answered'}</span>`);
+  }
   if(t.forecast_asked)
     s+=stage('stop','refused','asked about a future condition',
       '<span class="hint">the capability holds current observations only, so a fixed reply was sent '
@@ -7769,7 +7798,10 @@ function spineHtml(x,t){
     const src=FIXEDSRC[t.gen_status];
     if(/^fixed_/.test(t.gen_status))
       s+=stage('pass','answered from code',src||'a fixed reply',
-        '<span class="hint">no model ran &mdash; the responder wrote this reply itself'
+        '<span class="hint">'+(jr&&jr.acted
+          ?'no model wrote this reply &mdash; a decision model only chose which capability would, '
+           +'and the responder wrote the reply itself'
+          :'no model ran &mdash; the responder wrote this reply itself')
         +(src?'':', by a path this page does not have a name for yet')+'</span>');
     else
       s+=stage('stop','generation',`<code>${esc(t.gen_status)}</code>`,
