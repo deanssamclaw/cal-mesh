@@ -869,7 +869,9 @@ def _gen_health(now):
         if g == "ok":
             trail, last_ok = 0, rec.get("ts")
         else:
-            trail, last_fail, last_status = trail + 1, rec.get("ts"), g.rstrip(":")[:40]
+            # The CODE only ("gen_rc1"), never the stderr tail gen_status carries after the colon:
+            # this reason is published, and a CLI error can hold account detail.
+            trail, last_fail, last_status = trail + 1, rec.get("ts"), g.split(":", 1)[0][:24]
     return {"attempts": n, "recent_failed": trail, "last_ok": last_ok, "last_fail": last_fail,
             "last_status": last_status, "last_fail_age_h": _age_h(last_fail, now),
             "fail_after": GEN_FAIL_RUN}

@@ -169,6 +169,10 @@ h = state_for(fails, FRESH_RUNS)
 ck("FAILING when the last 3 model replies failed", h["state"] == "FAILING", h["state"])
 ck("FAILING names the replies, not the loop", "model replies" in h["reason"] and "gen_rc1" in h["reason"], h["reason"])
 ck("FAILING reports the trailing count", h["gen"]["recent_failed"] == 3, h["gen"])
+leak = [rec(NOW - timedelta(minutes=10 - i), text=f"x{i}", gen="gen_rc1:Usage limit reached for acct 12345") for i in range(3)]
+h = state_for(FRESH_RECS + leak, FRESH_RUNS)
+ck("FAILING publishes the code, never the stderr tail",
+   "gen_rc1" in h["reason"] and "acct" not in h["reason"] and "Usage" not in json.dumps(h["gen"]), h["reason"])
 h = state_for(fails[:-1], FRESH_RUNS)
 ck("two failures are not FAILING", h["state"] == "FRESH", h["state"])
 h = state_for(fails + [rec(NOW - timedelta(minutes=1), text="later", gen="ok")], FRESH_RUNS)
