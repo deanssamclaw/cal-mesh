@@ -55,6 +55,7 @@ import sunmoon                    # COMPUTE doer: closed-form astronomy, offline
 import capabilities               # FIXED doer: what is armed, composed from the flags
 import dm_memory
 import sigreport                  # per-identity DM memory on the pinned unlock tier (default OFF)
+import jevroute                   # second-opinion ROUTER on the fallthrough only (default OFF)
 from zoneinfo import ZoneInfo
 
 OUR_ID_FALLBACK = "!xxxxxxxx"   # Cal HT
@@ -194,6 +195,9 @@ DEFAULTS = {
     "DM_MEMORY_MAX_TURNS": "8",       # recent (q,a) pairs retained; oldest fall off
     "DM_MEMORY_MAX_CHARS": "1200",    # hard cap on the injected memory block (prompt, not a window)
 }
+# JEV_* keys are defined once, in jevroute.py. load_config() drops any key not in DEFAULTS, so
+# without this merge JEV_ROUTE_ENABLED=true in config would be read as nothing at all.
+DEFAULTS.update(jevroute.DEFAULTS)
 
 # The unlocked persona. Still forbids secrets outright, because "absence not refusal" covers the
 # keystore but the injected context is operator-curated and could in principle carry something
@@ -627,7 +631,7 @@ def put_pending(st, sender, pend):
 
 
 def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_context=None,
-                  dm_authed=False, pending=None):
+                  dm_authed=False, pending=None, route_hint=None):
     """PURE decision (no subprocess, no I/O beyond the injectable weather fetch): sanitize the
     inbound, run any capability, and decide whether we emit a FIXED fail-safe reply or a
     GENERATE prompt. Separated from side effects so the whole path is offline-testable."""
@@ -638,7 +642,7 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
            "sunmoon_match": None, "sunmoon_meta": None,
            "persona": None, "unlocked": False, "max_chars": None,
            "fixed_kind": None, "calc_meta": None, "caps_match": None,
-           "clarify_pending": None}
+           "clarify_pending": None, "route_hint": route_hint}
     # P1: an authenticated DM from Dean gets the private persona and injected context — but the
     # DOERS RUN FIRST. This used to short-circuit here at the top, which meant an unlocked DM
     # skipped calc/sunmoon/weather entirely and a computable ask ("5 mi in km") got a model
@@ -783,7 +787,12 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
     enabled = cfg.get("WEATHER_ENABLED", "false").lower() == "true"
     match = weather.explain_weather_match(raw_text) if enabled else None
     out["match"] = match
-    if enabled and match["via"]:
+    # route_hint="weather" is jevroute's rescue (see plan_jev_rescue): the regex found no trigger
+    # but the fallthrough was classified as a weather ask. It opens THIS branch and nothing else,
+    # so every guard below still applies -- the calc collision, the forecast refusal, and "Can't
+    # reach weather" rather than an invented reading. It cannot arm weather: `enabled` is still
+    # the flag.
+    if enabled and (match["via"] or route_hint == "weather"):
         # COLLISION. "temp 12*12" carries a weather word AND a calculation, and on 2026-08-17 it
         # was answered "70F, clear, north wind 5 mph" — an observation offered as the answer to a
         # sum, twice, on the published DM path. calc refuses prose-with-an-expression on its own
@@ -827,7 +836,7 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
     if cfg.get("CAPS_ENABLED", "false").lower() == "true":
         cap_match = capabilities.explain_match(clean, cfg.get("TRIGGER_WORD", "cal"))
         out["caps_match"] = cap_match
-        if cap_match["via"]:
+        if cap_match["via"] or route_hint == "caps":
             out["capability"] = "capabilities"
             out["mode"] = "fixed"
             out["fixed_kind"] = "capabilities"
@@ -884,6 +893,12 @@ def run_claude(cfg, prompt, persona=None, cap=180):
             _claude_argv(cfg, prompt, persona),
             capture_output=True, text=True, timeout=_int_cfg(cfg, "GEN_TIMEOUT_S", DEFAULTS["GEN_TIMEOUT_S"]))
         if out.returncode != 0:
+            # The CLI can print its error to STDOUT with stderr empty -- the 2026-09-20 burst
+            # recorded "gen_rc1:" five times and the cause was lost. Both tails go to the LOCAL
+            # log only: gen_status is published on the public trace, and a CLI error can carry
+            # account detail (usage limits, auth) that has no business on a public page.
+            log(f"gen rc{out.returncode} detail: stderr={out.stderr.strip()[-300:]!r} "
+                f"stdout={out.stdout.strip()[-300:]!r}")
             return None, f"gen_rc{out.returncode}:{out.stderr.strip()[:80]}"
         reply = clean_reply(out.stdout, cap=cap)
         if not reply:
@@ -1243,7 +1258,7 @@ def resolve_relay(relay_byte):
     return sigreport.clean_name(hits[0])
 
 
-def plan_sigreport(cfg, st, rec, ours, ts=None):
+def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False):
     """Decide whether a range/signal test gets a measured signal report.
 
     Same contract as plan_greeting: pure, returns (should, reason, dest, ch, text, gates),
@@ -1273,9 +1288,23 @@ def plan_sigreport(cfg, st, rec, ours, ts=None):
     # False refuses, so a hand-edited "reaction": "true" fails the safe way.
     if not mark("not_a_reaction", rec.get("reaction") in (None, False)):
         return False, "sigreport_is_reaction", None, ch, None, gates, None
-    m = sigreport.match(rec.get("text", ""), trigger=cfg.get("TRIGGER_WORD", "cal"))
-    if not mark("is_a_test", m is not None):
-        return False, "not_a_test", None, ch, None, gates, None
+    # `forced` is jevroute's rescue of an ADDRESSED message the shape rule missing ("Cal, hows the
+    # link holding up?"). It replaces this one gate and no other: measurements, the quiet channel,
+    # the per-sender cooldown and the daily budget below are still checked, and the trace names
+    # which of the two decided it.
+    if forced:
+        m = {"index": None}
+        mark("is_a_test_jev", True)
+        # The shape gate also refused messages about OTHER stations. Replacing it must not drop
+        # that: "871c I hear you in Lee's Summit" is sigreport's own documented refusal, and the
+        # review got it answered through this path. jevroute's other_station guard asks the same
+        # question semantically; this is the literal backstop.
+        if not mark("names_no_other_node", not sigreport.names_other_node(rec.get("text", ""))):
+            return False, "sigreport_names_other_node", None, ch, None, gates, None
+    else:
+        m = sigreport.match(rec.get("text", ""), trigger=cfg.get("TRIGGER_WORD", "cal"))
+        if not mark("is_a_test", m is not None):
+            return False, "not_a_test", None, ch, None, gates, None
     # THE REPORT IS BUILT BEFORE THE BUDGET IS CHECKED, and that order matters: a record with
     # no measurements must cost nothing. Spending a daily slot to discover there was nothing
     # to say would let a stream of unmeasured packets exhaust the budget in silence.
@@ -1333,6 +1362,80 @@ def commit_greeting(st, sender, ts=None):
     d[day] = d.get(day, 0) + 1
     for k in [k for k in d if k < day]:      # keep the counter from growing without bound
         del d[k]
+
+
+def send_jev_sigreport(st, rec, d, sig, new_off, enqueue_fn=None, record=None, save=None):
+    """The main loop's send for a Jev-routed signal report, pulled out so the eval can drive it.
+    Queues the text, SPENDS the budget, records the decision under the packet's own trace and
+    advances the offset. The caller must `continue` -- the eval checks the loop does -- or the
+    same message would also go to the model."""
+    enqueue_fn = enqueue_fn or enqueue
+    record = record or record_decision
+    save = save or save_state
+    (s_ok, s_reason, s_dest, s_ch, s_text, s_gates, s_meta) = sig
+    enqueue_fn(s_text, s_dest, s_ch)
+    commit_sigreport(st, rec.get("from"))
+    save(st)
+    d["sigreport_gates"] = s_gates
+    d.update({"matched": True, "reason": s_reason, "reply": s_text, "dest": s_dest,
+              "capability": "sigreport", "prompt_kind": "fixed", "gen_status": "fixed_sigreport",
+              "sigreport": s_meta})
+    log(f"SIGREPORT(jev) {rec.get('from')} -> {s_dest}: {s_text!r}")
+    record(d)
+    st["inbox_offset"] = new_off
+    save(st)
+    return True
+
+
+def plan_jev_rescue(cfg, st, rec, ours, plan, replan, classify=None):
+    """jevroute's one mount point: (plan, sig, trace). PURE apart from the classify call, which
+    is injectable, so the whole decision is offline-testable like plan_response.
+
+    Runs AFTER the ladder. If the ladder claimed the message, or it is a private DM, or it was
+    flagged, nothing is asked (jevroute.eligible). Otherwise Jev's route is acted on only when it
+    clears JEV_MIN_CONF and names a doer that can still refuse:
+      weather / caps -> `replan(hint)` re-runs plan_response with route_hint, so the doer's own
+                        guards decide; if the doer declines (flag off), the original plan stands.
+      sigreport      -> plan_sigreport(forced=True): every gate but the shape rule still applies.
+    Anything else -- below threshold, conversation, greeting, calc, an error -- returns the plan
+    untouched, which is exactly today's behaviour. `trace` is None only when the flag is off.
+    """
+    calch = cal_channel(cfg)
+    private = rec.get("to") not in ("^all", None) or (calch is not None
+                                                     and rec.get("channel") == calch)
+    ok, why = jevroute.eligible(cfg, plan, private=private)
+    if why == "jev_disabled":
+        return plan, None, None
+    if not ok:
+        return plan, None, {"asked": False, "reason": why}
+    res = (classify or jevroute.classify)(cfg, plan["clean"])
+    act = jevroute.decide(cfg, res)
+    rnd = lambda v: round(v, 3) if isinstance(v, float) else v
+    trace = {"asked": True, "route": res.get("route"), "conf": rnd(res.get("conf")),
+             "weather_now": rnd(res.get("weather_now")),
+             "other_station": rnd(res.get("other_station")),
+             "model": res.get("model"), "ms": res.get("ms"), "error": res.get("error"),
+             "acted": None}
+    if act in ("weather", "caps"):
+        p2 = replan(act)
+        if p2.get("capability") is not None:
+            trace["acted"] = act
+            # The doer that ANSWERED, which is not always the one Jev named: the weather branch
+            # hands "is it hotter than 12*8 out" to calc through the collision guard. The trace
+            # must name what ran, not what was predicted.
+            trace["answered_by"] = p2["capability"]
+            return p2, None, trace
+        trace["declined"] = "doer_declined"
+        return plan, None, trace
+    if act == "sigreport":
+        sig = plan_sigreport(cfg, st, rec, ours, forced=True)
+        trace["sigreport_gates"] = sig[5]
+        if sig[0]:
+            trace["acted"] = "sigreport"
+            trace["answered_by"] = "sigreport"
+            return plan, sig, trace
+        trace["declined"] = sig[1]
+    return plan, None, trace
 
 
 def read_new(st):
@@ -1476,6 +1579,20 @@ def main():
                             plan = plan_response(cfg, rec.get("from"), rec.get("text", ""),
                                                  unlocked=unl, dm_authed=lng,
                                                  dm_context=dm_ctx, pending=pend)
+                            # JEVROUTE (default OFF): a second opinion on the fallthrough only.
+                            # Asked when nothing above claimed the message; acted on only into a
+                            # doer that can still refuse. Off, ineligible or failed = no change.
+                            plan, j_sig, j_trace = plan_jev_rescue(
+                                cfg, st, rec, ours, plan,
+                                lambda hint: plan_response(
+                                    cfg, rec.get("from"), rec.get("text", ""), unlocked=unl,
+                                    dm_authed=lng, dm_context=dm_ctx, pending=pend,
+                                    route_hint=hint))
+                            if j_trace:
+                                d["jev_route"] = j_trace
+                            if j_sig:
+                                send_jev_sigreport(st, rec, d, j_sig, new_off)
+                                continue
                             if plan.get("clarify_pending"):
                                 put_pending(st, rec.get("from"), plan["clarify_pending"])
                             save_state(st)

@@ -767,10 +767,18 @@ def append_history(run, snap):
 # traffic shape is a guess wearing a measurement's clothes.
 RUN_LATE_H = 26
 INPUT_STALL_H = 48
+#   GEN_FAIL_RUN = 3    A model reply attempt is a decision with gen_status "ok" or "gen_*".
+#                       Over all 40 attempts on record (2026-08-08 .. 2026-09-21): 35 ok, and
+#                       5 failures in ONE six-minute burst on 2026-09-20 (gen_rc1, ~1 s each,
+#                       empty stderr) -- nothing else. Three consecutive failures never happen
+#                       in healthy operation, and that burst went unseen for a day because the
+#                       loop was FRESH: it watches the distiller, and a responder whose model
+#                       calls all fail looks exactly like a quiet mesh from here.
+GEN_FAIL_RUN = 3
 
 # The closed set. A verdict outside it is a bug, not a new state -- and UNKNOWN is what an
 # unreadable artefact produces, never a cheerful default.
-STATES = ("FRESH", "LATE", "STALLED", "DRIFT", "UNKNOWN")
+STATES = ("FRESH", "LATE", "STALLED", "FAILING", "DRIFT", "UNKNOWN")
 
 
 def audit(agg=None, watermark=None):
@@ -849,7 +857,27 @@ def _fmt_age(h):
     return f"{h / 24:.1f} d"
 
 
-def _health_reason(state, run_age, in_age, a):
+def _gen_health(now):
+    """The responder's model replies, from decisions.jsonl: trailing consecutive failures, and
+    when the last success and failure were. Attempts only -- a fixed reply never ran a model."""
+    trail, last_ok, last_fail, last_status, n = 0, None, None, None, 0
+    for rec in iter_decisions():
+        g = rec.get("gen_status")
+        if not isinstance(g, str) or not (g == "ok" or g.startswith("gen_")):
+            continue
+        n += 1
+        if g == "ok":
+            trail, last_ok = 0, rec.get("ts")
+        else:
+            # The CODE only ("gen_rc1"), never the stderr tail gen_status carries after the colon:
+            # this reason is published, and a CLI error can hold account detail.
+            trail, last_fail, last_status = trail + 1, rec.get("ts"), g.split(":", 1)[0][:24]
+    return {"attempts": n, "recent_failed": trail, "last_ok": last_ok, "last_fail": last_fail,
+            "last_status": last_status, "last_fail_age_h": _age_h(last_fail, now),
+            "fail_after": GEN_FAIL_RUN}
+
+
+def _health_reason(state, run_age, in_age, a, gen=None):
     """One sentence per state, and each one names ITS OWN mechanism.
 
     A fall-through that describes some other state's mechanism is worse than no sentence: it
@@ -868,6 +896,11 @@ def _health_reason(state, run_age, in_age, a):
     if state == "DRIFT":
         return (f"{a.get('stale') or 0} banked record(s) would classify differently under the "
                 f"code running now -- rebuild with `learn.py --reset`")
+    if state == "FAILING":
+        g = gen or {}
+        return (f"the loop is running, but the last {g.get('recent_failed')} model replies all "
+                f"failed ({g.get('last_status')}, newest {_fmt_age(g.get('last_fail_age_h'))} ago) "
+                f"-- 'nothing new' here may be replies that never happened")
     return f"unrecognised state {state!r}"
 
 
@@ -912,6 +945,7 @@ def health(now=None):
     last_input = last_input or None
 
     a = audit()
+    gen = _gen_health(now)
     run_age, in_age = _age_h(last_run, now), _age_h(last_input, now)
 
     # Flags are collected, not short-circuited: two things can be wrong at once, and a strip
@@ -923,6 +957,8 @@ def health(now=None):
         flags.append("LATE")
     if in_age is not None and in_age > INPUT_STALL_H:
         flags.append("STALLED")
+    if gen["recent_failed"] >= GEN_FAIL_RUN:
+        flags.append("FAILING")
     if a.get("stale"):
         flags.append("DRIFT")
 
@@ -930,7 +966,7 @@ def health(now=None):
     # so naming DRIFT while the job itself is dead would point at the wrong repair. The strip
     # renders all four facts regardless, so precedence chooses the chip -- it hides nothing.
     state = "FRESH"
-    for s in ("UNKNOWN", "LATE", "STALLED", "DRIFT"):
+    for s in ("UNKNOWN", "LATE", "STALLED", "FAILING", "DRIFT"):
         if s in flags:
             state = s
             break
@@ -952,7 +988,8 @@ def health(now=None):
             "stall_after_h": INPUT_STALL_H,
             "stale": a.get("stale"), "audited": a.get("audited"),
             "delta": a.get("delta") or {},
-            "reason": _health_reason(state, run_age, in_age, a)}
+            "gen": gen,
+            "reason": _health_reason(state, run_age, in_age, a, gen)}
 
 
 def git_head():

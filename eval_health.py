@@ -163,6 +163,35 @@ h = state_for([rec(NOW - timedelta(hours=60))], [iso(NOW - timedelta(hours=1))])
 ck("STALLED when input dries up", h["state"] == "STALLED", h["state"])
 ck("STALLED says the loop is still running", "running" in h["reason"], h["reason"])
 
+# FAILING (2026-09-21): the loop is healthy but the responder's model replies are failing.
+fails = FRESH_RECS + [rec(NOW - timedelta(minutes=30 - i), text=f"ask {i}", gen="gen_rc1:") for i in range(3)]
+h = state_for(fails, FRESH_RUNS)
+ck("FAILING when the last 3 model replies failed", h["state"] == "FAILING", h["state"])
+ck("FAILING names the replies, not the loop", "model replies" in h["reason"] and "gen_rc1" in h["reason"], h["reason"])
+ck("FAILING reports the trailing count", h["gen"]["recent_failed"] == 3, h["gen"])
+leak = [rec(NOW - timedelta(minutes=10 - i), text=f"x{i}", gen="gen_rc1:Usage limit reached for acct 12345") for i in range(3)]
+h = state_for(FRESH_RECS + leak, FRESH_RUNS)
+ck("FAILING publishes the code, never the stderr tail",
+   "gen_rc1" in h["reason"] and "acct" not in h["reason"] and "Usage" not in json.dumps(h["gen"]), h["reason"])
+h = state_for(fails[:-1], FRESH_RUNS)
+ck("two failures are not FAILING", h["state"] == "FRESH", h["state"])
+h = state_for(fails + [rec(NOW - timedelta(minutes=1), text="later", gen="ok")], FRESH_RUNS)
+ck("one success clears it", h["state"] == "FRESH" and h["gen"]["recent_failed"] == 0, h["gen"])
+h = state_for(fails + [rec(NOW - timedelta(minutes=1), text="fixed", gen="fixed_calc", cap="calc")], FRESH_RUNS)
+ck("a fixed reply is not a model attempt and does not clear it", h["state"] == "FAILING", h["state"])
+h = state_for([r for r in fails if r["gen_status"] != "ok"] and
+              [rec(NOW - timedelta(hours=60))] + [rec(NOW - timedelta(hours=59, minutes=i), gen="gen_rc1:") for i in range(3)],
+              FRESH_RUNS)
+ck("STALLED outranks FAILING, both flagged", h["state"] == "STALLED" and "FAILING" in h["flags"], h)
+saved_run = learn.GEN_FAIL_RUN
+try:
+    learn.GEN_FAIL_RUN = 10**9                     # mutation: the check can never fire
+    h = state_for(fails, FRESH_RUNS)
+    ck("mutation: a disabled FAILING check is visible as FRESH here", h["state"] == "FRESH", h["state"])
+finally:
+    learn.GEN_FAIL_RUN = saved_run
+ck("FAILING is in the closed set", "FAILING" in learn.STATES)
+
 h = state_for(sig, FRESH_RUNS, mutate=True)
 ck("DRIFT when the bank disagrees with the code", h["state"] == "DRIFT", h["state"])
 ck("DRIFT reports how many records", h["stale"] == 3, h["stale"])

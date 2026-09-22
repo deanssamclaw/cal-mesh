@@ -155,6 +155,12 @@ def spec_for(rec):
     return {
         "entities": ents, "activities": acts,
         "model_ran": bool(model),
+        # jevroute: the model id of the DECISION model that chose this capability, or None. It
+        # saw the sanitized message and returned a choice; it wrote nothing. Kept apart from
+        # model_ran, which means "a model wrote the reply" everywhere on this page.
+        "router_model": ((rec.get("jev_route") or {}).get("model") or "a decision model")
+                        if isinstance(rec.get("jev_route"), dict) and rec["jev_route"].get("acted")
+                        else None,
         "crossed": gen[0]["used"] if gen else [],
         "capability": cap,
         "verdict": rec.get("verdict") or ("replied" if reply else "no reply"),
@@ -401,6 +407,10 @@ function switchboard(g){
 }
 
 function exposure(sp){
+  if(!sp.model_ran&&sp.router_model)
+    return '<div class="expo">No model wrote this reply. The sender&rsquo;s sanitized message <b>was</b> '+
+      'shown to a decision model (<code>'+esc(sp.router_model)+'</code>, off this machine) to choose which '+
+      'capability would answer; the only thing it returned was that choice.</div>';
   if(!sp.model_ran)
     return '<div class="expo">Nothing was shown to a language model. <b>No model ran for this '+
       'reply</b> — it was produced entirely in code, so there is no boundary on this chain to cross.</div>';
@@ -420,7 +430,7 @@ function record(sp){
   const first=sp.entities[0]||{};
   return '<div class="card rec"><h3>'+esc(sp.capability||'no capability claimed it')+
     ' <span class="tag">'+esc(sp.verdict)+'</span>'+
-    (sp.model_ran?'<span class="tag">a model ran</span>':'<span class="tag">no model ran</span>')+
+    (sp.model_ran?'<span class="tag">a model ran</span>':sp.router_model?'<span class="tag">a decision model routed it</span>':'<span class="tag">no model ran</span>')+
     '</h3>'+defect+
     (first.detail?'<div class="msg">'+esc(first.detail)+'</div>':'')+
     chain(sp)+exposure(sp)+switchboard(sp.gates)+'</div>';

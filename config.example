@@ -135,3 +135,16 @@ POSITION_GRID_CHARS=6
 DRAFTS_ENABLED=false
 DRAFTS_MAX_PER_RUN=40
 DRAFTS_MAX_PER_DAY=120
+
+# JEVROUTE — a second opinion on routing (default OFF). See jevroute.py and
+# docs/proposals/jev-routing.md. Asked ONLY when no doer claimed an addressed message and it is
+# about to go to the model; never on an unlocked DM or a sanitizer-flagged message, and never on
+# a DM or Cal's own channel unless JEV_PRIVATE_OK=true. Acts only into weather, caps or
+# sigreport, each of which keeps its own refusals. Sends the sanitized message text to TypeSafe
+# AI (api.typesafe.ai) — that is the privacy cost of arming.
+JEV_ROUTE_ENABLED=false
+JEV_MIN_CONF=0.8
+JEV_TIMEOUT_S=2          # wall-clock bound on the whole call
+JEV_BACKOFF_S=300        # after a network failure, skip Jev this long
+JEV_PRIVATE_OK=false     # DMs + Cal's channel: a second, separate decision
+JEV_KEY_FILE=~/.credentials/typesafe

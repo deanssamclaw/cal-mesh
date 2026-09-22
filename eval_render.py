@@ -256,7 +256,72 @@ CASES["unknown_capability"] = rec(
     text="whatever", reply="something", capability="somethingnew", gen_ms=None,
     trace=dict(gates=GATES_OK, prompt_kind="fixed", dest="^all"))
 
+# JEVROUTE — added 2026-09-21. A message no word rule claimed can be routed by a decision model.
+# The page must say so: without these, a Jev-routed weather reply was captioned "plain word
+# matching, no model involved", which is false about the mechanism.
+JR_W = {"asked": True, "route": "weather", "conf": 0.99, "model": "jev-1.13.0", "ms": 240,
+        "error": None, "acted": "weather"}
+CASES["jev_weather"] = rec(text="Cal is it raining", reply="72F, light rain, S wind 6 mph",
+    capability="weather", trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="weather",
+        model="claude-haiku-4-5-20251001", injected_fact="72F, Light Rain, wind S 6 mph",
+        weather_ok=True, obs_station="KOJC", obs_age_s=600, dest="^all", jev_route=JR_W))
+CASES["jev_sigreport"] = rec(text="Cal, hows the link holding up?",
+    reply="Copy: direct, RSSI -35, SNR 6.0", capability="sigreport", gen_ms=None,
+    trace=dict(gates=GATES_OK, prompt_kind="fixed", dest="^all", gen_status="fixed_sigreport",
+        sigreport_gates=[{"gate": g, "pass": True} for g in
+                         ("sigreport_enabled", "not_self", "not_a_reaction", "is_a_test_jev",
+                          "has_measurements", "channel_quiet", "sender_cooldown", "daily_budget")],
+        sigreport=dict(hops=0, snr=6.0, rssi=-35, relay_name=None,
+                       parts=["direct", "RSSI -35", "SNR 6.0"]),
+        jev_route=dict(JR_W, route="sigreport", conf=0.97, acted="sigreport")))
+CASES["jev_calc"] = rec(text="cal is it hotter than 12*8 out", reply="12*8 = 96",
+    capability="calc", gen_ms=None,
+    trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="fixed", dest="^all",
+        gen_status="fixed_calc", calc={"handler": "arith"},
+        jev_route=dict(JR_W, acted="weather", answered_by="calc")))
+CASES["jev_xss"] = rec(text="Cal is it raining", reply="72F", capability="weather",
+    trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="weather",
+        model="claude-haiku-4-5-20251001", injected_fact="72F", weather_ok=True, dest="^all",
+        jev_route=dict(JR_W, model="<script>alert(1)</script>", route="<script>alert(2)</script>",
+                       answered_by="<script>alert(3)</script>")))
+CASES["jev_xss_declined"] = rec(text="Cal what do you think", reply="Seems solid.",
+    trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="general",
+        model="claude-haiku-4-5-20251001", dest="^all",
+        jev_route=dict(JR_W, route="<script>alert(4)</script>", conf=0.41, acted=None,
+                       declined="<script>alert(5)</script>")))
+CASES["jev_declined"] = rec(text="Cal what do you think of the new repeater",
+    reply="Seems solid so far.", trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT,
+        prompt_kind="general", model="claude-haiku-4-5-20251001", dest="^all",
+        jev_route=dict(JR_W, route="weather", conf=0.41, acted=None)))
+CASES["jev_error"] = rec(text="Cal what do you think of the new repeater",
+    reply="Seems solid so far.", trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT,
+        prompt_kind="general", model="claude-haiku-4-5-20251001", dest="^all",
+        jev_route=dict(JR_W, route=None, conf=None, model=None, error="TimeoutError", acted=None)))
+
 CHECKS = [
+    # ---- jevroute: a model chose the path, and the page must never say otherwise ----
+    ("jev_weather", ["routed by Jev", "no word rule matched", "did not write or look up anything"],
+     ["plain word matching"],
+     "a Jev-routed weather reply must not be captioned as word matching with no model involved"),
+    ("jev_sigreport", ["routed by Jev", "is_a_test_jev", "no model wrote this reply"],
+     ["no model ran &mdash; the responder"],
+     "a decision model ran, so 'no model ran' is false; what is true is that no model WROTE it"),
+    ("jev_sigreport", ["the shape rule did <b>not</b> match", "decision model (Jev)"],
+     ["No model involved", "no model ran.", "matched by <b>shape", "Nothing was looked up and no model ran"],
+     "REVIEW 2026-09-21: the flow panel still said shape-matched / no model for a Jev-routed report"),
+    ("jev_weather", ["decision model (Jev) classified it"], ["matched the words", "wording is what chose"],
+     "REVIEW 2026-09-21: the weather caption credited word matching for a Jev-routed reply"),
+    ("jev_calc", ["answered by <b>calc</b>", "no model computed or wrote anything"],
+     ["nothing was fetched and no model ran"],
+     "Jev named weather, the collision guard answered with calc: the trace must name what ran"),
+    ("jev_xss", ["&lt;script&gt;"], ["<script>alert"],
+     "jev_route fields are rendered on a public page and must be escaped"),
+    ("jev_xss_declined", ["&lt;script&gt;"], ["<script>alert"],
+     "the declined line renders Jev's route too, and must escape it"),
+    ("jev_declined", ["second opinion", "not acted on"], ["routed by Jev"],
+     "a consulted-and-overruled route is still part of how the reply came to exist"),
+    ("jev_error", ["Jev unavailable", "exactly as if Jev did not exist"], ["routed by Jev"],
+     "a failed call must read as no opinion, never as a routing decision"),
     # ---- the fixed-path cluster: the layout was chosen from injected_fact ----
     ("forecast", ["what Cal sent", "no model ran", "nothing"],
      ["what the model wrote", "sanitized, then given", "only this crosses", "wrote a reply from it"],
