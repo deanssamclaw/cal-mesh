@@ -120,6 +120,21 @@ ck("no gate value is an identifier",
 ck("no node id in the anatomy payload",
    "!" not in json.dumps([r["gates"] for r in A.build_anatomy()["records"]]))
 
+print("\n[jevroute: a decision model routed it, none wrote it]")
+JEVSIG = {"text": "Cal, hows the link holding up?", "capability": "sigreport", "reply": "Copy: direct",
+          "dest": "^all", "gen_status": "fixed_sigreport",
+          "jev_route": {"asked": True, "route": "sigreport", "conf": 0.97, "model": "jev-1.13.0",
+                        "acted": "sigreport", "answered_by": "sigreport"}}
+spj = A.spec_for(JEVSIG)
+ck("jev: model_ran stays False (no model wrote it)", spj["model_ran"] is False)
+ck("jev: the router model is recorded", spj["router_model"] == "jev-1.13.0", str(spj.get("router_model")))
+ck("jev: a declined consult is NOT a routed reply",
+   A.spec_for(dict(JEVSIG, jev_route=dict(JEVSIG["jev_route"], acted=None)))["router_model"] is None)
+ck("jev: a plain calc reply has no router", A.spec_for(CALC)["router_model"] is None)
+_src = open(A.__file__).read()
+ck("jev: the page says the message was shown to a decision model",
+   "shown to a decision model" in _src and "a decision model routed it" in _src)
+
 print("\n%d passed, %d failed" % (len(PASS), len(FAIL)))
 if FAIL: print("FAILED: " + "; ".join(FAIL))
 sys.exit(1 if FAIL else 0)

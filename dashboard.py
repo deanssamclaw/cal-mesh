@@ -6114,7 +6114,7 @@ function drawHealth(H){
       +'<span class="lhwhy">this page could not read the distiller&rsquo;s health</span></div>';
     return; }
   const F=H.flags||[];
-  const cls={FRESH:'ok',LATE:'bad',STALLED:'bad',DRIFT:'bad',UNKNOWN:'unknown'}[H.state]||'unknown';
+  const cls={FRESH:'ok',LATE:'bad',STALLED:'bad',FAILING:'bad',DRIFT:'bad',UNKNOWN:'unknown'}[H.state]||'unknown';
   const fact=(k,v,warn)=>`<div class="lfact${warn?' warn':''}"><div class="lk">${k}</div><div class="lv">${v}</div></div>`;
   el.innerHTML=
      `<div class="lhrow"><span class="lchip ${cls}">${esc(H.state)}</span>`
@@ -6123,6 +6123,7 @@ function drawHealth(H){
     +fact('next run due',`<span id="lrn-agenext">${untilTxt(H.next_expected)}</span>`,F.includes('LATE'))
     +fact('last inbound',`<span id="lrn-agein">${ageTxt(H.input_age_h)}</span> ago`,F.includes('STALLED'))
     +fact('bank check',(H.stale==null?'?':H.stale)+' stale of '+(H.audited??0),F.includes('DRIFT'))
+    +(H.gen?fact('model replies',H.gen.recent_failed?`last ${H.gen.recent_failed} failed`:'last one ok',F.includes('FAILING')):'')
     +`</div>`;
 }
 function drawSpark(hist){
@@ -7079,7 +7080,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
-      <div class="ci"><span class="cd">2026-09-21</span><b>Built, not switched on: a second opinion on what a message is about.</b> Every capability claims a message with word rules, and a message no rule claims goes to the model &mdash; the one part of Cal that can invent. &ldquo;Cal, hows the link holding up?&rdquo; matched no rule and was once answered &ldquo;Link&rsquo;s solid&rdquo; with no number behind it. Now, <i>only</i> on that fallthrough, Cal can ask a decision model (Jev, from TypeSafe AI) one question: which service should answer this? Jev writes nothing and computes nothing; it can only hand the message to a capability that already exists, which keeps every refusal it had. Measured first on all 319 distinct messages in the log: word rules alone got 245 right, rules plus Jev 287&ndash;293, and <b>nothing that was right became wrong</b>. The honest part: 44 of the 48 fixes were messages nobody had addressed to Cal, and answering those is a separate decision that has not been made. Among messages addressed to Cal it fixes 4 of 56. It is <b>off</b>: switching it on sends message text to a third party, and that is the operator&rsquo;s call. When it runs, the trace shows a <b>routed by Jev</b> step &mdash; and a weather reply it routed no longer says &ldquo;plain word matching, no model involved&rdquo;, which would have been false.</div>
+      <div class="ci"><span class="cd">2026-09-21</span><b>Built, not switched on: a second opinion on what a message is about.</b> Every capability claims a message with word rules, and a message no rule claims goes to the model &mdash; the one part of Cal that can invent. &ldquo;Cal, hows the link holding up?&rdquo; matched no rule and was once answered &ldquo;Link&rsquo;s solid&rdquo; with no number behind it. Now, <i>only</i> on that fallthrough, Cal can ask a decision model (Jev, from TypeSafe AI) one question: which service should answer this? Jev writes nothing and computes nothing; it can only hand the message to weather, the capability list or a signal report, each of which keeps every refusal it had, and two extra questions in the same call stop it sending a past-tense weather question to today&rsquo;s reading or a question about another station to your own signal numbers. Measured on the 319 distinct messages in the log, three times each: among messages addressed to Cal on the open channel it fixes <b>2 of 25</b> and breaks none &mdash; small on purpose. A wider version that also answered greetings and chatter not addressed to Cal scored far higher and was <b>not built</b>; that is a decision about airtime and privacy, not accuracy. An independent review found two serious problems in the first build and seven more, including this page still saying &ldquo;no model ran&rdquo; for a reply a model had routed. All fixed before anything was switched on. It is <b>off</b>: switching it on sends message text to a third party, and that is the operator&rsquo;s call. Private messages stay home unless a second, separate switch says otherwise.</div>
       <div class="ci"><span class="cd">2026-09-12</span><b>A simulated reply now shows what else was on the channel.</b> A message alone is often unjudgeable, and about a third of the log is exactly that. Each row now carries the traffic within <b>&plusmn;3 minutes</b>, oldest first, including Cal&rsquo;s own sends. On real rows it changes the reading: &ldquo;Aye&rdquo; looks like a hail until you see it landed 20&nbsp;s after a <i>different</i> node&rsquo;s &ldquo;Heard from 159th and I-35!&rdquo;, which makes it agreement in someone else&rsquo;s exchange; a &#128077; turns out to have arrived 78&nbsp;s after Cal&rsquo;s own signal readback, so it is a thank-you rather than noise; and &ldquo;sounds like great news&rdquo; had <b>nothing</b> before it, which is what proves the model invented the news. A row with no neighbours says so, because &ldquo;no context&rdquo; is itself evidence. <b>The drafter sees it too</b>, which reverses what this entry said a few hours earlier. The conversation window that was refused was built for the <i>responder</i>, and its failures were on the air &mdash; it made Cal answer messages meant for other people and ate a live clarify, turning a torque figure into a guess. Drafts transmit nothing, so that does not carry over, while blindness cost something measurable: re-drafted with context, &ldquo;Aye, loud and clear here.&rdquo; became &ldquo;Copy that, thanks for checking in&rdquo; &mdash; the invented signal claim simply goes away. Two rules bound it: context never touches a <b>capability</b> prompt, because the weather path deliberately shows the model a fetched fact and no sender text at all, and every line is <b>sanitized</b> exactly as the live path sanitizes. A draft built this way is marked <b>unfaithful</b> and carries its context count, because the responder sees one message &mdash; so it is what Cal <i>could</i> say, not what he <i>would</i> have said.</div>
       <div class="ci"><span class="cd">2026-09-12</span><b>Cal answers a contact report, and says what he can actually do.</b> Two capabilities changed after every simulated reply on record was read. <b>Signal reports now answer a contact report</b> &mdash; a neighbour saying &ldquo;Got you in Olathe&rdquo; is running the same experiment a range test runs, in the other direction, and the reciprocal is the one fact Cal holds and they do not. Before this the model answered those by feel: across the log <b>27 replies asserted link quality</b>, Cal held the measured SNR and RSSI on the packet for <b>all 27</b>, and four called a link &ldquo;loud and clear&rdquo; at <b>&minus;15 to &minus;19&nbsp;dB SNR</b>, at or past the usable floor. A contact report that names <i>another</i> node is refused: it is a report about a third party, and answering it would barge into an exchange Cal is not part of. <b>The capability question is no longer answered by the model</b>, which had replied &ldquo;coding, writing, research, analysis&rdquo; &mdash; the model&rsquo;s own list, not Cal&rsquo;s. It is now composed from the armed configuration flags at the moment of asking, so it cannot drift from what is really switched on. Separately, a <b>simulated reply that used a live weather reading is now marked unfaithful</b>: those facts are fetched when the draft is written, not when the message arrived, and two rows had been published with no such mark &mdash; one answered &ldquo;Moderate rain&rdquo; with &ldquo;75F clear&rdquo;. That mislabelling had already produced two wrong verdicts in review.</div>
       <div class="ci"><span class="cd">2026-08-31</span><b>Hops gained substance, and a coarse grid.</b> A traceroute reply carries each relay&rsquo;s full node number, so hops are now <i>named</i> from the node database — short and long name, hardware, distance in hops, when it was last heard — rather than listed as bare ids. A hop this node has never heard is shown as the last two characters of its id and said to be unknown, never guessed: across 292 known nodes a two-character fragment matches exactly one of them only <b>28%</b> of the time, and one value is shared by nine. The last-relay byte the firmware reports is the one genuine fragment, and it is named only on a unique match and otherwise reports how many candidates it has. Nodes that broadcast a position now also show a <b>Maidenhead subsquare</b>, about 3 by 4.5 miles, bucketed at capture with the exact coordinate discarded and never written; Cal&rsquo;s own node is excluded. See the map question in the FAQ for what that does and does not give away.</div>
@@ -7414,6 +7415,15 @@ function linkSvg(x){
 // thing about this system and it was previously one clause inside a grey row. Drawn instead:
 // two inputs compete to become the reply, and one of them is visibly cut.
 function flowHtml(x,t){
+  // A reply jevroute routed: a decision model DID run (it chose the capability), though none wrote
+  // the reply. Every "no model ran" below is conditioned on this -- the review found the flow
+  // panels still saying it for Jev-routed replies after the spine had been fixed.
+  const jev=!!(t&&t.jev_route&&t.jev_route.acted);
+  const jevConf=(jev&&t.jev_route.conf!=null)?', confidence '+Number(t.jev_route.conf).toFixed(2):'';
+  const NOMODEL=jev
+    ? '<b>Nothing was looked up, and no model wrote this reply</b> &mdash; a decision model (Jev) only '
+      +'chose which capability would answer. '
+    : '<b>Nothing was looked up and no model ran.</b> ';
   const inTxt=esc(x.text||''), outTxt=esc(x.reply||'');
   if(!outTxt) return '';
   // What the software MATCHED, what it actually GOT, and whether a model ran are three
@@ -7461,7 +7471,7 @@ function flowHtml(x,t){
       +`<div class="fn"><span class="onair">✓ sent on air to ${esc(t.dest||'^all')}</span> — the `
       +`greeting mirrored back, and only once per node per day</div></div>`;
     return flowRow([g1,g2,g3])
-      +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
+      +`<div class="flowcap">Read left to right. ${NOMODEL}`
       +`Cal answers questions only from known nodes, but staying silent when a stranger says `
       +`hello reads as a snub — so a greeting gets one back, to say it was heard. Which line `
       +`goes out is <b>chosen</b> by the greeting they used, from five written in advance `
@@ -7495,7 +7505,7 @@ function flowHtml(x,t){
     const s4=`<div class="fb b3"><div class="fk">4 &middot; what Cal sent</div><div class="fv">${outTxt}</div>`
       +`<div class="fn"><span class="onair">&#10003; sent on air to ${esc(t.dest||'')}</span></div></div>`;
     return flowRow([s1,s2,s3,s4])
-      +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
+      +`<div class="flowcap">Read left to right. ${NOMODEL}`
       +`Python computes the time and formats the sentence. Where the event does not occur at all `
       +`— a polar day, or a twilight the sun never reaches — Cal says which one is missing rather `
       +`than reporting the nearest thing it could calculate. Moonrise and moonset are not built `
@@ -7512,12 +7522,12 @@ function flowHtml(x,t){
       +`anything that does not parse gets no answer at all</div></div>`;
     const c3=`<div class="fb bx"><div class="fk">3 · what Cal computed</div>`
       +`<div class="fv">Python, from exact constants</div>`
-      +`<div class="fn"><b>nothing was fetched and no model ran</b> — the digits are computed `
+      +`<div class="fn"><b>nothing was fetched and ${jev?'no model computed or wrote anything':'no model ran'}</b> — the digits are computed `
       +`and formatted by the software itself</div></div>`;
     const c4=`<div class="fb b3"><div class="fk">4 · what Cal sent</div><div class="fv">${outTxt}</div>`
       +`<div class="fn"><span class="onair">✓ sent on air to ${esc(t.dest||'')}</span></div></div>`;
     return flowRow([c1,c2,c3,c4])
-      +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
+      +`<div class="flowcap">Read left to right. ${NOMODEL}`
       +`The model is not in the number path at all — Python parses the question, computes the `
       +`answer from exact defined constants, and formats the sentence. Where a value is `
       +`ambiguous (a gallon is not the same on both sides of the Atlantic) or falls outside `
@@ -7540,8 +7550,11 @@ function flowHtml(x,t){
       +`asking whoever hears it to answer</div></div>`;
     const g2=`<div class="fb bx"><div class="fk">2 &middot; what the software recognised</div>`
       +`<div class="fv">${esc(what)}</div>`
-      +`<div class="fn">matched by <b>shape, not vocabulary</b> — a short message ending in `
-      +`&ldquo;test&rdquo; or &ldquo;check&rdquo;. <b>No model involved.</b></div></div>`;
+      +(jev
+        ? `<div class="fn">the shape rule did <b>not</b> match &mdash; a decision model (Jev) classified it as a `
+          +`question about this link${jevConf}. It chose the capability only; the numbers are the radio&rsquo;s.</div></div>`
+        : `<div class="fn">matched by <b>shape, not vocabulary</b> — a short message ending in `
+          +`&ldquo;test&rdquo; or &ldquo;check&rdquo;. <b>No model involved.</b></div></div>`);
     const g3=`<div class="fb bx"><div class="fk">3 &middot; what Cal measured</div>`
       +`<div class="fv">${esc(sg.parts&&sg.parts.length?sg.parts.join(', '):"the radio's own reading")}</div>`
       +`<div class="fn"><b>nothing fetched, computed or invented</b> — the receiver&rsquo;s own `
@@ -7555,7 +7568,7 @@ function flowHtml(x,t){
     const g4=`<div class="fb b3"><div class="fk">4 &middot; what Cal sent</div><div class="fv">${outTxt}</div>`
       +`<div class="fn"><span class="onair">&#10003; sent on air to ${esc(t.dest||'')}</span></div></div>`;
     return flowRow([g1,g2,g3,g4])
-      +`<div class="flowcap">Read left to right. <b>Nothing was looked up and no model ran.</b> `
+      +`<div class="flowcap">Read left to right. ${NOMODEL}`
       +`A signal report is a readback: the radio reports what it heard when the packet landed, and `
       +`the software formats those numbers. If the record carries no measurements at all, Cal says `
       +`nothing rather than something reassuring.</div>`;
@@ -7640,11 +7653,17 @@ function flowHtml(x,t){
     ? `<span class="cross"><span class="bl">only this crosses</span>${arrow('')}</span>`
     : arrow('');
   const cap=crosses
-    ? `Read left to right. The question arrived fine and did real work — <b>its wording is what chose `
-      +`the lookup</b> — but it never reached the model. Cal&rsquo;s software matched the words, went and `
+    ? (jev
+      ? `Read left to right. No word rule matched this question; <b>a decision model (Jev) classified it `
+        +`as a weather question</b> and chose the lookup. It wrote nothing. Cal&rsquo;s software went and `
+      : `Read left to right. The question arrived fine and did real work — <b>its wording is what chose `
+        +`the lookup</b> — but it never reached the model. Cal&rsquo;s software matched the words, went and `)
       +`got the observation, and <b>only that observation</b> crossed the dashed line. The model&rsquo;s `
       +`entire job was to put it into words, which is why it cannot invent a temperature.`
-    : `Read left to right. The question arrived fine and did real work — <b>its wording is what Cal `
+    : jev
+      ? `Read left to right. No word rule matched; <b>a decision model (Jev) chose this capability</b>. `
+        +`Nothing was looked up, and <b>no model wrote the reply</b>. What went out is a `
+      : `Read left to right. The question arrived fine and did real work — <b>its wording is what Cal `
       +`matched on</b> — but nothing was looked up, so <b>no model ran at all</b>. What went out is a `
       +`fixed sentence written into the software. There is no boundary drawn here because nothing `
       +`crossed one.`;
@@ -7748,7 +7767,9 @@ function spineHtml(x,t){
   if(jr&&jr.asked){
     const cf=jr.conf!=null?` · confidence ${Number(jr.conf).toFixed(2)}`:'';
     if(jr.acted)
-      s+=stage('pass','routed by Jev',`sent to <b>${esc(jr.acted)}</b>${cf}`,
+      s+=stage('pass','routed by Jev',`sent to <b>${esc(jr.acted)}</b>${cf}`
+          +((jr.answered_by&&jr.answered_by!==jr.acted&&!(jr.acted==='caps'&&jr.answered_by==='capabilities'))
+            ?` &middot; answered by <b>${esc(jr.answered_by)}</b>`:''),
         `<span class="hint">no word rule matched this message. A decision model `
         +`(<code>${esc(jr.model||'jev')}</code>, TypeSafe AI) was asked one question &mdash; which of `
         +`a fixed list of services should answer &mdash; and picked one. It writes nothing and `
@@ -8023,7 +8044,7 @@ function drawHealth(H){
       +'<span class="lhwhy">this page could not read the distiller&rsquo;s health</span></div>';
     return; }
   const F=H.flags||[];
-  const cls={FRESH:'ok',LATE:'bad',STALLED:'bad',DRIFT:'bad',UNKNOWN:'unknown'}[H.state]||'unknown';
+  const cls={FRESH:'ok',LATE:'bad',STALLED:'bad',FAILING:'bad',DRIFT:'bad',UNKNOWN:'unknown'}[H.state]||'unknown';
   const fact=(k,v,warn)=>`<div class="lfact${warn?' warn':''}"><div class="lk">${k}</div><div class="lv">${v}</div></div>`;
   el.innerHTML=
      `<div class="lhrow"><span class="lchip ${cls}">${esc(H.state)}</span>`
@@ -8032,6 +8053,7 @@ function drawHealth(H){
     +fact('next run due',`<span id="lrn-agenext">${untilTxt(H.next_expected)}</span>`,F.includes('LATE'))
     +fact('last inbound',`<span id="lrn-agein">${ageTxt(H.input_age_h)}</span> ago`,F.includes('STALLED'))
     +fact('bank check',(H.stale==null?'?':H.stale)+' stale of '+(H.audited??0),F.includes('DRIFT'))
+    +(H.gen?fact('model replies',H.gen.recent_failed?`last ${H.gen.recent_failed} failed`:'last one ok',F.includes('FAILING')):'')
     +`</div>`;
 }
 function drawSpark(hist){

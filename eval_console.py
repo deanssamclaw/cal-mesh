@@ -81,12 +81,14 @@ DEC = w(D, "d.jsonl", "\n".join([
     json.dumps({"gen_ms": 0, "model": None}),          # answered from code
     json.dumps({"gen_ms": 0, "model": None}),
     json.dumps({"gen_ms": None, "model": None}),        # no measurement at all
+    json.dumps({"gen_ms": 0, "model": None, "jev_route": {"acted": "caps"}}),   # routed by Jev
 ]))
 L = console.build_latency(DEC)
+ck("a Jev-routed fixed reply is counted as routed", L["fixed"]["routed"] == 1, str(L["fixed"]))
 ck("model population excludes the zeros", L["model"]["n"] == 2, str(L["model"]["n"]))
 ck("model median is of model replies only", L["model"]["median"] == 15000.0, str(L["model"]["median"]))
-ck("code-answered replies counted apart", L["fixed"]["n"] == 2, str(L["fixed"]["n"]))
-ck("a null gen_ms is not a zero", L["model"]["n"] + L["fixed"]["n"] == 4)
+ck("code-answered replies counted apart", L["fixed"]["n"] == 3, str(L["fixed"]["n"]))
+ck("a null gen_ms is not a zero", L["model"]["n"] + L["fixed"]["n"] == 5)
 naive = sum(L["model"]["points"]) / (L["model"]["n"] + L["fixed"]["n"])
 ck("the merged average would have understated it", naive < L["model"]["median"], str(naive))
 

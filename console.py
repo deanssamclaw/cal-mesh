@@ -298,7 +298,7 @@ def build_latency(path=DECISIONS):
     page fetched that endpoint. Returned apart, and the model's values are returned as
     individual points because n is small enough that a smoothed histogram would invent a
     shape the data has not earned."""
-    model_ms, fixed = [], 0
+    model_ms, fixed, routed = [], 0, 0
     try:
         for ln in open(path):
             ln = ln.strip()
@@ -315,6 +315,10 @@ def build_latency(path=DECISIONS):
                 model_ms.append(float(g))
             else:
                 fixed += 1
+                # jevroute: a decision model chose the capability, though none wrote the reply.
+                # Counted apart so the tile cannot say "no model ran" of a reply one routed.
+                if isinstance(r.get("jev_route"), dict) and r["jev_route"].get("acted"):
+                    routed += 1
     except Exception:
         pass
     sv = sorted(model_ms)
@@ -322,7 +326,7 @@ def build_latency(path=DECISIONS):
         "model": {"n": len(sv), "points": sv,
                   "median": _quantile(sv, 0.5), "p90": _quantile(sv, 0.90),
                   "mean": round(sum(sv) / len(sv), 1) if sv else None},
-        "fixed": {"n": fixed, "ms": 0},
+        "fixed": {"n": fixed, "ms": 0, "routed": routed},
     }
 
 
@@ -733,7 +737,7 @@ function lat(d){
     '<div class="tile"><div class="l">Answered by a model</div><div class="n">'+f1(m.median/1000)+'s</div>'+
       '<div class="qq">median of '+m.n+' replies · p90 '+f1(m.p90/1000)+'s</div></div>'+
     '<div class="tile"><div class="l">Answered from code</div><div class="n">0 ms</div>'+
-      '<div class="qq">'+fx.n+' replies · no model ran</div></div></div>'+g+
+      '<div class="qq">'+fx.n+' replies · '+(fx.routed?'no model wrote them · '+fx.routed+' routed by a decision model':'no model ran')+'</div></div></div>'+g+
     '<p class="cap">These are two populations and averaging them together produces a number that describes neither. '+
     'A reply written by a deterministic answerer contributes a literal zero, so folding those in drags the mean toward '+
     'zero and understates how long the model actually takes. Each dot is one real reply — with n='+m.n+
