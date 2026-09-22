@@ -183,6 +183,22 @@ def _normalize(text):
     return s.strip(" .!,;:-–—\"'?")
 
 
+# For a message a ROUTER (jevroute) called a signal ask, rather than one the shape rule matched:
+# another node named anywhere in the RAW text refuses it. Raw, because `_normalize` lowercases
+# and a callsign is upper-case -- `_CONTACT_OTHER_NODE`'s callsign branch can never match after
+# normalisation (found in the 2026-09-21 review; left alone there, since changing an armed rule
+# is its own review). The 4-hex branch also catches a bare 4-digit number ("test 1234"): a false
+# positive here is silence from this doer and the message takes its usual path.
+_OTHER_NODE_RAW = re.compile(r"(@!?[0-9a-fA-F]{6,8}\b)|(![0-9a-fA-F]{8}\b)"
+                             r"|(\b[0-9a-f]{4}\b(?![0-9a-f]))"
+                             r"|(\b[A-Z]{1,2}\d[A-Z]{1,3}\b)|(\b[A-Z]{2,4}\d{2,3}\b)")
+
+
+def names_other_node(text):
+    """True if the raw text names a node, short id or callsign. Used only on the routed path."""
+    return bool(_OTHER_NODE_RAW.search(text or ""))
+
+
 def match(text, trigger="cal"):
     """Return {"via": ...} for a range/signal test, else None. Pure text shape, no I/O.
 

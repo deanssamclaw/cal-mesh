@@ -47,10 +47,14 @@ def cfg(**over):
 
 class Post:
     """Stub TypeSafe: answers with a fixed route/confidence, records every call it receives."""
-    def __init__(self, route="conversation", conf=0.99, raise_=None, body=None):
+    def __init__(self, route="conversation", conf=0.99, raise_=None, body=None, now=0.95,
+                 other=0.05, sleep=0):
         self.route, self.conf, self.raise_, self.body, self.calls = route, conf, raise_, body, []
+        self.now, self.other, self.sleep = now, other, sleep
     def __call__(self, url, body, headers, timeout):
         self.calls.append({"url": url, "body": body, "headers": headers, "timeout": timeout})
+        if self.sleep:
+            import time as _t; _t.sleep(self.sleep)
         if self.raise_:
             raise self.raise_
         if self.body is not None:
@@ -58,7 +62,9 @@ class Post:
         return {"model": "jev-1.13.0",
                 "answers": {"route": {"type": "choice", "choice": self.route,
                                       "confidence": self.conf,
-                                      "probabilities": {self.route: self.conf}}},
+                                      "probabilities": {self.route: self.conf}},
+                            "weather_now": {"type": "noul", "noul": self.now},
+                            "other_station": {"type": "noul", "noul": self.other}},
                 "usage": {"input_tokens": 1, "output_tokens": 1}}
 
 def _obs():
@@ -91,6 +97,7 @@ OURS = "!cccccccc"
 
 def run(text, c, post, wget=None, st=None, unlocked=False, rec=None):
     """One message through plan_response + plan_jev_rescue, exactly as the main loop does."""
+    J._state["backoff_until"] = 0.0
     wget = wget or WGet()
     rec = dict(rec or REC, text=text)
     st = {} if st is None else st
@@ -143,10 +150,12 @@ def suite():
        o["capability"] == "weather" and o["weather_ok"] is True and w.n > 0, repr(o.get("capability")))
     ck("trace records the act", t["acted"] == "weather" and t["model"] == "jev-1.13.0")
     p = Post("weather", 0.99)
+    p = Post("weather", 0.99, now=0.95)   # even if Jev misjudged tense, the branch still refuses
     b, o, s, t, _ = run("cal will it rain tomorrow", cfg(), p)
-    if b["capability"] is None:
-        ck("forecast ask still refused, never fetched",
-           o.get("fixed_kind") == "forecast_refused", repr(o.get("fixed_kind")))
+    ck("precondition: the ladder does not claim this forecast ask", b["capability"] is None,
+       repr(b.get("capability")))
+    ck("forecast ask still refused, never fetched",
+       o.get("fixed_kind") == "forecast_refused", repr(o.get("fixed_kind")))
     p = Post("weather", 0.99)
     b, o, s, t, _ = run("cal is it raining", cfg(), p, wget=WGet(fail=True))
     ck("fetch failure still fails safe, never invents",
@@ -160,9 +169,9 @@ def suite():
     print("\n== 5. caps rescue ==")
     p = Post("caps", 0.95)
     b, o, s, t, _ = run("cal whats your purpose", cfg(), p)
-    if b["capability"] is None:
-        ck("rescued into the config-composed menu",
-           o["capability"] == "capabilities" and o["fixed_reply"] == R.capabilities.answer(cfg()))
+    ck("precondition: the ladder does not claim it", b["capability"] is None, repr(b.get("capability")))
+    ck("rescued into the config-composed menu",
+       o["capability"] == "capabilities" and o["fixed_reply"] == R.capabilities.answer(cfg()))
     p = Post("caps", 0.95)
     b, o, s, t, _ = run("cal whats your purpose", cfg(CAPS_ENABLED="false"), p)
     ck("caps OFF: no menu", o["capability"] is None and o == b)
@@ -228,14 +237,154 @@ def suite():
     J.classify(cfg(), "cal hello", post=p)
     body = p.calls[0]["body"]
     ck("model pinned to a version, not an alias", body["model"] == "jev-1.13.0" and J.MODEL == "jev-1.13.0")
-    ck("one Choice question, every option described",
-       list(body["questions"]) == ["route"] and body["questions"]["route"]["type"] == "choice"
+    ck("one Choice question plus the two guards, every option described",
+       sorted(body["questions"]) == ["other_station", "route", "weather_now"]
+       and body["questions"]["route"]["type"] == "choice"
        and all(isinstance(v, str) and len(v) > 20 for v in body["questions"]["route"]["criteria"].values()))
     ck("sends the SANITIZED text only", body["state"] == {"mesh_message": "cal hello"})
     ck("rescuable set is exactly weather, caps, sigreport",
        tuple(sorted(J.RESCUABLE)) == ("caps", "sigreport", "weather"))
     ck("every rescuable route is an option", all(r in J.CRITERIA for r in J.RESCUABLE))
     ck("config key reaches load_config (DEFAULTS merge)", "JEV_ROUTE_ENABLED" in R.DEFAULTS)
+
+    print("\n== 10. guards asked in the same call (review findings 1 and 6) ==")
+    body = p.calls[0]["body"]
+    ck("both guards are Nouls in the one request",
+       body["questions"]["weather_now"]["type"] == "noul"
+       and body["questions"]["other_station"]["type"] == "noul")
+    p = Post("weather", 0.99, now=0.02)
+    b, o, s, t, _ = run("cal what was the high yesterday", cfg(), p)
+    ck("past-tense weather ask: not rescued, today's path", o == b and t["acted"] is None, repr(t))
+    p = Post("sigreport", 0.99, other=0.97)
+    b, o, s, t, _ = run("Cal how is the signal from the Olathe repeater", cfg(), p)
+    ck("third-party link ask: not rescued", s is None and t["acted"] is None, repr(t))
+    p = Post("sigreport", 0.99, other=0.49)
+    b, o, s, t, _ = run("Cal, hows the link holding up?", cfg(), p)
+    ck("other_station just under the bar: acts", s is not None and s[0], repr(t))
+    p = Post("sigreport", 0.99, other=0.5)
+    b, o, s, t, _ = run("Cal, hows the link holding up?", cfg(), p)
+    ck("other_station AT the bar: refused", s is None, repr(t))
+    p = Post("sigreport", 0.97, other=0.16)
+    b, o, s, t, _ = run("Cal, 871c I hear you in Lee's Summit", cfg(), p)
+    ck("a node named in the text: refused even when the guard misses it",
+       s is None and t.get("declined") == "sigreport_names_other_node", repr(t))
+    for txt in ("Cal can you hear KX0XXX", "Cal how is !deadbeef doing", "Cal ping @!deadbeef"):
+        ck(f"names_other_node: {txt!r}", R.sigreport.names_other_node(txt))
+    ck("names_other_node: a plain self ask is clean",
+       not R.sigreport.names_other_node("Cal, hows the link holding up?"))
+
+    print("\n== 11. private traffic stays home (review finding 7) ==")
+    p = Post("weather", 0.99)
+    b, o, s, t, _ = run("cal is it raining", cfg(), p, rec=dict(REC, to=OURS))
+    ck("a DM is not sent", p.calls == [] and t == {"asked": False, "reason": "private_traffic"}, repr(t))
+    calch = R.cal_channel(cfg(CAL_CHANNEL="1")) if "CAL_CHANNEL" in R.DEFAULTS else None
+    if calch is not None:
+        p = Post("weather", 0.99)
+        b, o, s, t, _ = run("cal is it raining", cfg(CAL_CHANNEL="1"), p, rec=dict(REC, channel=calch))
+        ck("Cal's own channel is not sent", p.calls == [] and (t or {}).get("reason") == "private_traffic", repr(t))
+    else:
+        ck("CAL_CHANNEL is a config key (needed for the private-channel rule)", False)
+    p = Post("weather", 0.99)
+    b, o, s, t, _ = run("cal is it raining", cfg(JEV_PRIVATE_OK="true"), p, rec=dict(REC, to=OURS))
+    ck("JEV_PRIVATE_OK=true is the only way a DM is sent", len(p.calls) == 1)
+    ck("JEV_PRIVATE_OK defaults to false", R.DEFAULTS.get("JEV_PRIVATE_OK") == "false")
+
+    print("\n== 12. bounded, and fails open (review findings 4 and 5) ==")
+    import time as _t
+    p = Post("weather", 0.99, sleep=3)
+    t0 = _t.time(); r = J.classify(cfg(JEV_TIMEOUT_S="0.5"), "cal is it raining", post=p)
+    ck("a slow server is cut off at the deadline", _t.time() - t0 < 1.5 and r["route"] is None
+       and r["error"] == "TimeoutError", f"{_t.time()-t0:.2f}s {r}")
+    ck("the failure starts a backoff", J._state["backoff_until"] > _t.time())
+    p2 = Post("weather", 0.99)
+    J._state["backoff_until"] = _t.time() + 60
+    pl = R.plan_response(cfg(), REC["from"], "cal is it raining", get=WGet())
+    _, _, tr = R.plan_jev_rescue(cfg(), {}, dict(REC, text="cal is it raining"), OURS, pl,
+                                 lambda h: R.plan_response(cfg(), REC["from"], "cal is it raining",
+                                                           get=WGet(), route_hint=h),
+                                 classify=lambda c, x: J.classify(c, x, post=p2))
+    ck("inside the backoff window nothing is sent",
+       p2.calls == [] and (tr or {}).get("reason") == "backoff", repr(tr))
+    J._state["backoff_until"] = 0.0
+    p = Post("weather", 0.99)
+    J.classify(cfg(JEV_TIMEOUT_S="1.5"), "x", post=p)
+    ck("the configured timeout reaches the HTTP call", p.calls[0]["timeout"] == 1.5)
+    bad = [("choice is a list", {"route": {"choice": ["weather"], "confidence": 1.0}}),
+           ("choice is a dict", {"route": {"choice": {"a": 1}, "confidence": 1.0}}),
+           ("confidence is true", {"route": {"choice": "weather", "confidence": True}}),
+           ("confidence is a string", {"route": {"choice": "weather", "confidence": "0.95"}}),
+           ("confidence is NaN", {"route": {"choice": "weather", "confidence": float("nan")}}),
+           ("guard missing", {"route": {"choice": "weather", "confidence": 1.0}}),
+           ("guard is a string", {"route": {"choice": "weather", "confidence": 1.0},
+                                  "weather_now": {"noul": "yes"}, "other_station": {"noul": 0}})]
+    for name, ans in bad:
+        try:
+            r = J.classify(cfg(), "cal is it raining", post=Post(body={"model": "jev-1.13.0", "answers": ans}))
+            ok = r["route"] is None and r["error"] == "bad_answer"
+        except Exception as e:
+            ok, r = False, repr(e)
+        ck(f"fails open, no exception: {name}", ok, repr(r))
+    J._state["backoff_until"] = 0.0
+    r = J.classify(cfg(), "x", post=Post("weather", 0.99, body=None))
+    big = Post("weather", 0.99); big.body = None
+    r = J.classify(cfg(), "x", post=lambda *a: dict(Post("weather", 0.99)(*a), model="x" * 56000))
+    ck("an oversized model id is dropped, not stored", r["model"] is None and r["route"] == "weather", repr(r)[:120])
+    p = Post("weather", 0.8, now=0.8)
+    b, o, s, t, _ = run("cal is it raining", cfg(), p)
+    ck("confidence exactly at the floor acts", t["acted"] == "weather", repr(t))
+    p = Post("weather", 0.7999, now=0.95)
+    b, o, s, t, _ = run("cal is it raining", cfg(), p)
+    ck("just under the floor does not", t["acted"] is None, repr(t))
+    p = Post(body={"model": "x", "answers": {"route": {"choice": "launch", "confidence": 1.0},
+                                             "weather_now": {"noul": 1}, "other_station": {"noul": 0}}})
+    b, o, s, t, _ = run("cal is it raining", cfg(), p)
+    ck("an unknown route is recorded as no route", t["route"] is None and t["error"] == "bad_answer", repr(t))
+    for name, pe in (("HTTP error", Post(raise_=OSError("Bearer " + KEY))),
+                     ("timeout", Post(raise_=TimeoutError("Bearer " + KEY)))):
+        b, o, s, t, _ = run("cal is it raining", cfg(), pe)
+        ck(f"key in no trace on the error path: {name}", KEY not in json.dumps(t, default=str), repr(t))
+
+    print("\n== 13. only sanitized text leaves ==")
+    raw = "cal is\u200b it raining"      # a zero-width char: stripped, and not flagged
+    p = Post("weather", 0.99)
+    b, o, s, t, _ = run(raw, cfg(), p)
+    sent = p.calls[0]["body"]["state"]["mesh_message"] if p.calls else None
+    ck("the body carries plan['clean'], not the raw text", sent == b["clean"] and sent != raw, repr(sent))
+
+    print("\n== 14. forced sigreport keeps every other gate ==")
+    today = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%d")
+    p = Post("sigreport", 0.97)
+    b, o, s, t, _ = run("Cal, hows the link holding up?", cfg(SIGREPORT_MAX_PER_DAY="1"), p,
+                        st={"sig_day": {today: 1}})
+    ck("daily budget still applies", s is None and t.get("declined") == "sigreport_budget_spent", repr(t))
+    ok, why, *_ = R.plan_sigreport(cfg(), {}, dict(REC, text="x", **{"from": OURS}), OURS, forced=True)
+    ck("not_self still applies", (ok, why) == (False, "self"))
+    ok, why, *_ = R.plan_sigreport(cfg(), {}, dict(REC, text="x", reaction=True), OURS, forced=True)
+    ck("not_a_reaction still applies", (ok, why) == (False, "sigreport_is_reaction"))
+
+    print("\n== 15. the send, and the loop's continue ==")
+    sent, recs, saves = [], [], []
+    st = {}; d = {"ts": "t", "id": 1}
+    sig = (True, "sigreport", "^all", 0, "Copy: direct, SNR 6.5", [{"gate": "x", "pass": True}], {"hops": 0})
+    R.send_jev_sigreport(st, REC, d, sig, 123, enqueue_fn=lambda *a: sent.append(a),
+                         record=lambda x: recs.append(dict(x)), save=lambda x: saves.append(1))
+    ck("queued exactly once", sent == [("Copy: direct, SNR 6.5", "^all", 0)])
+    ck("budget spent", sum((st.get("sig_day") or {}).values()) == 1 and REC["from"] in st.get("sig_per_sender", {}))
+    ck("decision recorded as a sigreport", recs and recs[0]["gen_status"] == "fixed_sigreport"
+       and recs[0]["capability"] == "sigreport" and recs[0]["reply"] == sig[4])
+    ck("offset advanced", st.get("inbox_offset") == 123)
+    src = open(R.__file__).read()
+    import re as _re
+    ck("the main loop continues right after the send (no model reply for the same message)",
+       _re.search(r"send_jev_sigreport\(st, rec, d, j_sig, new_off\)\n\s+continue\n", src) is not None)
+
+    print("\n== 16. the trace names what answered ==")
+    p = Post("weather", 0.99, now=0.95)
+    b, o, s, t, _ = run("cal is it hotter than 12*8 out", cfg(), p)
+    if b["capability"] is None and o.get("capability"):
+        ck("answered_by is the doer that ran", t.get("answered_by") == o["capability"], repr(t))
+    ck("answered_by recorded on a straight weather rescue",
+       run("cal is it raining", cfg(), Post("weather", 0.99))[3].get("answered_by") == "weather")
 
 
 suite()
@@ -244,19 +393,35 @@ if FAILS:
 
 # --- MUTATIONS: each must turn the suite red. In-process; a crash is not a catch. ------------
 print("\n== mutations (each must be caught) ==")
-real = {"eligible": J.eligible, "decide": J.decide, "RESCUABLE": J.RESCUABLE, "MODEL": J.MODEL}
-def _elig_ignores_unlock(c, plan):
-    return real["eligible"](c, dict(plan, unlocked=False))
-def _elig_ignores_claim(c, plan):
+real = {"eligible": J.eligible, "decide": J.decide, "RESCUABLE": J.RESCUABLE, "MODEL": J.MODEL,
+        "wd": J._with_deadline, "non": R.sigreport.names_other_node, "commit": R.commit_sigreport}
+def _elig_ignores_unlock(c, plan, **kw):
+    return real["eligible"](c, dict(plan, unlocked=False), **kw)
+def _elig_ignores_claim(c, plan, **kw):
     return (True, "fallthrough") if J.enabled(c) else (False, "jev_disabled")
+def _elig_ignores_private(c, plan, private=False, **kw):
+    return real["eligible"](c, plan, private=False, **kw)
+def _elig_ignores_backoff(c, plan, **kw):
+    J._state["backoff_until"] = 0.0
+    return real["eligible"](c, plan, **kw)
 def _decide_no_floor(c, res):
     return res.get("route") if res and res.get("route") in J.RESCUABLE else None
+def _decide_no_guards(c, res):
+    if not res or res.get("route") not in J.RESCUABLE:
+        return None
+    return res["route"] if (res.get("conf") or 0) >= float(c.get("JEV_MIN_CONF", "0.8")) else None
 MUTANTS = [
     ("unlocked DMs are sent", lambda: setattr(J, "eligible", _elig_ignores_unlock)),
     ("claimed messages are second-guessed", lambda: setattr(J, "eligible", _elig_ignores_claim)),
+    ("private traffic is sent", lambda: setattr(J, "eligible", _elig_ignores_private)),
+    ("backoff ignored", lambda: setattr(J, "eligible", _elig_ignores_backoff)),
     ("threshold ignored", lambda: setattr(J, "decide", _decide_no_floor)),
+    ("guards ignored", lambda: setattr(J, "decide", _decide_no_guards)),
     ("greeting becomes rescuable", lambda: setattr(J, "RESCUABLE", J.RESCUABLE + ("greeting",))),
     ("model unpinned", lambda: setattr(J, "MODEL", "jev-latest")),
+    ("no wall-clock deadline", lambda: setattr(J, "_with_deadline", lambda fn, d: fn())),
+    ("node-name backstop off", lambda: setattr(R.sigreport, "names_other_node", lambda t: False)),
+    ("send does not spend the budget", lambda: setattr(R, "commit_sigreport", lambda st, s, ts=None: None)),
 ]
 escaped = []
 for name, apply in MUTANTS:
@@ -271,6 +436,9 @@ for name, apply in MUTANTS:
         sys.stdout.close(); sys.stdout = so
         J.eligible, J.decide, J.RESCUABLE, J.MODEL = (real["eligible"], real["decide"],
                                                        real["RESCUABLE"], real["MODEL"])
+        J._with_deadline, R.sigreport.names_other_node, R.commit_sigreport = (
+            real["wd"], real["non"], real["commit"])
+        J._state["backoff_until"] = 0.0
         R.channel_busy = lambda cfg, ts=None: (False, 0.0, "quiet")
     caught = bool(FAILS) and crashed is None
     print(f"  {'ok  ' if caught else 'FAIL'} mutant caught: {name}"

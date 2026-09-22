@@ -893,6 +893,12 @@ def run_claude(cfg, prompt, persona=None, cap=180):
             _claude_argv(cfg, prompt, persona),
             capture_output=True, text=True, timeout=_int_cfg(cfg, "GEN_TIMEOUT_S", DEFAULTS["GEN_TIMEOUT_S"]))
         if out.returncode != 0:
+            # The CLI can print its error to STDOUT with stderr empty -- the 2026-09-20 burst
+            # recorded "gen_rc1:" five times and the cause was lost. Both tails go to the LOCAL
+            # log only: gen_status is published on the public trace, and a CLI error can carry
+            # account detail (usage limits, auth) that has no business on a public page.
+            log(f"gen rc{out.returncode} detail: stderr={out.stderr.strip()[-300:]!r} "
+                f"stdout={out.stdout.strip()[-300:]!r}")
             return None, f"gen_rc{out.returncode}:{out.stderr.strip()[:80]}"
         reply = clean_reply(out.stdout, cap=cap)
         if not reply:
@@ -1289,6 +1295,12 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False):
     if forced:
         m = {"index": None}
         mark("is_a_test_jev", True)
+        # The shape gate also refused messages about OTHER stations. Replacing it must not drop
+        # that: "871c I hear you in Lee's Summit" is sigreport's own documented refusal, and the
+        # review got it answered through this path. jevroute's other_station guard asks the same
+        # question semantically; this is the literal backstop.
+        if not mark("names_no_other_node", not sigreport.names_other_node(rec.get("text", ""))):
+            return False, "sigreport_names_other_node", None, ch, None, gates, None
     else:
         m = sigreport.match(rec.get("text", ""), trigger=cfg.get("TRIGGER_WORD", "cal"))
         if not mark("is_a_test", m is not None):
@@ -1352,6 +1364,29 @@ def commit_greeting(st, sender, ts=None):
         del d[k]
 
 
+def send_jev_sigreport(st, rec, d, sig, new_off, enqueue_fn=None, record=None, save=None):
+    """The main loop's send for a Jev-routed signal report, pulled out so the eval can drive it.
+    Queues the text, SPENDS the budget, records the decision under the packet's own trace and
+    advances the offset. The caller must `continue` -- the eval checks the loop does -- or the
+    same message would also go to the model."""
+    enqueue_fn = enqueue_fn or enqueue
+    record = record or record_decision
+    save = save or save_state
+    (s_ok, s_reason, s_dest, s_ch, s_text, s_gates, s_meta) = sig
+    enqueue_fn(s_text, s_dest, s_ch)
+    commit_sigreport(st, rec.get("from"))
+    save(st)
+    d["sigreport_gates"] = s_gates
+    d.update({"matched": True, "reason": s_reason, "reply": s_text, "dest": s_dest,
+              "capability": "sigreport", "prompt_kind": "fixed", "gen_status": "fixed_sigreport",
+              "sigreport": s_meta})
+    log(f"SIGREPORT(jev) {rec.get('from')} -> {s_dest}: {s_text!r}")
+    record(d)
+    st["inbox_offset"] = new_off
+    save(st)
+    return True
+
+
 def plan_jev_rescue(cfg, st, rec, ours, plan, replan, classify=None):
     """jevroute's one mount point: (plan, sig, trace). PURE apart from the classify call, which
     is injectable, so the whole decision is offline-testable like plan_response.
@@ -1365,20 +1400,30 @@ def plan_jev_rescue(cfg, st, rec, ours, plan, replan, classify=None):
     Anything else -- below threshold, conversation, greeting, calc, an error -- returns the plan
     untouched, which is exactly today's behaviour. `trace` is None only when the flag is off.
     """
-    ok, why = jevroute.eligible(cfg, plan)
+    calch = cal_channel(cfg)
+    private = rec.get("to") not in ("^all", None) or (calch is not None
+                                                     and rec.get("channel") == calch)
+    ok, why = jevroute.eligible(cfg, plan, private=private)
     if why == "jev_disabled":
         return plan, None, None
     if not ok:
         return plan, None, {"asked": False, "reason": why}
     res = (classify or jevroute.classify)(cfg, plan["clean"])
     act = jevroute.decide(cfg, res)
-    trace = {"asked": True, "route": res.get("route"), "conf": res.get("conf"),
+    rnd = lambda v: round(v, 3) if isinstance(v, float) else v
+    trace = {"asked": True, "route": res.get("route"), "conf": rnd(res.get("conf")),
+             "weather_now": rnd(res.get("weather_now")),
+             "other_station": rnd(res.get("other_station")),
              "model": res.get("model"), "ms": res.get("ms"), "error": res.get("error"),
              "acted": None}
     if act in ("weather", "caps"):
         p2 = replan(act)
         if p2.get("capability") is not None:
             trace["acted"] = act
+            # The doer that ANSWERED, which is not always the one Jev named: the weather branch
+            # hands "is it hotter than 12*8 out" to calc through the collision guard. The trace
+            # must name what ran, not what was predicted.
+            trace["answered_by"] = p2["capability"]
             return p2, None, trace
         trace["declined"] = "doer_declined"
         return plan, None, trace
@@ -1387,6 +1432,7 @@ def plan_jev_rescue(cfg, st, rec, ours, plan, replan, classify=None):
         trace["sigreport_gates"] = sig[5]
         if sig[0]:
             trace["acted"] = "sigreport"
+            trace["answered_by"] = "sigreport"
             return plan, sig, trace
         trace["declined"] = sig[1]
     return plan, None, trace
@@ -1545,21 +1591,7 @@ def main():
                             if j_trace:
                                 d["jev_route"] = j_trace
                             if j_sig:
-                                (s_ok, s_reason, s_dest, s_ch, s_text,
-                                 s_gates, s_meta) = j_sig
-                                enqueue(s_text, s_dest, s_ch)
-                                commit_sigreport(st, rec.get("from"))
-                                save_state(st)
-                                d["sigreport_gates"] = s_gates
-                                d.update({"matched": True, "reason": s_reason, "reply": s_text,
-                                          "dest": s_dest, "capability": "sigreport",
-                                          "prompt_kind": "fixed",
-                                          "gen_status": "fixed_sigreport",
-                                          "sigreport": s_meta})
-                                log(f"SIGREPORT(jev) {rec.get('from')} -> {s_dest}: {s_text!r}")
-                                record_decision(d)
-                                st["inbox_offset"] = new_off
-                                save_state(st)
+                                send_jev_sigreport(st, rec, d, j_sig, new_off)
                                 continue
                             if plan.get("clarify_pending"):
                                 put_pending(st, rec.get("from"), plan["clarify_pending"])

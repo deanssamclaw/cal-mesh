@@ -13,35 +13,44 @@ answer this? -- with a probability for every option. It does not write text and 
 nothing. So it can only ever send a message to a doer that already exists; the doer still owns
 the answer, and every number on air still comes from Python or the radio.
 
-MEASURED BEFORE BUILT (2026-09-21, jev-1.13.0, every unique non-reaction message in the inbox,
-319 of them, against each doer's documented scope, ambiguous cases counted against Jev):
-    current regex ladder            245/319
-    Jev alone                       306/319
-    ladder first, Jev on fallthrough, acting at confidence >= 0.7   293/319, fixes 48, breaks 0
-BUT 44 of those 48 were channel chatter nobody addressed to Cal. Among the 56 messages that
-were addressed to Cal, the ladder misrouted 4 and Jev fixed all 4. This module is the
-ADDRESSED-ONLY version; widening it to broadcast traffic is a different decision (airtime, and
-every public message leaving the house) and it is not made here. docs/proposals/jev-routing.md.
+MEASURED (2026-09-21, jev-1.13.0, the 319 unique non-reaction inbox messages, disagreements
+adjudicated against each doer's documented scope, ambiguous cases counted against Jev; this
+exact configuration, three calls per message):
+    all 319, as if every message were eligible      ladder 245 -> 254   (+9, 0 broken)
+    addressed, public channel  (the default)        ladder  23 ->  25   (+2, 0 broken, n=25)
+    + DMs and Cal's channel    (JEV_PRIVATE_OK)     ladder  47 ->  50   (+3, 0 broken, n=56)
+No message flipped between act and no-act across the three calls. Every fix is a link/signal
+ask ("Cal, hows the link holding up?") the model used to answer with no number behind it.
+Small on purpose: an earlier hybrid that also routed greetings and un-addressed chatter scored
+far higher (293/319) and is NOT this module -- that widening is a separate decision (airtime,
+and every public message leaving the house). docs/proposals/jev-routing.md.
 
 THE RULES:
 1. ASKED ONLY ON THE FALLTHROUGH. `eligible()` requires that no doer claimed the message and
    that it is about to go to the model. A message the ladder answers never leaves this machine,
    so a regex that works is never second-guessed and never overruled.
-2. NEVER A PRIVATE DM. An unlocked DM carries operator context; it is excluded by `eligible()`.
-   Neither is a message the sanitizer flagged: Jev's own docs say adversarial text can move it.
+2. PRIVATE TRAFFIC STAYS HOME BY DEFAULT. Every DM and everything on Cal's own channel is
+   excluded unless JEV_PRIVATE_OK=true; an unlocked DM is excluded even then, and so is any
+   message the sanitizer flagged (Jev's own docs say adversarial text can move it).
 3. RESCUES ONLY INTO A DOER THAT CAN STILL REFUSE. `RESCUABLE` is weather, caps and sigreport.
    Each keeps its own fail-safe: weather says "Can't reach weather" rather than invent, a
    forecast ask is still refused, sigreport still requires measurements, cooldown and budget.
+   Two GUARDS, asked in the same call, gate the two rescues that can mislead: weather needs
+   `weather_now` (past-tense asks were being answered with the current reading), sigreport
+   needs `other_station` low AND no node named in the text (a question about a repeater was
+   being answered with the sender's own link numbers).
    calc is excluded because a failed parse means there is nothing to compute; greeting because
    answering more greetings is a policy change, not a routing fix.
 4. FAIL OPEN TO TODAY. Any error, timeout, 4xx/5xx, malformed body or unknown route returns a
    result with `route` None, and the caller does exactly what it did before this module existed.
+   JEV_TIMEOUT_S is a WALL-CLOCK bound on the whole request, and a network failure backs off for
+   JEV_BACKOFF_S so an outage costs one timeout, not one per message.
 5. THE MODEL IS PINNED. `jev-latest` moves on every release and the threshold was measured on
    jev-1.13.0. Moving is a deliberate change with a re-run of the measurement, not an alias flip.
 6. THE KEY NEVER TRAVELS. It is read from JEV_KEY_FILE at call time and appears in no return
    value, log line or trace. Only the route, its confidence and the model id are recorded.
 """
-import json, os, time, urllib.request
+import json, math, os, threading, time, urllib.request
 
 MODEL = "jev-1.13.0"
 ENDPOINT = "https://api.typesafe.ai/v1/systemone"
@@ -73,12 +82,35 @@ CRITERIA = {
                     "the specific services above",
 }
 
+# Two guards asked IN THE SAME CALL (speculative fan-out; they cost input tokens, not latency).
+# Each closes a hole the adversarial review reproduced with the real model:
+#   weather_now   -- "what was the high yesterday" was routed to weather at 0.98 and would have
+#                    been answered with the current reading. Past and future both score ~0.02.
+#   other_station -- "how is the signal from the Olathe repeater" was routed to sigreport at 0.99
+#                    and would have been answered with the SENDER's link numbers. Third-party
+#                    asks score 0.93-0.97; genuine self-link asks <= 0.23 (measured 2026-09-21).
+GUARDS = {
+    "weather_now": "Is the message in `mesh_message` asking about the weather conditions right "
+                   "now? Not about past weather and not a forecast.",
+    "other_station": "Does the message in `mesh_message` ask about the signal, link or reception "
+                     "of a specific other station, repeater, router or node, rather than the link "
+                     "between the sender and Cal?",
+}
+OTHER_STATION_MAX = 0.5     # sigreport is refused at or above this; the regex backs it up
+
 DEFAULTS = {
     "JEV_ROUTE_ENABLED": "false",
     "JEV_MIN_CONF": "0.8",          # measured: 0 breaks from 0.7 up; start above it
     "JEV_TIMEOUT_S": "2",
     "JEV_KEY_FILE": "~/.credentials/typesafe",
+    # DMs and Cal's own (PSK) channel are PRIVATE traffic. Off by default: arming the router does
+    # not by itself send private messages to a third party; this is a second, separate decision.
+    "JEV_PRIVATE_OK": "false",
+    # After a failed call, skip Jev for this long, so an outage costs one timeout, not one per
+    # message. The overall deadline is JEV_TIMEOUT_S, enforced on the whole request.
+    "JEV_BACKOFF_S": "300",
 }
+_state = {"backoff_until": 0.0}
 
 
 def _cfg(cfg, key):
@@ -89,8 +121,9 @@ def enabled(cfg):
     return str(_cfg(cfg, "JEV_ROUTE_ENABLED")).lower() == "true"
 
 
-def eligible(cfg, plan):
-    """(ok, reason). The whole of rule 1 and rule 2 -- one place, so it cannot drift."""
+def eligible(cfg, plan, private=False, now=None):
+    """(ok, reason). The whole of rule 1 and rule 2 -- one place, so it cannot drift.
+    `private` is decided by the caller from the packet: a DM, or Cal's own channel."""
     if not enabled(cfg):
         return False, "jev_disabled"
     if plan.get("capability") is not None or plan.get("mode") != "generate":
@@ -99,8 +132,12 @@ def eligible(cfg, plan):
         return False, "private_dm"
     if plan.get("flagged"):
         return False, "injection_flagged"
+    if private and str(_cfg(cfg, "JEV_PRIVATE_OK")).lower() != "true":
+        return False, "private_traffic"
     if not (plan.get("clean") or "").strip():
         return False, "empty"
+    if (time.time() if now is None else now) < _state["backoff_until"]:
+        return False, "backoff"
     return True, "fallthrough"
 
 
@@ -110,50 +147,110 @@ def _http_post(url, body, headers, timeout):
         return json.loads(r.read(65536).decode("utf-8"))
 
 
-def classify(cfg, text, post=None):
-    """{'route', 'conf', 'model', 'ms', 'error'}. `route` is None on ANY failure (rule 4).
-    `post(url, body, headers, timeout)` is injectable so the eval never touches the network."""
-    res = {"route": None, "conf": None, "model": None, "ms": None, "error": None}
+def _with_deadline(fn, deadline):
+    """Run fn() with a hard WALL-CLOCK limit. urlopen's timeout bounds each socket operation, not
+    the request: a server trickling one byte every half second held a 2 s call for 40 s in
+    review. The worker is a daemon thread; if it overruns, it is abandoned and we move on."""
+    box = {}
+    def run():
+        try:
+            box["v"] = fn()
+        except Exception as e:           # surfaced to the caller below
+            box["e"] = e
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(deadline)
+    if t.is_alive():
+        raise TimeoutError("deadline")
+    if "e" in box:
+        raise box["e"]
+    return box.get("v")
+
+
+def _prob(v):
+    """A probability or ValueError. Rejects bool, strings, NaN/inf and out-of-range values --
+    `confidence: true` and `"0.95"` were both accepted before review."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ValueError("not a number")
+    v = float(v)
+    if not math.isfinite(v) or not (0.0 <= v <= 1.0):
+        raise ValueError("out of range")
+    return v
+
+
+def classify(cfg, text, post=None, now=None):
+    """{'route','conf','weather_now','other_station','model','ms','error'}; route None on ANY
+    failure (rule 4). `post(url, body, headers, timeout)` is injectable so the eval never touches
+    the network. A network-shaped failure starts the backoff window."""
+    res = {"route": None, "conf": None, "weather_now": None, "other_station": None,
+           "model": None, "ms": None, "error": None}
     try:
-        with open(os.path.expanduser(_cfg(cfg, "JEV_KEY_FILE"))) as f:
+        with open(os.path.expanduser(_cfg(cfg, "JEV_KEY_FILE")), encoding="utf-8") as f:
             key = f.read().strip()
-    except OSError:
-        res["error"] = "no_key"
-        return res
+    except (OSError, UnicodeDecodeError, ValueError):
+        key = ""
     if not key:
         res["error"] = "no_key"
         return res
-    body = {"model": MODEL, "state": {"mesh_message": text},
-            "questions": {"route": {"type": "choice", "instructions": INSTRUCTIONS,
-                                    "criteria": CRITERIA}}}
+    questions = {"route": {"type": "choice", "instructions": INSTRUCTIONS, "criteria": CRITERIA}}
+    questions.update({k: {"type": "noul", "instructions": v} for k, v in GUARDS.items()})
+    body = {"model": MODEL, "state": {"mesh_message": text}, "questions": questions}
     headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
     try:
         timeout = float(_cfg(cfg, "JEV_TIMEOUT_S"))
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError
     except ValueError:
         timeout = float(DEFAULTS["JEV_TIMEOUT_S"])
     t0 = time.time()
     try:
-        r = (post or _http_post)(ENDPOINT, body, headers, timeout)
-        a = r["answers"]["route"]
-        route, conf = a["choice"], float(a["confidence"])
-    except Exception as e:                     # rule 4: every failure is "no opinion"
+        r = _with_deadline(lambda: (post or _http_post)(ENDPOINT, body, headers, timeout), timeout)
+        a = r["answers"]
+        route = a["route"]["choice"]
+        if not isinstance(route, str) or route not in CRITERIA:
+            raise ValueError("bad route")
+        conf = _prob(a["route"]["confidence"])
+        wn = _prob(a["weather_now"]["noul"])
+        oth = _prob(a["other_station"]["noul"])
+        model = r.get("model")
+        model = model if isinstance(model, str) and 0 < len(model) <= 40 else None
+    except (ValueError, KeyError, TypeError, AttributeError, IndexError) as e:
         res["ms"] = round((time.time() - t0) * 1000)
-        res["error"] = type(e).__name__
-        return res
-    res["ms"] = round((time.time() - t0) * 1000)
-    if route not in CRITERIA or not (0.0 <= conf <= 1.0):
         res["error"] = "bad_answer"
         return res
-    res.update({"route": route, "conf": round(conf, 3), "model": r.get("model")})
+    except Exception as e:                     # network-shaped: timeout, HTTP, DNS, JSON decode
+        res["ms"] = round((time.time() - t0) * 1000)
+        res["error"] = type(e).__name__[:40]
+        try:
+            back = float(_cfg(cfg, "JEV_BACKOFF_S"))
+        except ValueError:
+            back = float(DEFAULTS["JEV_BACKOFF_S"])
+        _state["backoff_until"] = (time.time() if now is None else now) + max(0.0, back)
+        return res
+    res["ms"] = round((time.time() - t0) * 1000)
+    # Unrounded: decide() compares these against the floor, and rounding first let 0.7999 act
+    # at a 0.8 floor. The trace rounds for display; the decision never sees a rounded value.
+    res.update({"route": route, "conf": conf, "weather_now": wn, "other_station": oth,
+                "model": model})
     return res
 
 
 def decide(cfg, res):
-    """The route to act on, or None. Below threshold, or not a doer that can refuse, is None."""
+    """The route to act on, or None. Below threshold, a guard that fails, or not a doer that
+    can refuse, is None -- which is today's path."""
     if not res or res.get("route") not in RESCUABLE:
         return None
     try:
         floor = float(_cfg(cfg, "JEV_MIN_CONF"))
+        if not math.isfinite(floor):
+            raise ValueError
     except ValueError:
         floor = float(DEFAULTS["JEV_MIN_CONF"])
-    return res["route"] if (res.get("conf") or 0.0) >= floor else None
+    if (res.get("conf") or 0.0) < floor:
+        return None
+    if res["route"] == "weather" and (res.get("weather_now") or 0.0) < floor:
+        return None
+    if res["route"] == "sigreport" and (res.get("other_station") is None
+                                        or res["other_station"] >= OTHER_STATION_MAX):
+        return None
+    return res["route"]
