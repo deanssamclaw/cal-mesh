@@ -211,17 +211,25 @@ RECORDS = (
                    "decision model (Jev, TypeSafe AI) which existing capability should answer, "
                    "and hands the message to that capability. The capability writes the reply.",
         "trigger": "Only the fallthrough: an addressed message no doer claimed, about to go to "
-                   "the model. Acted on only at or above JEV_MIN_CONF and only into weather, "
-                   "caps or sigreport.",
-        "who": "allow-listed senders on the addressed path — the same messages that would "
-               "otherwise reach the model.",
+                   "the model. Acted on only at or above JEV_MIN_CONF, only into weather, caps "
+                   "or sigreport, and only when a same-call guard agrees (weather must be about "
+                   "now; a signal report must be about this link).",
+        "who": "allow-listed senders on the addressed path, on the public channel. DMs and "
+               "Cal's own channel only if JEV_PRIVATE_OK is set.",
         "out_of_scope": [
             {"limit": "It never overrules a word rule. A message any doer claims is not sent to "
                       "Jev at all, so a working regex cannot be second-guessed.",
              "where": "jevroute.py:eligible"},
-            {"limit": "It never sees a private (unlocked) DM or a message the sanitizer flagged "
-                      "as injection-shaped.",
+            {"limit": "It never sees an unlocked DM or a message the sanitizer flagged as "
+                      "injection-shaped, and never a DM or Cal's own channel unless "
+                      "JEV_PRIVATE_OK is set.",
              "where": "jevroute.py:eligible"},
+            {"limit": "It will not send a past-tense weather question to the current reading, "
+                      "or a question about another station to the sender's own signal numbers.",
+             "where": "jevroute.py:GUARDS"},
+            {"limit": "It does not answer a signal question that names another node, short id "
+                      "or callsign, whatever the model says.",
+             "where": "sigreport.py:names_other_node"},
             {"limit": "It cannot route to calc or to the greeting ack. calc answers only a "
                       "successful parse, and answering more greetings is a policy change, not a "
                       "routing fix.",

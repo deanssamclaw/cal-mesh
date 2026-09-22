@@ -291,18 +291,23 @@ asks one more question on **that fallthrough only** — *which service should an
 **Jev** (`jev-1.13.0`, TypeSafe AI), a decision model that writes no text and computes nothing. It
 can only send a message to a doer that already exists, and that doer keeps every refusal it had.
 
-- **Asked only** when an addressed message reached the fallthrough. Never a private DM, never a
-  sanitizer-flagged message. A message the ladder answers never leaves the machine.
-- **Acts only** into weather, caps or sigreport, at `JEV_MIN_CONF` (0.8) or above. Never calc,
-  never greeting. Any failure = today's behaviour.
-- **Measured first** on all 319 unique inbox messages: ladder 245 right, ladder + Jev on the
-  fallthrough 287–293, **0 broken**. But 44 of the 48 fixes were chatter not addressed to Cal, so
-  the addressed-only build fixes **4 of 56** addressed messages — the link/signal asks the model used
-  to answer with no number behind it. The broadcast widening is **not built**; it is the operator's
-  call. Full numbers, the instrument error in run 1, and what arming costs:
-  [`docs/proposals/jev-routing.md`](docs/proposals/jev-routing.md).
+- **Asked only** when an addressed message reached the fallthrough. **Private traffic stays home
+  by default**: DMs and Cal's own channel are excluded unless `JEV_PRIVATE_OK=true`; unlocked DMs
+  and sanitizer-flagged messages are excluded always. A message the ladder answers never leaves.
+- **Acts only** into weather, caps or sigreport, at `JEV_MIN_CONF` (0.8) or above, and only when
+  a same-call guard agrees: weather must be about **now** (past-tense asks were getting the current
+  reading), sigreport must be about **this** link and name no other node. Never calc, never
+  greeting. Any failure = today's behaviour; the timeout bounds the whole call, with a backoff.
+- **Measured** on all 319 unique inbox messages, this configuration, three calls each: default
+  build **23 → 25 of 25** addressed public messages, **0 broken**; with DMs and Cal's channel,
+  47 → 50 of 56; across all 319 as if eligible, 245 → 254. Small on purpose — every fix is a
+  link/signal ask the model used to answer with no number behind it. A wider hybrid (greetings,
+  un-addressed chatter) scored far higher and is **not built**; that is the operator's call. The
+  first write-up of this quoted the wider hybrid's numbers for this build; an adversarial review
+  caught it. Full detail: [`docs/proposals/jev-routing.md`](docs/proposals/jev-routing.md).
 - **Arming sends text to a third party** (`api.typesafe.ai`). That is the privacy cost, and the
-  reason it ships OFF. Config: `JEV_ROUTE_ENABLED`, `JEV_MIN_CONF`, `JEV_TIMEOUT_S`, `JEV_KEY_FILE`.
+  reason it ships OFF. Config: `JEV_ROUTE_ENABLED`, `JEV_MIN_CONF`, `JEV_TIMEOUT_S`,
+  `JEV_BACKOFF_S`, `JEV_PRIVATE_OK`, `JEV_KEY_FILE`.
 - The decision is on the page: the trace draws a **routed by Jev** stage, and a Jev-routed weather
   reply no longer claims "plain word matching, no model involved".
 
@@ -312,7 +317,7 @@ Nothing goes on air because it looked right. The gate is the same for every tier
 **default OFF → offline eval → independent adversarial review → arm.**
 
 - **The eval runs with no radio and no network.** Current corpus: calc 273 checks, sun/moon 873,
-  greeting 91, DM 71 + 45, render 74, routing 21, jevroute 52 + 5 mutants, plus a page parser. Numbers only mean something
+  greeting 91, DM 71 + 45, render 74, routing 21, jevroute 103 + 11 mutants, plus a page parser. Numbers only mean something
   where they are pinned to an outside source — sun/moon is measured against **43 U.S. Naval
   Observatory times, worst error 43 seconds**; the RF pack against published worked values.
 - **Mutation decides whether a check is real.** Break the code deliberately and the eval must go
@@ -577,6 +582,7 @@ So the page publishes a verdict from a closed set, with the evidence under it:
 | `FRESH` | ran on schedule, input flowing, bank agrees with the classifier |
 | `LATE` | no run inside the threshold — everything below it is stale |
 | `STALLED` | the loop is running, but nothing has been received |
+| `FAILING` | the loop is fine, but the last 3 model replies all failed — "nothing new" may be replies that never happened |
 | `DRIFT` | banked records would classify differently under the code running now |
 | `UNKNOWN` | an artefact could not be read — never a cheerful default |
 
@@ -591,6 +597,13 @@ Flags are collected rather than short-circuited, so two faults at once cannot hi
 precedence only chooses which chip is shown, and all four facts render regardless. There is no
 green light on the page. A light is a claim, and that claim would have read true throughout the
 six days — what is shown instead is the evidence it would have been claiming from.
+
+`FAILING` was added 2026-09-21 after five model replies failed in a six-minute burst
+(`gen_rc1`, empty stderr) while the strip read `FRESH` for a day: the distiller was healthy, and
+a responder whose model calls all fail is indistinguishable from a quiet mesh at that layer. It
+is derived from `decisions.jsonl` like everything else — the trailing run of failed reply
+attempts — and three in a row has never happened in healthy operation (40 attempts on record).
+The failing call's stdout and stderr now go to `responder.log`, never to the public trace.
 
 Thresholds are measured, not chosen. Runs land 24.00 h apart across eight consecutive days, so
 `LATE` is 26 h. The largest natural silence between two inbound records is 39.3 h (median
