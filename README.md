@@ -103,6 +103,8 @@ arrives after the paste is not a guard.
 - `gap-ledger.json` / `gap-ledger.md` — the distiller's bank and its rendered view. `learn-state.json`
   holds the watermark and run counter, `learn-history.jsonl` is one line per run, `triage.json` holds
   the oracle verdicts. All gitignored: they carry message text and third-party node ids.
+- `jevroute.py` — the second-opinion router (default OFF). One Choice question, pinned model, the
+  option text in one block. Key read from `JEV_KEY_FILE`, never logged. See above.
 - `mesh` — CLI: `mesh send "…"` · `mesh read [N]` · `mesh watch` · `mesh nodes` · `mesh status` · `mesh log`
 - `bridge.log` / `responder.log` / `dashboard.log`
 
@@ -156,6 +158,7 @@ the answer path** — that is the whole safety story. Taxonomy and specs in `doc
 | Signal report (range/signal test) | measured | **no — every number is the radio's own** | **ARMED** — runs *first*, see below |
 | Capability list ("what can you do") | flags | no — composed from the live config flags | **ARMED** |
 | Greeting ack (off-list senders) | fixed table | no | **ARMED** |
+| Second-opinion routing (Jev) | picks a doer on the fallthrough | **no — it writes nothing; the doer answers** | built, **default OFF** — see below |
 | Wire gauge, fasteners (TABLE) | table | no — the harness returns the row | measured, not built |
 | Load and rigging | — | — | **refuted, will not ship** (see below) |
 | Proactive welcome (new node's first message) | — | — | **refuted, will not ship** (see below) |
@@ -281,13 +284,35 @@ The eval allows contact reports as a **class**, via a skeleton written by hand i
 than a call into `_is_contact_report`: a fixture built from the thing under test could only ever
 pass. Breaking either condition, or the rule entirely, fails the suite.
 
+## Second-opinion routing (jevroute, default OFF)
+
+Every doer claims a message with a regex; what no regex claims falls to the model. `jevroute.py`
+asks one more question on **that fallthrough only** — *which service should answer this?* — of
+**Jev** (`jev-1.13.0`, TypeSafe AI), a decision model that writes no text and computes nothing. It
+can only send a message to a doer that already exists, and that doer keeps every refusal it had.
+
+- **Asked only** when an addressed message reached the fallthrough. Never a private DM, never a
+  sanitizer-flagged message. A message the ladder answers never leaves the machine.
+- **Acts only** into weather, caps or sigreport, at `JEV_MIN_CONF` (0.8) or above. Never calc,
+  never greeting. Any failure = today's behaviour.
+- **Measured first** on all 319 unique inbox messages: ladder 245 right, ladder + Jev on the
+  fallthrough 287–293, **0 broken**. But 44 of the 48 fixes were chatter not addressed to Cal, so
+  the addressed-only build fixes **4 of 56** addressed messages — the link/signal asks the model used
+  to answer with no number behind it. The broadcast widening is **not built**; it is the operator's
+  call. Full numbers, the instrument error in run 1, and what arming costs:
+  [`docs/proposals/jev-routing.md`](docs/proposals/jev-routing.md).
+- **Arming sends text to a third party** (`api.typesafe.ai`). That is the privacy cost, and the
+  reason it ships OFF. Config: `JEV_ROUTE_ENABLED`, `JEV_MIN_CONF`, `JEV_TIMEOUT_S`, `JEV_KEY_FILE`.
+- The decision is on the page: the trace draws a **routed by Jev** stage, and a Jev-routed weather
+  reply no longer claims "plain word matching, no model involved".
+
 ## How a capability ships
 Nothing goes on air because it looked right. The gate is the same for every tier:
 
 **default OFF → offline eval → independent adversarial review → arm.**
 
 - **The eval runs with no radio and no network.** Current corpus: calc 273 checks, sun/moon 873,
-  greeting 91, DM 71 + 45, render 74, routing 21, plus a page parser. Numbers only mean something
+  greeting 91, DM 71 + 45, render 74, routing 21, jevroute 52 + 5 mutants, plus a page parser. Numbers only mean something
   where they are pinned to an outside source — sun/moon is measured against **43 U.S. Naval
   Observatory times, worst error 43 seconds**; the RF pack against published worked values.
 - **Mutation decides whether a check is real.** Break the code deliberately and the eval must go
