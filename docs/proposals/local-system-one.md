@@ -116,6 +116,12 @@ only matters if the broadcast widening in `jev-routing.md` §2 is ever built.
   should be re-measured rather than assumed.** Tuning it now, on the same 56 messages it would be
   scored against, would be fitting the test.
 
+* **A 4xx is not an outage (found by running, 2026-09-23).** SemIf refuses input whose GGUF and
+  reference tokenizations disagree — a single `❤️` returns **422** — and the router treated any
+  HTTP error as a network failure, so one such message would have silenced it for
+  `JEV_BACKOFF_S`. A 4xx other than 429 now fails open immediately with `http_<code>` and no
+  backoff; 429 still waits, because being rate-limited is a reason to.
+
 ## 4. Decision
 
 **`jevroute` stays OFF, and if it is ever armed it is armed LOCAL-FIRST** — the local backend is
