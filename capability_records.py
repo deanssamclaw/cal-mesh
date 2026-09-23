@@ -242,10 +242,12 @@ RECORDS = (
             {"limit": "It does not answer channel chatter that was not addressed to Cal. That "
                       "widening was measured and deliberately not built.",
              "where": "responder.py:plan_jev_rescue"},
-            {"limit": "Arming sends the sanitized message text to a third party "
-                      "(api.typesafe.ai). The model version is pinned; the threshold was measured "
-                      "on that version only.",
-             "where": "jevroute.py:MODEL"},
+            {"limit": "With JEV_BACKEND=typesafe, arming sends the sanitized message text to a "
+                      "third party (api.typesafe.ai), and the model version is pinned. With "
+                      "JEV_BACKEND=local it goes to this operator's own scorer instead and no "
+                      "message text leaves the house; the threshold was measured separately for "
+                      "each, on the wording each one is given.",
+             "where": "jevroute.py:backend"},
         ],
         "oracle_key": None,
     },

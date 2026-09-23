@@ -7422,7 +7422,7 @@ function flowHtml(x,t){
   const jev=!!(t&&t.jev_route&&t.jev_route.acted);
   const jevConf=(jev&&t.jev_route.conf!=null)?', confidence '+Number(t.jev_route.conf).toFixed(2):'';
   const NOMODEL=jev
-    ? '<b>Nothing was looked up, and no model wrote this reply</b> &mdash; a decision model (Jev) only '
+    ? '<b>Nothing was looked up, and no model wrote this reply</b> &mdash; a decision model only '
       +'chose which capability would answer. '
     : '<b>Nothing was looked up and no model ran.</b> ';
   const inTxt=esc(x.text||''), outTxt=esc(x.reply||'');
@@ -7552,7 +7552,7 @@ function flowHtml(x,t){
     const g2=`<div class="fb bx"><div class="fk">2 &middot; what the software recognised</div>`
       +`<div class="fv">${esc(what)}</div>`
       +(jev
-        ? `<div class="fn">the shape rule did <b>not</b> match &mdash; a decision model (Jev) classified it as a `
+        ? `<div class="fn">the shape rule did <b>not</b> match &mdash; a decision model classified it as a `
           +`question about this link${jevConf}. It chose the capability only; the numbers are the radio&rsquo;s.</div></div>`
         : `<div class="fn">matched by <b>shape, not vocabulary</b> — a short message ending in `
           +`&ldquo;test&rdquo; or &ldquo;check&rdquo;. <b>No model involved.</b></div></div>`);
@@ -7628,7 +7628,7 @@ function flowHtml(x,t){
   const bx=`<div class="fb bx"><div class="fk">2 · what the software recognised</div>`
     +`<div class="fv">a weather question${t.forecast_asked?' about the <b>future</b>':''}</div>`
     +(jw
-      ? `<div class="fn">no word rule matched &mdash; a decision model (Jev) classified it as a `
+      ? `<div class="fn">no word rule matched &mdash; a decision model classified it as a `
         +`weather question${t.jev_route.conf!=null?', confidence '+Number(t.jev_route.conf).toFixed(2):''}. `
         +`It chose the capability only; it <b>did not write or look up anything</b></div></div>`
       : `<div class="fn">${chips}${chips?'<br>':''}${why} — plain word matching, `
@@ -7655,14 +7655,14 @@ function flowHtml(x,t){
     : arrow('');
   const cap=crosses
     ? (jev
-      ? `Read left to right. No word rule matched this question; <b>a decision model (Jev) classified it `
+      ? `Read left to right. No word rule matched this question; <b>a decision model classified it `
         +`as a weather question</b> and chose the lookup. It wrote nothing. Cal&rsquo;s software went and `
       : `Read left to right. The question arrived fine and did real work — <b>its wording is what chose `
         +`the lookup</b> — but it never reached the model. Cal&rsquo;s software matched the words, went and `)
       +`got the observation, and <b>only that observation</b> crossed the dashed line. The model&rsquo;s `
       +`entire job was to put it into words, which is why it cannot invent a temperature.`
     : jev
-      ? `Read left to right. No word rule matched; <b>a decision model (Jev) chose this capability</b>. `
+      ? `Read left to right. No word rule matched; <b>a decision model chose this capability</b>. `
         +`Nothing was looked up, and <b>no model wrote the reply</b>. What went out is a `
       : `Read left to right. The question arrived fine and did real work — <b>its wording is what Cal `
       +`matched on</b> — but nothing was looked up, so <b>no model ran at all</b>. What went out is a `
@@ -7767,20 +7767,25 @@ function spineHtml(x,t){
   const jr=t.jev_route||null;
   if(jr&&jr.asked){
     const cf=jr.conf!=null?` · confidence ${Number(jr.conf).toFixed(2)}`:'';
+    // WHERE it ran is part of what happened: Jev is a service off this machine, the local scorer
+    // is the operator's own hardware. Naming the wrong one is a false claim about where the
+    // message went, which is the whole reason the local backend exists.
+    const jloc=jr.backend==='local';
+    const jwho=jloc?'routed on our own hardware':'routed by Jev';
     if(jr.acted)
-      s+=stage('pass','routed by Jev',`sent to <b>${esc(jr.acted)}</b>${cf}`
+      s+=stage('pass',jwho,`sent to <b>${esc(jr.acted)}</b>${cf}`
           +((jr.answered_by&&jr.answered_by!==jr.acted&&!(jr.acted==='caps'&&jr.answered_by==='capabilities'))
             ?` &middot; answered by <b>${esc(jr.answered_by)}</b>`:''),
         `<span class="hint">no word rule matched this message. A decision model `
-        +`(<code>${esc(jr.model||'jev')}</code>, TypeSafe AI) was asked one question &mdash; which of `
+        +`(<code>${esc(jr.model||'jev')}</code>, ${jloc?'on this machine &mdash; the message did not leave the house':'a service at TypeSafe AI'}) was asked one question &mdash; which of `
         +`a fixed list of services should answer &mdash; and picked one. It writes nothing and `
         +`computes nothing; the reply below comes from that capability, with its own checks.</span>`);
     else
-      s+=stage('skip','second opinion',jr.error?`Jev unavailable (<code>${esc(jr.error)}</code>)`
-          :`Jev said <b>${esc(jr.route||'nothing')}</b>${cf} &mdash; not acted on`,
-        `<span class="hint">${jr.error?'so the message took its usual path, exactly as if Jev did not exist'
+      s+=stage('skip','second opinion',jr.error?`${jloc?'the local scorer':'Jev'} unavailable (<code>${esc(jr.error)}</code>)`
+          :`${jloc?'the local scorer':'Jev'} said <b>${esc(jr.route||'nothing')}</b>${cf} &mdash; not acted on`,
+        `<span class="hint">${jr.error?'so the message took its usual path, exactly as if it did not exist'
           :jr.declined?'the capability it named declined (<code>'+esc(jr.declined)+'</code>), so the usual path answered'
-          :'below the confidence floor, or not a capability Jev may route to &mdash; the usual path answered'}</span>`);
+          :'below the confidence floor, or not a capability it may route to &mdash; the usual path answered'}</span>`);
   }
   if(t.forecast_asked)
     s+=stage('stop','refused','asked about a future condition',

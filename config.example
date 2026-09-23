@@ -148,3 +148,14 @@ JEV_TIMEOUT_S=2          # wall-clock bound on the whole call
 JEV_BACKOFF_S=300        # after a network failure, skip Jev this long
 JEV_PRIVATE_OK=false     # DMs + Cal's channel: a second, separate decision
 JEV_KEY_FILE=~/.credentials/typesafe
+
+# Which scorer answers the question. `local` is system_one_server.py on jlab (a frozen
+# Qwen3.5-4B scored by SemIf with one fitted temperature): measured to make the SAME rescues as
+# the cloud service and break nothing, at ~13 s instead of 0.25 s, with no message text leaving
+# the house. The local path sends NO key and uses its own measured prompt wording.
+JEV_BACKEND=typesafe     # typesafe | local
+# The scorer's TAILNET address (100.x). Do not use a MagicDNS hostname: on a host with Funnel
+# enabled it resolves to the public relay instead, and the router would leave the tailnet.
+JEV_LOCAL_URL=http://127.0.0.1:8799/v1/systemone
+JEV_LOCAL_TIMEOUT_S=30   # three CPU forward passes, not a network hop
+JEV_BUSY_BACKOFF_S=120   # the local scorer answers "too hot" rather than cooking the laptop

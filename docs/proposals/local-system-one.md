@@ -83,9 +83,43 @@ only matters if the broadcast widening in `jev-routing.md` §2 is ever built.
   today's path — but the rescue is only as available as jlab.
 * **11 GB on jlab** (venv, the 4B GGUF, the SemIf checkout) and about a day of work.
 
+## 3a. How it is wired (built 2026-09-23, still OFF)
+
+* **`system_one_server.py` on jlab** (`~/system-one`, a systemd unit, `127.0.0.1:8799`): loads the
+  4B GGUF once, serves TypeSafe's request shape, applies the fitted temperature, and answers
+  **503 above 95 °C** so a hot laptop degrades instead of cooking. It logs question ids, timings
+  and the chosen option — never message text.
+* **Reachability is tailnet-only.** The unit binds jlab's `100.x` address: reachable by this
+  operator's own devices, not the LAN and not the internet, and there is no auth on the port — the
+  tailnet is the boundary. `JEV_LOCAL_URL` must be that address, **not** a MagicDNS hostname: on a
+  host with Funnel enabled the name resolves to the public relay (`jlab` → a `199.x`), which would
+  quietly take the router off the tailnet.
+* **`JEV_BACKEND=local`** in cal-mesh points `jevroute` at it. No key is read or sent; every gate,
+  guard, threshold and fail-open path is the same code as the cloud path.
+* **The local prompt is not the cloud prompt.** The measurement was taken with the state as plain
+  text and a question that names no state field. Sending the cloud shape to the local scorer moved
+  "Cal, hows the link holding up?" from **0.90 to 0.79** — across the floor. `LOCAL_INSTRUCTIONS`
+  and `LOCAL_GUARDS` are the measured wording, and the eval asserts they name no state field.
+  Guard wording is load-bearing too: rephrasing `other_station` moved one message from 0.33 to
+  0.52, across its bar.
+* **Measured end to end through the running service**, all 56 addressed messages replayed from the
+  Mac over the tailnet with jevroute's own constants, and scored against the clean label set
+  (`tools/clean-labels`): **addressed public 23 → 25 of 25, +2, nothing broken — the same as the
+  cloud service**; addressed including private 46 → 48 against the cloud service's 49. None of the
+  23 `unsure` labels falls in either population, so the headline rests only on labels the rules
+  settled. Median **18.4 s** per message for a route plus both guards, under sustained thermal
+  throttling; ~13 s from cold. No 503s during the replay.
+* **One difference from the offline run, and it is the guard wording.** With the production
+  `other_station` text the DM *"Hows the radio holding up?"* scores **0.52**, just over its 0.5
+  bar, and is not rescued; the offline run's wording put it at 0.33. It is a DM, so the default
+  build excludes it either way — but **if `JEV_PRIVATE_OK` is ever set, that guard's wording
+  should be re-measured rather than assumed.** Tuning it now, on the same 56 messages it would be
+  scored against, would be fitting the test.
+
 ## 4. Decision
 
-**`jevroute` stays OFF, and if it is ever armed it is armed LOCAL-FIRST.**
+**`jevroute` stays OFF, and if it is ever armed it is armed LOCAL-FIRST** — the local backend is
+built and measured (§3a) so that arming is one config line rather than a project.
 
 The reasoning is the size of the prize, not the quality of the options. On 44 days of real traffic
 the rescue is worth **three messages**, all of them link/signal asks. Cloud and local now buy the

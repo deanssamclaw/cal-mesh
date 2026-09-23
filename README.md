@@ -314,9 +314,13 @@ can only send a message to a doer that already exists, and that doer keeps every
   ever armed it is armed local-first** — with the triggers that would re-open that in
   [`docs/proposals/local-system-one.md`](docs/proposals/local-system-one.md). Runners:
   [`tools/local-system-one/`](tools/local-system-one).
-- **Arming sends text to a third party** (`api.typesafe.ai`). That is the privacy cost, and the
-  reason it ships OFF. Config: `JEV_ROUTE_ENABLED`, `JEV_MIN_CONF`, `JEV_TIMEOUT_S`,
-  `JEV_BACKOFF_S`, `JEV_PRIVATE_OK`, `JEV_KEY_FILE`.
+- **Two backends, one decision.** `JEV_BACKEND=typesafe` asks the cloud service; `JEV_BACKEND=local`
+  asks `system_one_server.py` on jlab and **no message text leaves the house** — no key is sent, and
+  the local path uses its own measured prompt wording (the cloud shape costs it 0.11 of confidence,
+  which crosses the floor). Arming either is still one flag, and arming the cloud one is what sends
+  text to a third party. Config: `JEV_ROUTE_ENABLED`, `JEV_BACKEND`, `JEV_LOCAL_URL`,
+  `JEV_LOCAL_TIMEOUT_S`, `JEV_BUSY_BACKOFF_S`, `JEV_MIN_CONF`, `JEV_TIMEOUT_S`, `JEV_BACKOFF_S`,
+  `JEV_PRIVATE_OK`, `JEV_KEY_FILE`.
 - The decision is on the page: the trace draws a **routed by Jev** stage, and a Jev-routed weather
   reply no longer claims "plain word matching, no model involved".
 
