@@ -102,10 +102,19 @@ only matters if the broadcast widening in `jev-routing.md` §2 is ever built.
   and `LOCAL_GUARDS` are the measured wording, and the eval asserts they name no state field.
   Guard wording is load-bearing too: rephrasing `other_station` moved one message from 0.33 to
   0.52, across its bar.
-* **Measured end to end through the service** (jlab, same messages): the two addressed public
-  rescues score 0.90 and 0.88 with their guards at 0.32 and 0.33; the third-party control
-  ("signal from the Olathe repeater") is refused by the guard at 0.88; a past-tense weather ask
-  stays at 0.54, under the floor. ~13 s for a route plus both guards.
+* **Measured end to end through the running service**, all 56 addressed messages replayed from the
+  Mac over the tailnet with jevroute's own constants, and scored against the clean label set
+  (`tools/clean-labels`): **addressed public 23 → 25 of 25, +2, nothing broken — the same as the
+  cloud service**; addressed including private 46 → 48 against the cloud service's 49. None of the
+  23 `unsure` labels falls in either population, so the headline rests only on labels the rules
+  settled. Median **18.4 s** per message for a route plus both guards, under sustained thermal
+  throttling; ~13 s from cold. No 503s during the replay.
+* **One difference from the offline run, and it is the guard wording.** With the production
+  `other_station` text the DM *"Hows the radio holding up?"* scores **0.52**, just over its 0.5
+  bar, and is not rescued; the offline run's wording put it at 0.33. It is a DM, so the default
+  build excludes it either way — but **if `JEV_PRIVATE_OK` is ever set, that guard's wording
+  should be re-measured rather than assumed.** Tuning it now, on the same 56 messages it would be
+  scored against, would be fitting the test.
 
 ## 4. Decision
 
