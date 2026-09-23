@@ -270,6 +270,15 @@ def classify(cfg, text, post=None, now=None):
     except Exception as e:                     # network-shaped: timeout, HTTP, DNS, JSON decode
         res["ms"] = round((time.time() - t0) * 1000)
         res["error"] = type(e).__name__[:40]
+        # A 4xx says THIS REQUEST was rejected, not that the scorer is down, so it must not
+        # silence the router for the outage window. Found by running: the local scorer refuses
+        # input whose GGUF and reference tokenizations disagree (some emoji) with a 422, and one
+        # such message would otherwise have taken the router off the air for JEV_BACKOFF_S.
+        # 429 is excluded: being rate-limited IS a reason to wait.
+        code = getattr(e, "code", None)
+        if isinstance(code, int) and 400 <= code < 500 and code != 429:
+            res["error"] = f"http_{code}"
+            return res
         # A local scorer refusing because the CPU is hot is a healthy answer, not an outage, so
         # it waits a shorter window than a network failure does.
         busy = local and "HTTP Error 503" in str(e)

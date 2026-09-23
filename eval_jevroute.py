@@ -20,7 +20,7 @@ in-process and the suite must see it. A mutant that crashes is reported as a cra
 
 Run:  python3 eval_jevroute.py        (exit 0 = pass; mutations included)
 """
-import os, sys, json, tempfile, copy
+import os, sys, json, tempfile, copy, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import jevroute as J
@@ -419,6 +419,19 @@ def suite():
        str(round(J._state["backoff_until"] - _t.time())))
     ck("plan unchanged when it is busy", o == b and s_ is None)
     J._state["backoff_until"] = 0.0
+    bad = Post(raise_=__import__("urllib").error.HTTPError("u", 422, "Unprocessable Content", {}, None))
+    b, o, s_, t, _ = run("cal is it raining", cfg(JEV_BACKEND="local", JEV_KEY_FILE="/nonexistent/key"), bad)
+    ck("a 4xx is a rejected request, not an outage", t.get("error") == "http_422", repr(t))
+    ck("and it does NOT silence the router", J._state["backoff_until"] <= _t.time(),
+       str(round(J._state["backoff_until"] - _t.time())))
+    ck("the plan is unchanged after a 4xx", o == b and s_ is None)
+    J._state["backoff_until"] = 0.0
+    lim = Post(raise_=__import__("urllib").error.HTTPError("u", 429, "Too Many Requests", {}, None))
+    b, o, s_, t, _ = run("cal is it raining", cfg(JEV_BACKEND="local", JEV_KEY_FILE="/nonexistent/key"), lim)
+    ck("but 429 still waits -- being rate-limited is a reason to back off",
+       J._state["backoff_until"] > _t.time(), repr(t))
+    J._state["backoff_until"] = 0.0
+    J._state["backoff_until"] = 0.0
 
     print("\n== 16. the trace names what answered ==")
     p = Post("weather", 0.99, now=0.95)
@@ -435,7 +448,13 @@ if FAILS:
 
 # --- MUTATIONS: each must turn the suite red. In-process; a crash is not a catch. ------------
 print("\n== mutations (each must be caught) ==")
-real = {"eligible": J.eligible, "decide": J.decide, "RESCUABLE": J.RESCUABLE, "MODEL": J.MODEL,
+_real_classify = J.classify
+def _classify_backoff_on_4xx(cfg, text, post=None, now=None):
+    r = _real_classify(cfg, text, post=post, now=now)
+    if str(r.get("error", "")).startswith("http_4"):
+        J._state["backoff_until"] = time.time() + 300
+    return r
+real = {"classify": _real_classify, "eligible": J.eligible, "decide": J.decide, "RESCUABLE": J.RESCUABLE, "MODEL": J.MODEL,
         "wd": J._with_deadline, "non": R.sigreport.names_other_node, "commit": R.commit_sigreport,
         "backend": J.backend, "LI": J.LOCAL_INSTRUCTIONS}
 def _elig_ignores_unlock(c, plan, **kw):
@@ -467,6 +486,7 @@ MUTANTS = [
     ("send does not spend the budget", lambda: setattr(R, "commit_sigreport", lambda st, s, ts=None: None)),
     ("backend switch ignored", lambda: setattr(J, "backend", lambda cfg: "typesafe")),
     ("local sent the cloud prompt shape", lambda: setattr(J, "LOCAL_INSTRUCTIONS", J.INSTRUCTIONS)),
+    ("a 4xx silences the router", lambda: setattr(J, "classify", _classify_backoff_on_4xx)),
 ]
 escaped = []
 for name, apply in MUTANTS:
@@ -484,6 +504,7 @@ for name, apply in MUTANTS:
         J._with_deadline, R.sigreport.names_other_node, R.commit_sigreport = (
             real["wd"], real["non"], real["commit"])
         J.backend, J.LOCAL_INSTRUCTIONS = real["backend"], real["LI"]
+        J.classify = real["classify"]
         J._state["backoff_until"] = 0.0
         R.channel_busy = lambda cfg, ts=None: (False, 0.0, "quiet")
     caught = bool(FAILS) and crashed is None
