@@ -103,6 +103,8 @@ arrives after the paste is not a guard.
 - `gap-ledger.json` / `gap-ledger.md` — the distiller's bank and its rendered view. `learn-state.json`
   holds the watermark and run counter, `learn-history.jsonl` is one line per run, `triage.json` holds
   the oracle verdicts. All gitignored: they carry message text and third-party node ids.
+- `tools/local-system-one/` — offline runners that compared five open System One models against the
+  cloud router on this node's own traffic. Never imported by the responder. See the proposal above.
 - `jevroute.py` — the second-opinion router (default OFF). One Choice question, pinned model, the
   option text in one block. Key read from `JEV_KEY_FILE`, never logged. See above.
 - `mesh` — CLI: `mesh send "…"` · `mesh read [N]` · `mesh watch` · `mesh nodes` · `mesh status` · `mesh log`
@@ -305,6 +307,13 @@ can only send a message to a doer that already exists, and that doer keeps every
   un-addressed chatter) scored far higher and is **not built**; that is the operator's call. The
   first write-up of this quoted the wider hybrid's numbers for this build; an adversarial review
   caught it. Full detail: [`docs/proposals/jev-routing.md`](docs/proposals/jev-routing.md).
+- **A local model now buys the same three fixes.** SemIf's scorer on a frozen Qwen3.5-4B on jlab,
+  with one fitted temperature, matches Jev exactly on both addressed populations (25/25 and 50/56,
+  0 broken) at ~7 s a decision with nothing leaving the house; bigger and smaller models were both
+  worse, because the lever is calibration, not size. **Decision: jevroute stays OFF, and if it is
+  ever armed it is armed local-first** — with the triggers that would re-open that in
+  [`docs/proposals/local-system-one.md`](docs/proposals/local-system-one.md). Runners:
+  [`tools/local-system-one/`](tools/local-system-one).
 - **Arming sends text to a third party** (`api.typesafe.ai`). That is the privacy cost, and the
   reason it ships OFF. Config: `JEV_ROUTE_ENABLED`, `JEV_MIN_CONF`, `JEV_TIMEOUT_S`,
   `JEV_BACKOFF_S`, `JEV_PRIVATE_OK`, `JEV_KEY_FILE`.

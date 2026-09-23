@@ -7076,7 +7076,8 @@ details.tr[open]>summary:hover{border-color:#4478ad;
       <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/level3-weather-intent-layer.md" target="_blank" rel="noopener noreferrer">Two of my own proposals, refuted with measurements ↗</a>
       <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/unknown-sender-tier.md" target="_blank" rel="noopener noreferrer">Answering strangers — "we hear you" ↗</a>
       <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/channel-trust-and-agency.md" target="_blank" rel="noopener noreferrer">Channel trust &amp; agency — how much Cal is allowed to be ↗</a>
-      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/jev-routing.md" target="_blank" rel="noopener noreferrer">A second opinion on routing — measured, built, not armed ↗</a></div></details>
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/jev-routing.md" target="_blank" rel="noopener noreferrer">A second opinion on routing — measured, built, not armed ↗</a>
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/local-system-one.md" target="_blank" rel="noopener noreferrer">Running that second opinion in the house instead — five open models measured ↗</a></div></details>
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
     <div class="clog">
