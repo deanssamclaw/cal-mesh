@@ -289,6 +289,20 @@ CASES["jev_xss_declined"] = rec(text="Cal what do you think", reply="Seems solid
         model="claude-haiku-4-5-20251001", dest="^all",
         jev_route=dict(JR_W, route="<script>alert(4)</script>", conf=0.41, acted=None,
                        declined="<script>alert(5)</script>")))
+# LOCAL BACKEND (2026-09-23): the same router, scored on our own hardware. The page must say
+# WHERE it ran -- naming Jev for a reply that never left the house is the same class of false
+# mechanism the 2026-09-21 review found.
+CASES["local_sigreport"] = rec(text="Cal, hows the link holding up?", reply="Copy: direct, SNR 6.0",
+    capability="sigreport", gen_ms=None,
+    trace=dict(gates=GATES_OK, prompt_kind="fixed", dest="^all", gen_status="fixed_sigreport",
+        sigreport=dict(hops=0, snr=6.0, rssi=-35, relay_name=None, parts=["direct", "SNR 6.0"]),
+        jev_route=dict(JR_W, backend="local", model="semif-qwen3.5-4b-q4km", route="sigreport",
+                       conf=0.9, acted="sigreport", answered_by="sigreport")))
+CASES["local_busy"] = rec(text="Cal what do you think of the new repeater", reply="Seems solid.",
+    trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="general",
+        model="claude-haiku-4-5-20251001", dest="^all",
+        jev_route=dict(JR_W, backend="local", model=None, route=None, conf=None,
+                       error="busy", acted=None)))
 CASES["jev_declined"] = rec(text="Cal what do you think of the new repeater",
     reply="Seems solid so far.", trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT,
         prompt_kind="general", model="claude-haiku-4-5-20251001", dest="^all",
@@ -306,10 +320,10 @@ CHECKS = [
     ("jev_sigreport", ["routed by Jev", "is_a_test_jev", "no model wrote this reply"],
      ["no model ran &mdash; the responder"],
      "a decision model ran, so 'no model ran' is false; what is true is that no model WROTE it"),
-    ("jev_sigreport", ["the shape rule did <b>not</b> match", "decision model (Jev)"],
+    ("jev_sigreport", ["the shape rule did <b>not</b> match", "decision model"],
      ["No model involved", "no model ran.", "matched by <b>shape", "Nothing was looked up and no model ran"],
      "REVIEW 2026-09-21: the flow panel still said shape-matched / no model for a Jev-routed report"),
-    ("jev_weather", ["decision model (Jev) classified it"], ["matched the words", "wording is what chose"],
+    ("jev_weather", ["decision model classified it"], ["matched the words", "wording is what chose"],
      "REVIEW 2026-09-21: the weather caption credited word matching for a Jev-routed reply"),
     ("jev_calc", ["answered by <b>calc</b>", "no model computed or wrote anything"],
      ["nothing was fetched and no model ran"],
@@ -318,9 +332,15 @@ CHECKS = [
      "jev_route fields are rendered on a public page and must be escaped"),
     ("jev_xss_declined", ["&lt;script&gt;"], ["<script>alert"],
      "the declined line renders Jev's route too, and must escape it"),
+    ("local_sigreport", ["routed on our own hardware", "did not leave the house",
+                         "semif-qwen3.5-4b-q4km"], ["Jev"],
+     "a reply routed on our own hardware must not be credited to a service it never touched"),
+    ("local_busy", ["the local scorer unavailable", "exactly as if it did not exist"],
+     ["routed on our own hardware", "Jev unavailable"],
+     "a local scorer that refuses because the CPU is hot reads as no opinion, not as a routing decision"),
     ("jev_declined", ["second opinion", "not acted on"], ["routed by Jev"],
      "a consulted-and-overruled route is still part of how the reply came to exist"),
-    ("jev_error", ["Jev unavailable", "exactly as if Jev did not exist"], ["routed by Jev"],
+    ("jev_error", ["Jev unavailable", "exactly as if it did not exist"], ["routed by Jev"],
      "a failed call must read as no opinion, never as a routing decision"),
     # ---- the fixed-path cluster: the layout was chosen from injected_fact ----
     ("forecast", ["what Cal sent", "no model ran", "nothing"],

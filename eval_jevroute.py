@@ -378,6 +378,48 @@ def suite():
     ck("the main loop continues right after the send (no model reply for the same message)",
        _re.search(r"send_jev_sigreport\(st, rec, d, j_sig, new_off\)\n\s+continue\n", src) is not None)
 
+    print("\n== 17. the local backend: same decision, our own hardware ==")
+    lc = cfg(JEV_BACKEND="local", JEV_KEY_FILE="/nonexistent/key", JEV_LOCAL_URL="http://box:8799/v1/systemone",
+             JEV_LOCAL_TIMEOUT_S="30")
+    ck("default backend is the cloud one", J.backend(dict(R.DEFAULTS)) == "typesafe")
+    ck("an unknown backend falls back to the cloud one", J.backend({"JEV_BACKEND": "wat"}) == "typesafe")
+    p = Post("weather", 0.99)
+    b, o, s_, t, _ = run("cal is it raining", lc, p)
+    ck("local needs no key file", len(p.calls) == 1 and t.get("error") is None, repr(t))
+    call0 = p.calls[0] if p.calls else {}          # a mutant that never calls fails checks, not crashes
+    body, hdr = call0.get("body", {}), call0.get("headers", {})
+    ck("no key is sent anywhere on the local path", bool(call0) and "Authorization" not in hdr
+       and KEY not in json.dumps(call0, default=str))
+    ck("the local URL is used", call0.get("url") == "http://box:8799/v1/systemone", repr(call0.get("url")))
+    ck("the local timeout is used, not the cloud one", call0.get("timeout") == 30.0, repr(call0.get("timeout")))
+    ck("state is PLAIN TEXT -- the shape the local scorer was measured on",
+       isinstance(body.get("state"), str) and body.get("state") == "cal is it raining", repr(body.get("state"))[:80])
+    ck("the local question text is the measured one, naming no state field",
+       body.get("questions", {}).get("route", {}).get("instructions") == J.LOCAL_INSTRUCTIONS
+       and "`" not in J.LOCAL_INSTRUCTIONS and "mesh_message" not in J.LOCAL_INSTRUCTIONS)
+    ck("the local guards are the measured ones",
+       {k: v["instructions"] for k, v in body.get("questions", {}).items() if k in J.LOCAL_GUARDS} == J.LOCAL_GUARDS
+       and all("mesh_message" not in v for v in J.LOCAL_GUARDS.values()))
+    ck("no model id is dictated to the local scorer", "model" not in body)
+    ck("the trace records which backend answered", t.get("backend") == "local", repr(t))
+    ck("it still rescues", t["acted"] == "weather" and o["capability"] == "weather", repr(t))
+    p = Post("weather", 0.99)
+    b, o, s_, t, _ = run("cal is it raining", cfg(), p)
+    c0 = p.calls[0] if p.calls else {}
+    ck("the cloud path still sends the cloud shape", isinstance(c0.get("body", {}).get("state"), dict)
+       and c0.get("headers", {}).get("Authorization", "").startswith("Bearer "))
+    ck("and records its own backend", t.get("backend") == "typesafe")
+    import time as _t
+    J._state["backoff_until"] = 0.0
+    hot = Post(raise_=__import__("urllib").error.HTTPError("u", 503, "Service Unavailable", {}, None))
+    b, o, s_, t, _ = run("cal is it raining", cfg(JEV_BACKEND="local", JEV_BUSY_BACKOFF_S="120",
+                                                 JEV_BACKOFF_S="3000", JEV_KEY_FILE="/nonexistent/key"), hot)
+    ck("a hot local scorer reads as busy, not as an outage", t.get("error") == "busy", repr(t))
+    ck("and it backs off for the SHORT window", 0 < J._state["backoff_until"] - _t.time() <= 121,
+       str(round(J._state["backoff_until"] - _t.time())))
+    ck("plan unchanged when it is busy", o == b and s_ is None)
+    J._state["backoff_until"] = 0.0
+
     print("\n== 16. the trace names what answered ==")
     p = Post("weather", 0.99, now=0.95)
     b, o, s, t, _ = run("cal is it hotter than 12*8 out", cfg(), p)
@@ -394,7 +436,8 @@ if FAILS:
 # --- MUTATIONS: each must turn the suite red. In-process; a crash is not a catch. ------------
 print("\n== mutations (each must be caught) ==")
 real = {"eligible": J.eligible, "decide": J.decide, "RESCUABLE": J.RESCUABLE, "MODEL": J.MODEL,
-        "wd": J._with_deadline, "non": R.sigreport.names_other_node, "commit": R.commit_sigreport}
+        "wd": J._with_deadline, "non": R.sigreport.names_other_node, "commit": R.commit_sigreport,
+        "backend": J.backend, "LI": J.LOCAL_INSTRUCTIONS}
 def _elig_ignores_unlock(c, plan, **kw):
     return real["eligible"](c, dict(plan, unlocked=False), **kw)
 def _elig_ignores_claim(c, plan, **kw):
@@ -422,6 +465,8 @@ MUTANTS = [
     ("no wall-clock deadline", lambda: setattr(J, "_with_deadline", lambda fn, d: fn())),
     ("node-name backstop off", lambda: setattr(R.sigreport, "names_other_node", lambda t: False)),
     ("send does not spend the budget", lambda: setattr(R, "commit_sigreport", lambda st, s, ts=None: None)),
+    ("backend switch ignored", lambda: setattr(J, "backend", lambda cfg: "typesafe")),
+    ("local sent the cloud prompt shape", lambda: setattr(J, "LOCAL_INSTRUCTIONS", J.INSTRUCTIONS)),
 ]
 escaped = []
 for name, apply in MUTANTS:
@@ -438,6 +483,7 @@ for name, apply in MUTANTS:
                                                        real["RESCUABLE"], real["MODEL"])
         J._with_deadline, R.sigreport.names_other_node, R.commit_sigreport = (
             real["wd"], real["non"], real["commit"])
+        J.backend, J.LOCAL_INSTRUCTIONS = real["backend"], real["LI"]
         J._state["backoff_until"] = 0.0
         R.channel_busy = lambda cfg, ts=None: (False, 0.0, "quiet")
     caught = bool(FAILS) and crashed is None

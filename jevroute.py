@@ -54,6 +54,27 @@ import json, math, os, threading, time, urllib.request
 
 MODEL = "jev-1.13.0"
 ENDPOINT = "https://api.typesafe.ai/v1/systemone"
+
+# TWO BACKENDS, ONE DECISION. `typesafe` is the cloud service; `local` is a scorer on our own
+# hardware (system_one_server.py on jlab: a frozen Qwen3.5-4B scored by SemIf with one fitted
+# temperature). Measured on the same 319 messages they make the SAME rescues and break nothing;
+# the local one keeps message text in the house and costs ~13 s instead of 0.25 s. See
+# docs/proposals/local-system-one.md.
+#
+# THE LOCAL PROMPT IS NOT THE CLOUD PROMPT, and that is deliberate. The measurement that licenses
+# this was taken with the state as PLAIN TEXT and a question that does not name a state field.
+# Sending the cloud shape to the local scorer moved "Cal, hows the link holding up?" from 0.90 to
+# 0.79 -- across the floor. These constants are the measured wording; changing either means
+# re-running tools/local-system-one before trusting the threshold.
+LOCAL_INSTRUCTIONS = ("Which service should answer this message, sent to a station named Cal on a "
+                      "LoRa mesh radio network?")
+LOCAL_GUARDS = {
+    "weather_now": "Is this message asking about the weather conditions right now? Not about past "
+                   "weather and not a forecast.",
+    "other_station": "Does this message ask about the signal, link or reception of a specific "
+                     "other station, repeater, router or node, rather than the link between the "
+                     "sender and Cal?",
+}
 RESCUABLE = ("weather", "caps", "sigreport")
 
 # The question and its options live here and nowhere else, so review reads one block.
@@ -109,6 +130,14 @@ DEFAULTS = {
     # After a failed call, skip Jev for this long, so an outage costs one timeout, not one per
     # message. The overall deadline is JEV_TIMEOUT_S, enforced on the whole request.
     "JEV_BACKOFF_S": "300",
+    # typesafe | local. The flag above still decides whether ANY of this runs.
+    "JEV_BACKEND": "typesafe",
+    "JEV_LOCAL_URL": "http://jlab:8799/v1/systemone",
+    # The local scorer is a CPU doing three forward passes; measured ~13 s for a route plus both
+    # guards. It sits on the path that was about to call the language model anyway.
+    "JEV_LOCAL_TIMEOUT_S": "30",
+    # A local scorer that answers "too hot" is not broken, so it gets its own shorter window.
+    "JEV_BUSY_BACKOFF_S": "120",
 }
 _state = {"backoff_until": 0.0}
 
@@ -119,6 +148,11 @@ def _cfg(cfg, key):
 
 def enabled(cfg):
     return str(_cfg(cfg, "JEV_ROUTE_ENABLED")).lower() == "true"
+
+
+def backend(cfg):
+    b = str(_cfg(cfg, "JEV_BACKEND")).lower()
+    return b if b in ("typesafe", "local") else "typesafe"
 
 
 def eligible(cfg, plan, private=False, now=None):
@@ -183,28 +217,39 @@ def classify(cfg, text, post=None, now=None):
     failure (rule 4). `post(url, body, headers, timeout)` is injectable so the eval never touches
     the network. A network-shaped failure starts the backoff window."""
     res = {"route": None, "conf": None, "weather_now": None, "other_station": None,
-           "model": None, "ms": None, "error": None}
+           "model": None, "ms": None, "error": None, "backend": backend(cfg)}
+    local = res["backend"] == "local"
+    key = ""
+    if not local:
+        try:
+            with open(os.path.expanduser(_cfg(cfg, "JEV_KEY_FILE")), encoding="utf-8") as f:
+                key = f.read().strip()
+        except (OSError, UnicodeDecodeError, ValueError):
+            key = ""
+        if not key:
+            res["error"] = "no_key"
+            return res
+    if local:
+        questions = {"route": {"type": "choice", "instructions": LOCAL_INSTRUCTIONS,
+                               "criteria": CRITERIA}}
+        questions.update({k: {"type": "noul", "instructions": v} for k, v in LOCAL_GUARDS.items()})
+        body = {"state": text, "questions": questions}          # plain text: the measured shape
+        headers = {"Content-Type": "application/json"}          # no key leaves this machine
+    else:
+        questions = {"route": {"type": "choice", "instructions": INSTRUCTIONS, "criteria": CRITERIA}}
+        questions.update({k: {"type": "noul", "instructions": v} for k, v in GUARDS.items()})
+        body = {"model": MODEL, "state": {"mesh_message": text}, "questions": questions}
+        headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
     try:
-        with open(os.path.expanduser(_cfg(cfg, "JEV_KEY_FILE")), encoding="utf-8") as f:
-            key = f.read().strip()
-    except (OSError, UnicodeDecodeError, ValueError):
-        key = ""
-    if not key:
-        res["error"] = "no_key"
-        return res
-    questions = {"route": {"type": "choice", "instructions": INSTRUCTIONS, "criteria": CRITERIA}}
-    questions.update({k: {"type": "noul", "instructions": v} for k, v in GUARDS.items()})
-    body = {"model": MODEL, "state": {"mesh_message": text}, "questions": questions}
-    headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
-    try:
-        timeout = float(_cfg(cfg, "JEV_TIMEOUT_S"))
+        timeout = float(_cfg(cfg, "JEV_LOCAL_TIMEOUT_S" if local else "JEV_TIMEOUT_S"))
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError
     except ValueError:
         timeout = float(DEFAULTS["JEV_TIMEOUT_S"])
     t0 = time.time()
     try:
-        r = _with_deadline(lambda: (post or _http_post)(ENDPOINT, body, headers, timeout), timeout)
+        url = _cfg(cfg, "JEV_LOCAL_URL") if local else ENDPOINT
+        r = _with_deadline(lambda: (post or _http_post)(url, body, headers, timeout), timeout)
         a = r["answers"]
         route = a["route"]["choice"]
         if not isinstance(route, str) or route not in CRITERIA:
@@ -221,10 +266,15 @@ def classify(cfg, text, post=None, now=None):
     except Exception as e:                     # network-shaped: timeout, HTTP, DNS, JSON decode
         res["ms"] = round((time.time() - t0) * 1000)
         res["error"] = type(e).__name__[:40]
+        # A local scorer refusing because the CPU is hot is a healthy answer, not an outage, so
+        # it waits a shorter window than a network failure does.
+        busy = local and "HTTP Error 503" in str(e)
         try:
-            back = float(_cfg(cfg, "JEV_BACKOFF_S"))
+            back = float(_cfg(cfg, "JEV_BUSY_BACKOFF_S" if busy else "JEV_BACKOFF_S"))
         except ValueError:
-            back = float(DEFAULTS["JEV_BACKOFF_S"])
+            back = float(DEFAULTS["JEV_BUSY_BACKOFF_S" if busy else "JEV_BACKOFF_S"])
+        if busy:
+            res["error"] = "busy"
         _state["backoff_until"] = (time.time() if now is None else now) + max(0.0, back)
         return res
     res["ms"] = round((time.time() - t0) * 1000)

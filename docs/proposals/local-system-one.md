@@ -83,9 +83,29 @@ only matters if the broadcast widening in `jev-routing.md` §2 is ever built.
   today's path — but the rescue is only as available as jlab.
 * **11 GB on jlab** (venv, the 4B GGUF, the SemIf checkout) and about a day of work.
 
+## 3a. How it is wired (built 2026-09-23, still OFF)
+
+* **`system_one_server.py` on jlab** (`~/system-one`, a systemd unit, `127.0.0.1:8799`): loads the
+  4B GGUF once, serves TypeSafe's request shape, applies the fitted temperature, and answers
+  **503 above 95 °C** so a hot laptop degrades instead of cooking. It logs question ids, timings
+  and the chosen option — never message text.
+* **`JEV_BACKEND=local`** in cal-mesh points `jevroute` at it. No key is read or sent; every gate,
+  guard, threshold and fail-open path is the same code as the cloud path.
+* **The local prompt is not the cloud prompt.** The measurement was taken with the state as plain
+  text and a question that names no state field. Sending the cloud shape to the local scorer moved
+  "Cal, hows the link holding up?" from **0.90 to 0.79** — across the floor. `LOCAL_INSTRUCTIONS`
+  and `LOCAL_GUARDS` are the measured wording, and the eval asserts they name no state field.
+  Guard wording is load-bearing too: rephrasing `other_station` moved one message from 0.33 to
+  0.52, across its bar.
+* **Measured end to end through the service** (jlab, same messages): the two addressed public
+  rescues score 0.90 and 0.88 with their guards at 0.32 and 0.33; the third-party control
+  ("signal from the Olathe repeater") is refused by the guard at 0.88; a past-tense weather ask
+  stays at 0.54, under the floor. ~13 s for a route plus both guards.
+
 ## 4. Decision
 
-**`jevroute` stays OFF, and if it is ever armed it is armed LOCAL-FIRST.**
+**`jevroute` stays OFF, and if it is ever armed it is armed LOCAL-FIRST** — the local backend is
+built and measured (§3a) so that arming is one config line rather than a project.
 
 The reasoning is the size of the prize, not the quality of the options. On 44 days of real traffic
 the rescue is worth **three messages**, all of them link/signal asks. Cloud and local now buy the

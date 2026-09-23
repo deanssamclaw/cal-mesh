@@ -1411,7 +1411,8 @@ def plan_jev_rescue(cfg, st, rec, ours, plan, replan, classify=None):
     res = (classify or jevroute.classify)(cfg, plan["clean"])
     act = jevroute.decide(cfg, res)
     rnd = lambda v: round(v, 3) if isinstance(v, float) else v
-    trace = {"asked": True, "route": res.get("route"), "conf": rnd(res.get("conf")),
+    trace = {"asked": True, "backend": res.get("backend"), "route": res.get("route"),
+             "conf": rnd(res.get("conf")),
              "weather_now": rnd(res.get("weather_now")),
              "other_station": rnd(res.get("other_station")),
              "model": res.get("model"), "ms": res.get("ms"), "error": res.get("error"),
