@@ -89,6 +89,11 @@ only matters if the broadcast widening in `jev-routing.md` §2 is ever built.
   4B GGUF once, serves TypeSafe's request shape, applies the fitted temperature, and answers
   **503 above 95 °C** so a hot laptop degrades instead of cooking. It logs question ids, timings
   and the chosen option — never message text.
+* **Reachability is tailnet-only.** The unit binds jlab's `100.x` address: reachable by this
+  operator's own devices, not the LAN and not the internet, and there is no auth on the port — the
+  tailnet is the boundary. `JEV_LOCAL_URL` must be that address, **not** a MagicDNS hostname: on a
+  host with Funnel enabled the name resolves to the public relay (`jlab` → a `199.x`), which would
+  quietly take the router off the tailnet.
 * **`JEV_BACKEND=local`** in cal-mesh points `jevroute` at it. No key is read or sent; every gate,
   guard, threshold and fail-open path is the same code as the cloud path.
 * **The local prompt is not the cloud prompt.** The measurement was taken with the state as plain

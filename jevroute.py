@@ -132,7 +132,11 @@ DEFAULTS = {
     "JEV_BACKOFF_S": "300",
     # typesafe | local. The flag above still decides whether ANY of this runs.
     "JEV_BACKEND": "typesafe",
-    "JEV_LOCAL_URL": "http://jlab:8799/v1/systemone",
+    # Set this to the scorer's TAILNET address. A MagicDNS name resolves to the PUBLIC relay
+    # address on any host that has Funnel enabled -- `jlab` resolves to a 199.x, not a 100.x --
+    # so a hostname here can silently point the router off the tailnet. Loopback by default so an
+    # unset config reaches nothing rather than something wrong.
+    "JEV_LOCAL_URL": "http://127.0.0.1:8799/v1/systemone",
     # The local scorer is a CPU doing three forward passes; measured ~13 s for a route plus both
     # guards. It sits on the path that was about to call the language model anyway.
     "JEV_LOCAL_TIMEOUT_S": "30",
