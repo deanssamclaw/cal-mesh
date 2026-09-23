@@ -324,6 +324,18 @@ can only send a message to a doer that already exists, and that doer keeps every
 - The decision is on the page: the trace draws a **routed by Jev** stage, and a Jev-routed weather
   reply no longer claims "plain word matching, no model involved".
 
+### Not everything earns a reply
+
+Measured on every simulated reply on record (548 drafts, 377 unique messages, 45 days), scored by
+the local scorer and restricted to what Cal is **currently silent on**: the armed capabilities
+already catch what they can. Widening to the whole channel would newly answer about **four
+messages a month** across all the doers put together — and **14 a week** of model prose, in a class
+that graded `good` once in eighteen. So the widening is **shelved**, silence stays the default, and
+the work moves to proving the few replies Cal does send are honest and well-timed. Asked directly
+whether Cal should speak, the scorer answers ~0.50 for every verdict class alike: the evidence for
+that decision is timing and channel context, not the message text.
+[`docs/proposals/not-everything-earns-a-reply.md`](docs/proposals/not-everything-earns-a-reply.md)
+
 ## How a capability ships
 Nothing goes on air because it looked right. The gate is the same for every tier:
 
