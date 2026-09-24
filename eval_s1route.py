@@ -671,6 +671,38 @@ def suite():
     ck("router off: the fallback is off too", fb.calls == [])
     J._state["backoff_until"] = 0.0; J._state["fallback"]["backoff_until"] = 0.0
 
+    print("\n== 19. every fallback is RECORDED: its own file, the log, the capability page ==")
+    import capability_records as CR
+    tmpf = tempfile.NamedTemporaryFile("w", delete=False, suffix=".jsonl"); tmpf.close()
+    os.unlink(tmpf.name)
+    _old_fb, _old_log = R.FALLBACKS, R.log
+    logged = []
+    R.FALLBACKS, R.log = tmpf.name, lambda m: logged.append(m)
+    try:
+        fb = Post("sigreport", 0.98, other=0.1)
+        b, o, s_, t, _ = run("Cal, hows the link holding up?", cfg(S1_FALLBACK="typesafe", **LOC), hot(), fb=fb)
+        R.record_fallback(t, "2026-09-24T12:00:00+00:00")
+        rows = [json.loads(l) for l in open(tmpf.name)]
+        ck("one row per fallback", len(rows) == 1, repr(rows))
+        ck("the row says why the house could not answer, and what Jev did",
+           rows and rows[0]["local_error"] == "busy" and rows[0]["acted"] == "sigreport"
+           and rows[0]["backend"] == "typesafe", repr(rows))
+        ck("no message text and no sender in the record",
+           "holding" not in open(tmpf.name).read() and REC["from"] not in open(tmpf.name).read())
+        ck("and a log line says it happened", any("S1 FALLBACK" in m for m in logged), repr(logged))
+        u = CR.fallback_usage(tmpf.name, now=_t.mktime((2026, 9, 25, 0, 0, 0, 0, 0, -1)))
+        ck("the capability page counts it", u["value"].startswith("1 in 7 days") and "busy" in u["means"], repr(u))
+        ck("and says 'never' when there is no file", CR.fallback_usage("/nonexistent/x.jsonl")["value"] == "never")
+    finally:
+        R.FALLBACKS, R.log = _old_fb, _old_log
+        try:
+            os.unlink(tmpf.name)
+        except OSError:
+            pass
+    src_ = open(os.path.join(HERE, "responder.py")).read()
+    ck("the main loop records a fallback whenever the trace carries one",
+       'if j_trace.get("fallback_from"):\n                                    record_fallback(j_trace' in src_)
+
     print("\n== 16. the trace names what answered ==")
     p = Post("weather", 0.99, now=0.95)
     b, o, s, t, _ = run("cal is it hotter than 12*8 out", cfg(), p)

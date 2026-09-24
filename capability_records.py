@@ -54,6 +54,9 @@ _BUDGET_LABEL = {
     "TRACER_MAX_QUEUED": "probes allowed to sit in the queue",
     "CLARIFY_TTL_S": "seconds a follow-up stays answerable",
     "DM_LOCKED_MAX_CHARS": "reply character budget on a locked DM",
+    "S1_BACKEND": "scorer asked first (local = the operator's own hardware)",
+    "S1_FALLBACK": "backup when that scorer cannot answer (typesafe = Jev, public messages only)",
+    "S1_MIN_CONF": "confidence needed before it acts",
 }
 
 
@@ -217,7 +220,8 @@ RECORDS = (
                    "now; a signal report must be about this link).",
         "who": "allow-listed senders on the addressed path, on the public channel. DMs and "
                "Cal's own channel only if S1_PRIVATE_OK is set. ARMED 2026-09-24 on the local "
-               "backend; the cloud backend remains unused.",
+               "backend, with Jev (the cloud backend) as the backup for public messages when "
+               "the local scorer cannot answer.",
         "out_of_scope": [
             {"limit": "It never overrules a word rule. A message any doer claims is not sent to "
                       "Jev at all, so a working regex cannot be second-guessed.",
@@ -250,6 +254,12 @@ RECORDS = (
                       "message text leaves the house; the threshold was measured separately for "
                       "each, on the wording each one is given.",
              "where": "s1route.py:backend"},
+            {"limit": "The backup (S1_FALLBACK=typesafe) never receives a DM or a message on "
+                      "Cal's own channel, whatever S1_PRIVATE_OK says, and is asked only when the "
+                      "local scorer failed or is backed off -- never to second-guess an answer. "
+                      "Every use is recorded in s1-fallback.jsonl and counted here, and the "
+                      "message's own trace says it left the house and why.",
+             "where": "s1route.py:fallback_ok"},
         ],
         "oracle_key": None,
     },
@@ -399,12 +409,49 @@ STANDING_REFUSALS = (
 )
 
 
+def fallback_usage(path=None, now=None):
+    """How often Jev answered because the house could not: read from s1-fallback.jsonl, which
+    the responder appends only when the cloud was actually asked. Counts and the last reason --
+    never message text (the file holds none)."""
+    import time as _t
+    from datetime import datetime
+    path = path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "s1-fallback.jsonl")
+    now = _t.time() if now is None else now
+    rows = []
+    try:
+        for ln in open(path):
+            try:
+                rows.append(json.loads(ln))
+            except ValueError:
+                continue
+    except OSError:
+        pass
+    def ts(r):
+        try:
+            return datetime.fromisoformat(str(r.get("ts"))).timestamp()
+        except (ValueError, TypeError):
+            return None
+    week = sum(1 for r in rows if (ts(r) or 0) >= now - 7 * 86400)
+    if not rows:
+        return {"key": "s1-fallback.jsonl", "value": "never",
+                "means": "times the backup answered because the house could not"}
+    last = rows[-1]
+    when = str(last.get("ts") or "?")[:16].replace("T", " ")
+    return {"key": "s1-fallback.jsonl",
+            "value": f"{week} in 7 days, {len(rows)} total",
+            "means": f"times the backup answered because the house could not; last {when} UTC, "
+                     f"house said {last.get('local_error') or '?'}"}
+
+
 def build_records(cfg=None, triage=None, defaults=None):
     """Merge the registry with live flags, live budgets and the learning loop's record.
 
     Returns booleans and hand-declared labels. NO config value is copied through."""
     cfg = read_config() if cfg is None else cfg
-    defaults = responder_defaults() if defaults is None else defaults
+    if defaults is None:
+        # S1_* defaults live in s1route.py, not in responder's literal; read both, same way.
+        defaults = dict(responder_defaults(os.path.join(BASE, "s1route.py")) or {})
+        defaults.update(responder_defaults() or {})
     if triage is None:
         try:
             triage = json.load(open(TRIAGE))
@@ -418,13 +465,16 @@ def build_records(cfg=None, triage=None, defaults=None):
         out = []
         pre = {"calc": (), "greeting ack": ("GREET_",), "sigreport": ("SIGREPORT_",),
                "traceroute": ("TRACEROUTE_",), "tracer": ("TRACER_",),
-               "clarify follow-up": ("CLARIFY_",), "DM length budget": ("DM_LOCKED_",)}.get(rec["name"], ())
+               "clarify follow-up": ("CLARIFY_",), "DM length budget": ("DM_LOCKED_",),
+               "second-opinion routing": ("S1_",)}.get(rec["name"], ())
         for key, label in _BUDGET_LABEL.items():
             if not any(key.startswith(p) for p in pre):
                 continue
             v = cfg.get(key, defaults.get(key))
             if v not in (None, ""):
                 out.append({"key": key, "value": str(v), "means": label})
+        if rec["name"] == "second-opinion routing":
+            out.append(fallback_usage())
         return out
 
     allowed = len([x for x in (cfg.get("ALLOW_FROM") or "").split(",") if x.strip()])

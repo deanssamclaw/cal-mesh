@@ -39,6 +39,10 @@ NODES     = os.path.join(BASE, "nodes.json")
 CONFIG    = os.path.join(BASE, "config")
 STATE     = os.path.join(BASE, "responder-state.json")
 DECISIONS = os.path.join(BASE, "decisions.jsonl")
+# Every time the Jev FALLBACK answered for the house: the one path where public message text
+# leaves it. Its own file because decisions.jsonl is trimmed to 5000 lines and this record must
+# outlive that. No message text, no sender: when, why the house could not answer, what Jev said.
+FALLBACKS = os.path.join(BASE, "s1-fallback.jsonl")
 LOCK      = os.path.join(BASE, "responder.lock")
 CLAUDE    = os.path.expanduser("~/.local/bin/claude")
 
@@ -341,6 +345,24 @@ def our_id():
         return (json.load(open(STATUS)).get("node") or {}).get("id") or OUR_ID_FALLBACK
     except Exception:
         return OUR_ID_FALLBACK
+
+
+def record_fallback(trace, ts=None):
+    """Append one line to s1-fallback.jsonl and the log. Called only when a trace carries
+    fallback_from, i.e. the cloud was actually asked. Never raises: a full disk must not stop
+    the reply."""
+    fb = (trace or {}).get("fallback_from") or {}
+    row = {"ts": ts or now(), "local_error": fb.get("error"), "local_ms": fb.get("ms"),
+           "backend": trace.get("backend"), "model": trace.get("model"), "route": trace.get("route"),
+           "conf": trace.get("conf"), "acted": trace.get("acted"), "declined": trace.get("declined"),
+           "error": trace.get("error"), "ms": trace.get("ms")}
+    log(f"S1 FALLBACK to {row['backend']}: house said {row['local_error']!r}; "
+        f"cloud route={row['route']} conf={row['conf']} acted={row['acted']} err={row['error']}")
+    try:
+        with open(FALLBACKS, "a") as f:
+            f.write(json.dumps(row) + "\n")
+    except Exception as e:
+        log(f"s1-fallback.jsonl write failed: {type(e).__name__}")
 
 
 def record_decision(rec):
@@ -1609,6 +1631,8 @@ def main():
                                     route_hint=hint))
                             if j_trace:
                                 d["s1_route"] = j_trace
+                                if j_trace.get("fallback_from"):
+                                    record_fallback(j_trace, d.get("ts"))
                             if j_sig:
                                 send_s1_sigreport(st, rec, d, j_sig, new_off)
                                 continue
