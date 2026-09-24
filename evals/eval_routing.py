@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""Offline regression eval for the bridge's packet-capture layer.
+
+WHY THIS FILE EXISTS
+--------------------
+Both bugs it guards were invisible to inspection and produced *plausible* output, which is the
+failure mode that gets shipped. Neither crashed, neither logged an error, and the public page
+rendered a confident sentence about each. They were found only by comparing what Cal recorded
+against what a second, independent receiver recorded off the same air.
+
+  1. `hop_limit` is decremented by every relay, so hops = hop_start - hop_limit. The radio
+     library builds its packet dict with `google.protobuf.json_format.MessageToDict`, which
+     OMITS proto3 scalars equal to their default. A packet that consumed its ENTIRE hop budget
+     therefore has hop_limit 0 -> key absent -> the old `isinstance(hl, int)` guard recorded
+     None. The most-relayed packets were exactly the ones being discarded, and the dashboard
+     explained the resulting blank as "this message predates routing capture" — a false claim
+     about the message's history, on a public page.
+
+  2. `fromId` is resolved through the library's node database and is None for a node we have
+     not yet received a NodeInfo from — while the raw `from` field carries that node's NUMBER
+     the whole time. The ID therefore goes missing precisely at FIRST CONTACT. That is not a
+     corner case for this project: an unknown sender's opening message IS the population the
+     unknown-sender tier is designed around, and it would have been blind to it.
+
+The cases below build REAL protobuf packets and convert them with the REAL library, so the
+"key is missing" condition is produced by the library rather than asserted by hand. A hand-made
+dict would have passed the old buggy code too — which is the whole lesson.
+
+Run:  python3 evals/eval_routing.py     (exit 0 = pass)
+
+This suite needs the interpreter that HAS the meshtastic library, because the point is that the
+library — not the test — produces the missing-key condition. It used to have to be invoked with
+that interpreter by hand, so a plain corpus run reported it as a FAILURE for an environmental
+reason. That is worse than it sounds: a suite that is always red teaches the reader to skip red,
+and this one guards two defects that shipped precisely because they looked plausible.
+
+It now finds that interpreter itself, from the installed CLI's shebang rather than a hardcoded
+path, and re-executes into it once.
+"""
+import importlib.util
+import os
+import shutil
+import sys
+
+
+def _library_python():
+    """The interpreter that has the meshtastic library, or None.
+
+    Read from the `meshtastic` CLI's shebang. pipx writes an absolute path there, so this
+    resolves wherever pipx put the venv without this file naming anybody's home directory.
+    """
+    exe = shutil.which("meshtastic")
+    if not exe:
+        return None
+    try:
+        with open(exe) as fh:
+            first = fh.readline().strip()
+    except OSError:
+        return None
+    if not first.startswith("#!"):
+        return None
+    cand = first[2:].split()[0]
+    return cand if os.path.exists(cand) else None
+
+
+def _ensure_library():
+    """Re-exec into the library's interpreter once, then give up cleanly.
+
+    The sentinel is what stops a loop: if the target interpreter ALSO lacks the library, the
+    second run skips instead of exec'ing again forever.
+    """
+    try:
+        import pubsub  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    if os.environ.get("CALMESH_EVAL_REEXEC") == "1":
+        return False
+    py = _library_python()
+    # Compared as LITERAL paths, not realpath. A venv's bin/python is a symlink to the base
+    # interpreter, so realpath() calls them the same file and this guard then refuses to
+    # re-exec into the one environment that has the library -- which silently turned the whole
+    # mechanism off while looking correct.
+    if not py or os.path.abspath(py) == os.path.abspath(sys.executable):
+        return False
+    env = dict(os.environ, CALMESH_EVAL_REEXEC="1")
+    os.execve(py, [py, os.path.abspath(__file__)] + sys.argv[1:], env)
+
+
+if not _ensure_library():
+    # Loud, and exit 0: a missing library is not a regression in the bridge. The line has to
+    # say what is not being covered, because a silent skip is how a suite stops existing.
+    print("SKIP eval_routing: no interpreter with the meshtastic library — packet-capture "
+          "coverage (hop_limit default-omission, fromId at first contact) did NOT run. "
+          "Install with: pipx install meshtastic")
+    raise SystemExit(0)
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+if os.path.basename(HERE) == "evals":   # the repo root; a copy run from a temp dir is its own
+    HERE = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+_spec = importlib.util.spec_from_file_location("bridge_mod", os.path.join(HERE, "bridge.py"))
+bridge = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(bridge)
+
+try:
+    from meshtastic.protobuf import mesh_pb2
+    from google.protobuf.json_format import MessageToDict
+except ImportError:
+    print("SKIP: meshtastic not importable — run with the venv python")
+    sys.exit(0)
+
+BROADCAST = 0xFFFFFFFF
+CHECKS = []
+
+
+def check(name, got, want):
+    CHECKS.append((name, got == want, got, want))
+
+
+def as_dict(hop_start, hop_limit):
+    """A packet dict built the way the library actually builds one."""
+    p = mesh_pb2.MeshPacket()
+    p.hop_start = hop_start
+    p.hop_limit = hop_limit
+    return MessageToDict(p)
+
+
+# --- hops_taken --------------------------------------------------------------------------
+# The load-bearing case is hop_limit=0: assert the library really does drop the key, so this
+# eval fails loudly if a future library version changes that instead of silently passing.
+check("library omits hop_limit when it is 0", "hopLimit" in as_dict(3, 0), False)
+check("library keeps hop_limit when nonzero", "hopLimit" in as_dict(3, 1), True)
+
+check("direct (3/3) -> 0 hops",              bridge.hops_taken(as_dict(3, 3))[0], 0)
+check("FULL budget (3/0) -> 3 hops",         bridge.hops_taken(as_dict(3, 0))[0], 3)
+check("FULL budget (7/0) -> 7 hops",         bridge.hops_taken(as_dict(7, 0))[0], 7)
+check("partial (3/1) -> 2 hops",             bridge.hops_taken(as_dict(3, 1))[0], 2)
+check("no routing info (0/0) -> None",       bridge.hops_taken(as_dict(0, 0))[0], None)
+check("no hop fields at all -> None",        bridge.hops_taken({})[0], None)
+# Never invent a 0: "direct — heard straight from the sender" must not be printed on a guess.
+check("hop_limit > hop_start is nonsense, not 0", bridge.hops_taken({"hopStart": 3, "hopLimit": 9})[0], None)
+check("non-int hop_start -> None",           bridge.hops_taken({"hopStart": "3", "hopLimit": 0})[0], None)
+check("recorded hop_limit is the resolved 0", bridge.hops_taken(as_dict(3, 0))[2], 0)
+
+# --- node_id -----------------------------------------------------------------------------
+check("unresolved sender falls back to the packet's nodenum",
+      bridge.node_id(0xBA0CC0C0, None), "!ba0cc0c0")
+check("resolved id passes through untouched",
+      bridge.node_id(0xAAAAAAAA, "!aaaaaaaa"), "!aaaaaaaa")
+check("broadcast nodenum never becomes !ffffffff",
+      bridge.node_id(BROADCAST, None), "^all")
+check("zero nodenum -> None", bridge.node_id(0, None), None)
+check("missing nodenum -> None", bridge.node_id(None, None), None)
+check("fallback id is lowercase 8-hex, same shape the library emits",
+      bridge.node_id(0x000000FF, None), "!000000ff")
+
+# --- integration: the two bugs together, through the real on_receive ----------------------
+# A first-contact node whose message also used its whole hop budget — the exact packet shape
+# that lost BOTH fields before this fix.
+import json
+import tempfile
+
+_tmp = tempfile.mkdtemp(prefix="cal-mesh-eval-")
+bridge.INBOX = os.path.join(_tmp, "inbox.jsonl")
+bridge.SNR_HIST = os.path.join(_tmp, "snr.jsonl")
+
+p = as_dict(3, 0)
+p["from"] = 0xBA0CC0C0
+p["to"] = BROADCAST
+p["toId"] = "^all"          # library resolves broadcast fine; the SENDER is what it loses
+p["decoded"] = {"portnum": "TEXT_MESSAGE_APP", "text": "Hi"}
+p["rxSnr"], p["rxRssi"] = 6.0, -56
+bridge.on_receive(packet=p)
+
+def line_count(path):
+    """Missing file counts as zero, not a crash — a regression that stops writing a file must
+    report as a failed CHECK, not as a traceback that hides every check after it."""
+    try:
+        return len([l for l in open(path).read().splitlines() if l.strip()])
+    except FileNotFoundError:
+        return 0
+
+
+rec = json.loads(open(bridge.INBOX).read().strip())
+check("on_receive records the first-contact sender", rec["from"], "!ba0cc0c0")
+check("on_receive records the full hop count",       rec["hops"], 3)
+check("on_receive records hop_start",                rec["hop_start"], 3)
+check("SNR sample kept for an unresolved sender",    line_count(bridge.SNR_HIST), 1)
+
+# --- report ------------------------------------------------------------------------------
+# --- reaction / reply capture (2026-08-19) -----------------------------------------------
+# A wave arrived on the public channel and nothing recorded whether it was a MESSAGE or a
+# TAPBACK on one of Cal's own broadcasts. The greeting ack answers waves, so the difference
+# decides whether Cal is greeting a neighbour or replying to a reaction to himself.
+# Same omission trap as hop_limit above: emoji and reply_id are proto3 uint32, so a ZERO is
+# dropped by MessageToDict and absent must read as "not a reaction".
+def data_dict(**kw):
+    """The `decoded` sub-dict, built the way the library actually builds one."""
+    d = mesh_pb2.Data()
+    for k, v in kw.items():
+        setattr(d, k, v)
+    return MessageToDict(d)
+
+
+check("library omits emoji when it is 0", "emoji" in data_dict(emoji=0), False)
+check("library keeps emoji when nonzero", "emoji" in data_dict(emoji=1), True)
+check("library omits reply_id when it is 0", "replyId" in data_dict(reply_id=0), False)
+
+# _u32 is what turns that dict back into a decision. Absent and zero must agree.
+check("absent emoji is not a reaction", bridge._u32(data_dict().get("emoji")), 0)
+check("emoji=0 is not a reaction", bridge._u32(data_dict(emoji=0).get("emoji")), 0)
+check("emoji=1 is a reaction", bridge._u32(data_dict(emoji=1).get("emoji")), 1)
+# The firmware writes 1, but keying on ==1 would let any other value read as an ordinary
+# message. Any non-zero is a tapback.
+check("emoji=2 is still a reaction", bool(bridge._u32(data_dict(emoji=2).get("emoji"))), True)
+# MessageToDict emits large ints as STRINGS. A reply_id is a message id, which is 32-bit and
+# routinely above 2^31 -- if the string form were dropped, every reply to a high-id message
+# would record as a reply to nothing.
+_big = data_dict(reply_id=3052927276)
+check("a high reply_id survives whatever type it arrives as",
+      bridge._u32(_big.get("replyId")), 3052927276)
+check("reply_id round-trips a real captured id", bridge._u32(data_dict(reply_id=1543772128)
+                                                             .get("replyId")), 1543772128)
+# Junk must fail closed rather than fabricate a reaction.
+for bad in (True, "x", -2, None, [], {}):
+    check(f"junk emoji {bad!r} is not a reaction", bridge._u32(bad), 0)
+
+passed = sum(1 for _, ok, _, _ in CHECKS if ok)
+for name, ok, got, want in CHECKS:
+    if not ok:
+        print(f"FAIL  {name}\n        got={got!r} want={want!r}")
+print(f"\n{passed}/{len(CHECKS)} checks passed")
+sys.exit(0 if passed == len(CHECKS) else 1)

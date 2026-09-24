@@ -31,7 +31,8 @@ pass=0; fail=0; skip=0
 failed=""; skipped=""
 out=$(mktemp)
 
-for f in eval_*.py; do
+# The suites live in evals/ and run from the repo root (the cd above), as they did at the top.
+for f in evals/eval_*.py; do
   if "$PY" "./$f" $SELF >"$out" 2>&1; then
     # Anchored: a suite that PRINTS a skip line, not one that merely says the word. eval_guards
     # asserts "every skip is announced with the word SKIP" and was itself reported as skipped.
