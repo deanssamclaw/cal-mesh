@@ -892,6 +892,10 @@ def drain_traceroute(iface, cfg):
         return
     if str(cfg.get("TRACEROUTE_ENABLED", "false")).lower() != "true":
         return
+    # MASTER KILL SWITCH: RESPONDER_ENABLED=false means no autonomous transmission, probes
+    # included. Queued probes wait; nothing is dropped. Manual `mesh send` is not affected.
+    if str(cfg.get("RESPONDER_ENABLED", "false")).lower() != "true":
+        return
     st = read_json_file(TR_STATE, {})
     if not isinstance(st, dict):
         st = {}

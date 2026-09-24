@@ -267,6 +267,9 @@ def pending(queue_dir):
 def plan(nodes, state, routes, ours, cfg, now=None, queue_dir=None):
     """(target|None, reason, ranked, skipped). Never transmits, never writes."""
     now = time.time() if now is None else now
+    # The master kill switch covers probes too: RESPONDER_ENABLED=false transmits nothing.
+    if str(cfg.get("RESPONDER_ENABLED", "false")).lower() != "true":
+        return None, "responder_disabled", [], []
     if str(cfg.get("TRACER_ENABLED", "false")).lower() != "true":
         return None, "tracer_disabled", [], []
     queued_n, queued_ids = pending(queue_dir) if queue_dir else (0, set())

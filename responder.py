@@ -1165,6 +1165,11 @@ def plan_greeting(cfg, st, rec, ours, ts=None):
         gates.append({"gate": name, "pass": bool(ok)})
         return ok
 
+    # MASTER KILL SWITCH FIRST (2026-09-24, Dean's call): RESPONDER_ENABLED=false means Cal
+    # transmits nothing on his own -- no reply, no signal report, no greeting, no probe. This
+    # path used to answer with the switch off, because it has its own flag and ran before it.
+    if not mark("responder_enabled", str(cfg.get("RESPONDER_ENABLED", "false")).lower() == "true"):
+        return False, "disabled", None, ch, None, gates
     if not mark("greeting_enabled", cfg.get("GREETING_ENABLED", "false").lower() == "true"):
         return False, "greeting_disabled", None, ch, None, gates
     inbound = rec.get("text", "")
@@ -1309,6 +1314,11 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False):
         gates.append({"gate": name, "pass": bool(ok)})
         return ok
 
+    # MASTER KILL SWITCH FIRST (2026-09-24, Dean's call): RESPONDER_ENABLED=false means Cal
+    # transmits nothing on his own -- no reply, no signal report, no greeting, no probe. This
+    # path used to answer with the switch off, because it has its own flag and ran before it.
+    if not mark("responder_enabled", str(cfg.get("RESPONDER_ENABLED", "false")).lower() == "true"):
+        return False, "disabled", None, ch, None, gates, None
     if not mark("sigreport_enabled", cfg.get("SIGREPORT_ENABLED", "false").lower() == "true"):
         return False, "sigreport_disabled", None, ch, None, gates, None
     if not mark("not_self", sender != ours):
@@ -1572,7 +1582,9 @@ def main():
                         # greeting ack zero times. Re-run that replay before widening it.
                         (s_ok, s_reason, s_dest, s_ch, s_text,
                          s_gates, s_meta) = plan_sigreport(cfg, st, rec, ours)
-                        if s_gates and s_gates[0]["pass"]:
+                        # Recorded only when the doer is ON (its own flag passed): the kill
+                        # switch now runs first, so "first gate passed" no longer means that.
+                        if any(g["gate"] == "sigreport_enabled" and g["pass"] for g in (s_gates or [])):
                             d["sigreport_gates"] = s_gates
                         if s_ok:
                             enqueue(s_text, s_dest, s_ch)

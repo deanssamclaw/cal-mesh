@@ -41,7 +41,7 @@ def cfg(**over):
     c.update({"S1_ROUTE_ENABLED": "true", "S1_KEY_FILE": _kf.name, "S1_MIN_CONF": "0.8",
               "WEATHER_ENABLED": "true", "WEATHER_POINT": "39.0,-95.0", "WEATHER_MIN_KW": "1",
               "WEATHER_UA": "cal-mesh-eval", "CAPS_ENABLED": "true", "CALC_ENABLED": "true",
-              "SIGREPORT_ENABLED": "true", "SUNMOON_ENABLED": "false"})
+              "SIGREPORT_ENABLED": "true", "SUNMOON_ENABLED": "false", "RESPONDER_ENABLED": "true"})
     c.update(over)
     return c
 

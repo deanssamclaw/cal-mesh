@@ -17,8 +17,8 @@ PORT=/dev/cu.usbmodemXXXXXXXXXXXX   # macOS. Linux: /dev/ttyACM0 or /dev/ttyUSB0
 HOST=Meshtastic.local
 
 # --- RESPONDER (Level 2: autonomous replies) ---
-# Kill switch for the ladder and model replies. NOTE: the signal report and the greeting ack
-# are gated by their OWN flags below, not by this one -- set those false too to go fully quiet.
+# MASTER KILL SWITCH. false = Cal transmits nothing on his own: no reply, no signal report, no
+# greeting, no traceroute probe. Each of those also has its own flag. Manual `mesh send` works.
 RESPONDER_ENABLED=false
 RESPONDER_MODEL=claude-haiku-4-5-20251001
 # Node IDs allowed to trigger a reply. ADVISORY ONLY — Meshtastic node IDs are
@@ -177,7 +177,7 @@ S1_FALLBACK=none
 
 # --- Keys the code reads that had no entry here (defaults shown; all OFF unless you arm them) ---
 # SIGNAL REPORT: answers a radio check / range test / contact report with the radio's own
-# numbers. Runs FIRST, for any sender. Its own flag: RESPONDER_ENABLED does not gate it.
+# numbers. Runs FIRST, for any sender. Needs RESPONDER_ENABLED=true as well as its own flag.
 SIGREPORT_ENABLED=false
 SIGREPORT_SENDER_COOLDOWN_S=30
 SIGREPORT_MAX_PER_DAY=20
