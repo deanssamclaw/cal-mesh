@@ -22,18 +22,27 @@ decision model returns a choice and a probability. It writes nothing and compute
 is confident and two checks agree, the message goes to that capability, which still applies every
 refusal it has. Otherwise nothing changes.
 
+```mermaid
+flowchart LR
+    msg(["Addressed to Cal,<br/>no word rule claimed it"]) --> local{{"<b>Local scorer</b><br/>frozen open model<br/><i>on your own box</i>"}}
+    local -- "answered" --> gate{"<b>All three?</b><br/>confidence ≥ 0.8<br/>guards agree<br/>words pass the walls"}
+    local -- "hot · busy · down<br/><i>public messages only</i>" --> jev{{"<b>Jev</b><br/>TypeSafe cloud<br/><i>backup</i>"}}
+    jev -- "answered" --> gate
+    gate -- "yes" --> cap["<b>Capability answers</b><br/>weather · caps · sigreport<br/><i>with its own checks</i>"]
+    gate -- "no" --> llm["<b>Language model</b><br/><i>exactly as before</i>"]
+    jev -. "no answer" .-> llm
+    local -. "no answer, private<br/>or backup off" .-> llm
+
+    classDef start fill:#e8f1fb,stroke:#3b82c4,color:#123;
+    classDef code fill:#eef7ee,stroke:#3f9142,color:#123;
+    classDef model fill:#fdf3e4,stroke:#c98a1b,color:#123;
+    class msg start;
+    class gate,cap code;
+    class local,jev,llm model;
 ```
- radio ─▶ bridge ─▶ inbox ─▶ responder: word rules (the ladder)
-                                  │ a rule claimed it ─▶ that capability answers (router never asked)
-                                  │ nothing claimed it, addressed to Cal
-                                  ▼
-                       s1route: "which capability should answer this?"
-                         ├─ local scorer on your own box (frozen open model, CPU)  ← asked first
-                         └─ Jev, TypeSafe's cloud service                          ← backup, public only
-                                  │ confident (≥0.8), guards agree, text passes the walls
-                                  ├─▶ weather / caps / sigreport answers, with its own checks
-                                  └─ otherwise ─▶ the language model, exactly as before
-```
+
+Amber is a model, green is code. A message a word rule claims never reaches this diagram: the
+capability answers it directly, and the router is never asked.
 
 **The rules that make this safe.** Each one exists because breaking it broke something.
 
