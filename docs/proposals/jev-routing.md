@@ -1,10 +1,15 @@
-# Proposal — a second opinion on routing (jevroute)
+# Proposal — a second opinion on routing (s1route)
+
+> **Renamed 2026-09-23.** The module was `jevroute.py` with `JEV_*` config keys, after the
+> cloud service it was first built against. What actually runs is a frozen Qwen3.5-4B scored by
+> SemIf on our own hardware, so it is now `s1route.py` with `S1_*` keys — "System One" being the
+> model class, not a vendor. The cloud backend still exists as `S1_BACKEND=typesafe` and is off.
 
 **What happens to a message no word rule claims, before it reaches the model**
 
 *Cal · v2 2026-09-21 (v1 same day, corrected after adversarial review — §6) · re:
-`github.com/deanssamclaw/cal-mesh` · built, **default OFF**, not armed · code: `jevroute.py`,
-`responder.py:plan_jev_rescue` · evals: `eval_jevroute.py`, `eval_render.py`, `eval_anatomy.py`*
+`github.com/deanssamclaw/cal-mesh` · built, **default OFF**, not armed · code: `s1route.py`,
+`responder.py:plan_s1_rescue` · evals: `eval_s1route.py`, `eval_render.py`, `eval_anatomy.py`*
 
 ---
 
@@ -24,14 +29,14 @@ answer, with every refusal it already had.
 
 Every unique non-reaction message in the inbox on 2026-09-21 — **319** — was run through the live
 ladder (`plan_response`, `sigreport.match`, `is_bare_greeting`; no network, no model) and, for
-this exact configuration, through `jevroute.classify` **three times each** (957 calls, 0 errors).
+this exact configuration, through `s1route.classify` **three times each** (957 calls, 0 errors).
 Disagreements were adjudicated against each doer's **documented scope**; every ambiguous case was
 counted **against** Jev; agreements were not audited.
 
-| Population | Ladder alone | Ladder + jevroute (all 3 runs) |
+| Population | Ladder alone | Ladder + s1route (all 3 runs) |
 |---|---|---|
 | **Addressed, public channel — the default** (n=25) | 23 | **25 — +2, 0 broken** |
-| Addressed incl. DMs + Cal's channel (`JEV_PRIVATE_OK=true`, n=56) | 47 | 50 — +3, 0 broken |
+| Addressed incl. DMs + Cal's channel (`S1_PRIVATE_OK=true`, n=56) | 47 | 50 — +3, 0 broken |
 | All 319, as if every message were eligible | 245 | 254 — +9, 0 broken |
 
 *Addressed* = a DM, the trigger word, or Cal's own channel — the responder's `addressed` gate.
@@ -59,13 +64,13 @@ observed one.
 
 ## 3. How it is built
 
-`plan_jev_rescue()` runs in the main loop right after `plan_response()`, for messages that already
+`plan_s1_rescue()` runs in the main loop right after `plan_response()`, for messages that already
 passed the addressed/allowed/rate gates.
 
-1. **Asked only on the fallthrough** (`jevroute.eligible`): no doer claimed it and it is about to
+1. **Asked only on the fallthrough** (`s1route.eligible`): no doer claimed it and it is about to
    be generated. A message the ladder answers never leaves the machine.
 2. **Private traffic stays home by default.** DMs and Cal's own channel are excluded unless
-   `JEV_PRIVATE_OK=true`; unlocked DMs and sanitizer-flagged messages are excluded always. Only the
+   `S1_PRIVATE_OK=true`; unlocked DMs and sanitizer-flagged messages are excluded always. Only the
    sanitized text is sent.
 3. **Rescues only into a doer that can still refuse** (`RESCUABLE` = weather, caps, sigreport).
    Weather re-runs its own branch (forecast still refused, "Can't reach weather" still the
@@ -78,12 +83,12 @@ passed the addressed/allowed/rate gates.
    ≤ 0.23), **and** `sigreport.names_other_node` must find no node id, short name or callsign in
    the raw text, as a literal backstop.
 5. **Fail open to today.** Timeout, HTTP error, malformed or wrongly-typed body, unknown route,
-   missing key: the message takes exactly the path it takes now. `JEV_TIMEOUT_S` bounds the
-   **whole** request on the wall clock; a network failure backs off for `JEV_BACKOFF_S`.
+   missing key: the message takes exactly the path it takes now. `S1_TIMEOUT_S` bounds the
+   **whole** request on the wall clock; a network failure backs off for `S1_BACKOFF_S`.
 6. **Pinned model.** `jev-1.13.0`, not `jev-latest` — the alias moves on release.
-7. **The key never travels.** Read per call from `JEV_KEY_FILE`; in no trace, log or return.
+7. **The key never travels.** Read per call from `S1_KEY_FILE`; in no trace, log or return.
 
-The decision is written to the trace as `jev_route` (route, confidence, both guards, model id,
+The decision is written to the trace as `s1_route` (route, confidence, both guards, model id,
 acted or why not, and **which doer actually answered** — the weather branch can hand a message to
 calc) and drawn on the page, the anatomy view and the console. None of them may say "no model ran"
 of a reply a decision model routed; the evals forbid it.
@@ -92,9 +97,9 @@ of a reply a decision model routed; the evals forbid it.
 
 - **Privacy:** the sanitized text of an addressed, public, non-flagged message that would
   otherwise go to the model is also sent to TypeSafe (`api.typesafe.ai`). With
-  `JEV_PRIVATE_OK=true`, DMs and Cal's channel too. TypeSafe states it does not train on customer
+  `S1_PRIVATE_OK=true`, DMs and Cal's channel too. TypeSafe states it does not train on customer
   data; zero data retention is an enterprise-plan feature, not the default.
-- **A network dependency** on the fallthrough: ≤ `JEV_TIMEOUT_S` on a path whose next step is a
+- **A network dependency** on the fallthrough: ≤ `S1_TIMEOUT_S` on a path whose next step is a
   model call measured in seconds; a failure costs one timeout per backoff window.
 - **Drafts diverge:** `drafts.py` simulations do not consult Jev, so once armed a simulated reply
   can differ from the live one on exactly these messages.
@@ -102,10 +107,10 @@ of a reply a decision model routed; the evals forbid it.
 ## 5. Before arming (the repo's gate)
 
 - [x] default OFF
-- [x] offline eval — `eval_jevroute` 103 checks + 11 in-process mutants; **24 corpus mutants, all caught** (§6)
+- [x] offline eval — `eval_s1route` 103 checks + 11 in-process mutants; **24 corpus mutants, all caught** (§6)
 - [x] independent adversarial review that executes — done 2026-09-21, findings in §6, all fixed
-- [ ] operator's call on the privacy cost (§4), and separately on `JEV_PRIVATE_OK`
-- [ ] re-measure on the inbox at arm time; move `JEV_MIN_CONF` only on a re-measurement
+- [ ] operator's call on the privacy cost (§4), and separately on `S1_PRIVATE_OK`
+- [ ] re-measure on the inbox at arm time; move `S1_MIN_CONF` only on a re-measurement
 
 ## 6. The review, and what it changed
 
@@ -125,7 +130,7 @@ in v1. All are fixed; the ones that changed the design:
 - **Malformed answers could crash the loop and drop the message.** → all validation inside the
   failure path; booleans, strings and non-finite numbers rejected.
 - **The privacy claim was broader than the code** (locked DMs and Cal's channel were sent). →
-  `JEV_PRIVATE_OK`, default off.
+  `S1_PRIVATE_OK`, default off.
 - **v1's numbers described the wider hybrid, not the build.** → §1 re-measured on the build.
 - **Evals missed most of the new code** (11 of 17 mutants survived). → the main-loop send was
   extracted and driven; 24 mutants — the reviewer's 17 ported plus 7 for the new guards — were
@@ -139,6 +144,6 @@ this reason); and the regex weather path shares the past-tense gap.
 ## 7. Open, and the operator's
 
 1. **Arming**, and the privacy cost in §4.
-2. **`JEV_PRIVATE_OK`** — one more fix in the corpus (a DM link ask) for sending DMs and Cal's
+2. **`S1_PRIVATE_OK`** — one more fix in the corpus (a DM link ask) for sending DMs and Cal's
    channel to a third party.
 3. **The broadcast widening (§2)** — large measured win, large airtime and privacy cost. Not built.

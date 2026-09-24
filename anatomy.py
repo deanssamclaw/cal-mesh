@@ -155,11 +155,11 @@ def spec_for(rec):
     return {
         "entities": ents, "activities": acts,
         "model_ran": bool(model),
-        # jevroute: the model id of the DECISION model that chose this capability, or None. It
+        # s1route: the model id of the DECISION model that chose this capability, or None. It
         # saw the sanitized message and returned a choice; it wrote nothing. Kept apart from
         # model_ran, which means "a model wrote the reply" everywhere on this page.
-        "router_model": ((rec.get("jev_route") or {}).get("model") or "a decision model")
-                        if isinstance(rec.get("jev_route"), dict) and rec["jev_route"].get("acted")
+        "router_model": ((rec.get("s1_route") or {}).get("model") or "a decision model")
+                        if isinstance(rec.get("s1_route"), dict) and rec["s1_route"].get("acted")
                         else None,
         "crossed": gen[0]["used"] if gen else [],
         "capability": cap,

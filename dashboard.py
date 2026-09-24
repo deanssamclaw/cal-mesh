@@ -361,9 +361,9 @@ def correlate(inbox, sent, decisions):
                          # authenticated-DM path: so the trace can say the model also got the
                          # injected context + remembered thread, not just the message.
                          "dm_unlock", "dm_memory_stored",
-                         # jevroute: route, confidence, model id, whether acted on and why not.
-                         # No message text and no key are ever in it; eval_jevroute asserts that.
-                         "jev_route")
+                         # s1route: route, confidence, model id, whether acted on and why not.
+                         # No message text and no key are ever in it; eval_s1route asserts that.
+                         "s1_route")
                         if dec.get(k) is not None}
 
     replied = [d for d in decisions if d.get("matched") and d.get("reply")]
@@ -7416,11 +7416,11 @@ function linkSvg(x){
 // thing about this system and it was previously one clause inside a grey row. Drawn instead:
 // two inputs compete to become the reply, and one of them is visibly cut.
 function flowHtml(x,t){
-  // A reply jevroute routed: a decision model DID run (it chose the capability), though none wrote
+  // A reply s1route routed: a decision model DID run (it chose the capability), though none wrote
   // the reply. Every "no model ran" below is conditioned on this -- the review found the flow
   // panels still saying it for Jev-routed replies after the spine had been fixed.
-  const jev=!!(t&&t.jev_route&&t.jev_route.acted);
-  const jevConf=(jev&&t.jev_route.conf!=null)?', confidence '+Number(t.jev_route.conf).toFixed(2):'';
+  const jev=!!(t&&t.s1_route&&t.s1_route.acted);
+  const jevConf=(jev&&t.s1_route.conf!=null)?', confidence '+Number(t.s1_route.conf).toFixed(2):'';
   const NOMODEL=jev
     ? '<b>Nothing was looked up, and no model wrote this reply</b> &mdash; a decision model only '
       +'chose which capability would answer. '
@@ -7624,12 +7624,12 @@ function flowHtml(x,t){
           ? 'two weather words together'
           : 'one weather word plus a question mark';
   }
-  const jw=t.jev_route&&t.jev_route.acted==='weather';
+  const jw=t.s1_route&&t.s1_route.acted==='weather';
   const bx=`<div class="fb bx"><div class="fk">2 · what the software recognised</div>`
     +`<div class="fv">a weather question${t.forecast_asked?' about the <b>future</b>':''}</div>`
     +(jw
       ? `<div class="fn">no word rule matched &mdash; a decision model classified it as a `
-        +`weather question${t.jev_route.conf!=null?', confidence '+Number(t.jev_route.conf).toFixed(2):''}. `
+        +`weather question${t.s1_route.conf!=null?', confidence '+Number(t.s1_route.conf).toFixed(2):''}. `
         +`It chose the capability only; it <b>did not write or look up anything</b></div></div>`
       : `<div class="fn">${chips}${chips?'<br>':''}${why} — plain word matching, `
         +`<b>no model involved</b></div></div>`);
@@ -7761,10 +7761,10 @@ function spineHtml(x,t){
     if(q.flagged) b.push('injection-shaped tokens flagged');
     s+=stage('pass','sanitized',`${q.in_chars}&rarr;${q.out_chars} characters`,
       b.length?`<span class="hint">${esc(b.join(' · '))}</span>`:'<span class="hint">nothing removed</span>');}
-  // jevroute: a second opinion asked ONLY when no word rule claimed the message. Drawn whenever it
+  // s1route: a second opinion asked ONLY when no word rule claimed the message. Drawn whenever it
   // was asked, acted on or not -- a decision that was consulted and overruled is still part of
   // how the reply came to exist, and hiding it would make the word rules look like they decided.
-  const jr=t.jev_route||null;
+  const jr=t.s1_route||null;
   if(jr&&jr.asked){
     const cf=jr.conf!=null?` · confidence ${Number(jr.conf).toFixed(2)}`:'';
     // WHERE it ran is part of what happened: Jev is a service off this machine, the local scorer

@@ -81,7 +81,7 @@ DEC = w(D, "d.jsonl", "\n".join([
     json.dumps({"gen_ms": 0, "model": None}),          # answered from code
     json.dumps({"gen_ms": 0, "model": None}),
     json.dumps({"gen_ms": None, "model": None}),        # no measurement at all
-    json.dumps({"gen_ms": 0, "model": None, "jev_route": {"acted": "caps"}}),   # routed by Jev
+    json.dumps({"gen_ms": 0, "model": None, "s1_route": {"acted": "caps"}}),   # routed by Jev
 ]))
 L = console.build_latency(DEC)
 ck("a Jev-routed fixed reply is counted as routed", L["fixed"]["routed"] == 1, str(L["fixed"]))

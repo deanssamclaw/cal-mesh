@@ -18,7 +18,7 @@ adjudicated against each doer's documented scope, ambiguous cases counted agains
 exact configuration, three calls per message):
     all 319, as if every message were eligible      ladder 245 -> 254   (+9, 0 broken)
     addressed, public channel  (the default)        ladder  23 ->  25   (+2, 0 broken, n=25)
-    + DMs and Cal's channel    (JEV_PRIVATE_OK)     ladder  47 ->  50   (+3, 0 broken, n=56)
+    + DMs and Cal's channel    (S1_PRIVATE_OK)     ladder  47 ->  50   (+3, 0 broken, n=56)
 No message flipped between act and no-act across the three calls. Every fix is a link/signal
 ask ("Cal, hows the link holding up?") the model used to answer with no number behind it.
 Small on purpose: an earlier hybrid that also routed greetings and un-addressed chatter scored
@@ -30,7 +30,7 @@ THE RULES:
    that it is about to go to the model. A message the ladder answers never leaves this machine,
    so a regex that works is never second-guessed and never overruled.
 2. PRIVATE TRAFFIC STAYS HOME BY DEFAULT. Every DM and everything on Cal's own channel is
-   excluded unless JEV_PRIVATE_OK=true; an unlocked DM is excluded even then, and so is any
+   excluded unless S1_PRIVATE_OK=true; an unlocked DM is excluded even then, and so is any
    message the sanitizer flagged (Jev's own docs say adversarial text can move it).
 3. RESCUES ONLY INTO A DOER THAT CAN STILL REFUSE. `RESCUABLE` is weather, caps and sigreport.
    Each keeps its own fail-safe: weather says "Can't reach weather" rather than invent, a
@@ -43,11 +43,11 @@ THE RULES:
    answering more greetings is a policy change, not a routing fix.
 4. FAIL OPEN TO TODAY. Any error, timeout, 4xx/5xx, malformed body or unknown route returns a
    result with `route` None, and the caller does exactly what it did before this module existed.
-   JEV_TIMEOUT_S is a WALL-CLOCK bound on the whole request, and a network failure backs off for
-   JEV_BACKOFF_S so an outage costs one timeout, not one per message.
+   S1_TIMEOUT_S is a WALL-CLOCK bound on the whole request, and a network failure backs off for
+   S1_BACKOFF_S so an outage costs one timeout, not one per message.
 5. THE MODEL IS PINNED. `jev-latest` moves on every release and the threshold was measured on
    jev-1.13.0. Moving is a deliberate change with a re-run of the measurement, not an alias flip.
-6. THE KEY NEVER TRAVELS. It is read from JEV_KEY_FILE at call time and appears in no return
+6. THE KEY NEVER TRAVELS. It is read from S1_KEY_FILE at call time and appears in no return
    value, log line or trace. Only the route, its confidence and the model id are recorded.
 """
 import json, math, os, threading, time, urllib.request
@@ -120,28 +120,28 @@ GUARDS = {
 OTHER_STATION_MAX = 0.5     # sigreport is refused at or above this; the regex backs it up
 
 DEFAULTS = {
-    "JEV_ROUTE_ENABLED": "false",
-    "JEV_MIN_CONF": "0.8",          # measured: 0 breaks from 0.7 up; start above it
-    "JEV_TIMEOUT_S": "2",
-    "JEV_KEY_FILE": "~/.credentials/typesafe",
+    "S1_ROUTE_ENABLED": "false",
+    "S1_MIN_CONF": "0.8",          # measured: 0 breaks from 0.7 up; start above it
+    "S1_TIMEOUT_S": "2",
+    "S1_KEY_FILE": "~/.credentials/typesafe",
     # DMs and Cal's own (PSK) channel are PRIVATE traffic. Off by default: arming the router does
     # not by itself send private messages to a third party; this is a second, separate decision.
-    "JEV_PRIVATE_OK": "false",
+    "S1_PRIVATE_OK": "false",
     # After a failed call, skip Jev for this long, so an outage costs one timeout, not one per
-    # message. The overall deadline is JEV_TIMEOUT_S, enforced on the whole request.
-    "JEV_BACKOFF_S": "300",
+    # message. The overall deadline is S1_TIMEOUT_S, enforced on the whole request.
+    "S1_BACKOFF_S": "300",
     # typesafe | local. The flag above still decides whether ANY of this runs.
-    "JEV_BACKEND": "typesafe",
+    "S1_BACKEND": "typesafe",
     # Set this to the scorer's TAILNET address. A MagicDNS name resolves to the PUBLIC relay
     # address on any host that has Funnel enabled -- `jlab` resolves to a 199.x, not a 100.x --
     # so a hostname here can silently point the router off the tailnet. Loopback by default so an
     # unset config reaches nothing rather than something wrong.
-    "JEV_LOCAL_URL": "http://127.0.0.1:8799/v1/systemone",
+    "S1_LOCAL_URL": "http://127.0.0.1:8799/v1/systemone",
     # The local scorer is a CPU doing three forward passes; measured ~13 s for a route plus both
     # guards. It sits on the path that was about to call the language model anyway.
-    "JEV_LOCAL_TIMEOUT_S": "30",
+    "S1_LOCAL_TIMEOUT_S": "30",
     # A local scorer that answers "too hot" is not broken, so it gets its own shorter window.
-    "JEV_BUSY_BACKOFF_S": "120",
+    "S1_BUSY_BACKOFF_S": "120",
 }
 _state = {"backoff_until": 0.0}
 
@@ -151,11 +151,11 @@ def _cfg(cfg, key):
 
 
 def enabled(cfg):
-    return str(_cfg(cfg, "JEV_ROUTE_ENABLED")).lower() == "true"
+    return str(_cfg(cfg, "S1_ROUTE_ENABLED")).lower() == "true"
 
 
 def backend(cfg):
-    b = str(_cfg(cfg, "JEV_BACKEND")).lower()
+    b = str(_cfg(cfg, "S1_BACKEND")).lower()
     return b if b in ("typesafe", "local") else "typesafe"
 
 
@@ -170,7 +170,7 @@ def eligible(cfg, plan, private=False, now=None):
         return False, "private_dm"
     if plan.get("flagged"):
         return False, "injection_flagged"
-    if private and str(_cfg(cfg, "JEV_PRIVATE_OK")).lower() != "true":
+    if private and str(_cfg(cfg, "S1_PRIVATE_OK")).lower() != "true":
         return False, "private_traffic"
     if not (plan.get("clean") or "").strip():
         return False, "empty"
@@ -238,7 +238,7 @@ def classify(cfg, text, post=None, now=None):
     key = ""
     if not local:
         try:
-            with open(os.path.expanduser(_cfg(cfg, "JEV_KEY_FILE")), encoding="utf-8") as f:
+            with open(os.path.expanduser(_cfg(cfg, "S1_KEY_FILE")), encoding="utf-8") as f:
                 key = f.read().strip()
         except (OSError, UnicodeDecodeError, ValueError):
             key = ""
@@ -257,14 +257,14 @@ def classify(cfg, text, post=None, now=None):
         body = {"model": MODEL, "state": {"mesh_message": text}, "questions": questions}
         headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
     try:
-        timeout = float(_cfg(cfg, "JEV_LOCAL_TIMEOUT_S" if local else "JEV_TIMEOUT_S"))
+        timeout = float(_cfg(cfg, "S1_LOCAL_TIMEOUT_S" if local else "S1_TIMEOUT_S"))
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError
     except ValueError:
-        timeout = float(DEFAULTS["JEV_TIMEOUT_S"])
+        timeout = float(DEFAULTS["S1_TIMEOUT_S"])
     t0 = time.time()
     try:
-        url = _cfg(cfg, "JEV_LOCAL_URL") if local else ENDPOINT
+        url = _cfg(cfg, "S1_LOCAL_URL") if local else ENDPOINT
         r = _with_deadline(lambda: (post or _http_post)(url, body, headers, timeout), timeout)
         a = r["answers"]
         route = a["route"]["choice"]
@@ -285,7 +285,7 @@ def classify(cfg, text, post=None, now=None):
         # A 4xx says THIS REQUEST was rejected, not that the scorer is down, so it must not
         # silence the router for the outage window. Found by running: the local scorer refuses
         # input whose GGUF and reference tokenizations disagree (some emoji) with a 422, and one
-        # such message would otherwise have taken the router off the air for JEV_BACKOFF_S.
+        # such message would otherwise have taken the router off the air for S1_BACKOFF_S.
         # 429 is excluded: being rate-limited IS a reason to wait.
         # 3xx is included: a redirect from the scorer is a rejected request, not an outage,
         # and it must not silence the router either.
@@ -297,9 +297,9 @@ def classify(cfg, text, post=None, now=None):
         # it waits a shorter window than a network failure does.
         busy = local and "HTTP Error 503" in str(e)
         try:
-            back = float(_cfg(cfg, "JEV_BUSY_BACKOFF_S" if busy else "JEV_BACKOFF_S"))
+            back = float(_cfg(cfg, "S1_BUSY_BACKOFF_S" if busy else "S1_BACKOFF_S"))
         except ValueError:
-            back = float(DEFAULTS["JEV_BUSY_BACKOFF_S" if busy else "JEV_BACKOFF_S"])
+            back = float(DEFAULTS["S1_BUSY_BACKOFF_S" if busy else "S1_BACKOFF_S"])
         if busy:
             res["error"] = "busy"
         _state["backoff_until"] = (time.time() if now is None else now) + max(0.0, back)
@@ -318,11 +318,11 @@ def decide(cfg, res):
     if not res or res.get("route") not in RESCUABLE:
         return None
     try:
-        floor = float(_cfg(cfg, "JEV_MIN_CONF"))
+        floor = float(_cfg(cfg, "S1_MIN_CONF"))
         if not math.isfinite(floor):
             raise ValueError
     except ValueError:
-        floor = float(DEFAULTS["JEV_MIN_CONF"])
+        floor = float(DEFAULTS["S1_MIN_CONF"])
     if (res.get("conf") or 0.0) < floor:
         return None
     if res["route"] == "weather" and (res.get("weather_now") or 0.0) < floor:

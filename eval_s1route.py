@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""eval_jevroute.py — the second-opinion router may only ever ADD a doer's answer where the model
+"""eval_s1route.py — the second-opinion router may only ever ADD a doer's answer where the model
 would otherwise have spoken, and must change nothing anywhere else.
 
-What is graded, each against the rule in jevroute.py it enforces:
+What is graded, each against the rule in s1route.py it enforces:
   1  flag off                      -> Jev is never called, the plan is untouched
   2  a doer claimed the message    -> never called (a working regex is never second-guessed)
   3  private DM / flagged / empty  -> never called
@@ -18,12 +18,12 @@ The Jev HTTP call and the weather fetch are both stubbed: no network, no radio.
 The mutations run on EVERY invocation (same reasoning as eval_correlate): each breaks one rule
 in-process and the suite must see it. A mutant that crashes is reported as a crash, not a catch.
 
-Run:  python3 eval_jevroute.py        (exit 0 = pass; mutations included)
+Run:  python3 eval_s1route.py        (exit 0 = pass; mutations included)
 """
 import os, sys, json, tempfile, copy, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import jevroute as J
+import s1route as J
 import responder as R
 
 FAILS = []
@@ -38,7 +38,7 @@ _kf.write(KEY + "\n"); _kf.close()
 
 def cfg(**over):
     c = dict(R.DEFAULTS)
-    c.update({"JEV_ROUTE_ENABLED": "true", "JEV_KEY_FILE": _kf.name, "JEV_MIN_CONF": "0.8",
+    c.update({"S1_ROUTE_ENABLED": "true", "S1_KEY_FILE": _kf.name, "S1_MIN_CONF": "0.8",
               "WEATHER_ENABLED": "true", "WEATHER_POINT": "39.0,-95.0", "WEATHER_MIN_KW": "1",
               "WEATHER_UA": "cal-mesh-eval", "CAPS_ENABLED": "true", "CALC_ENABLED": "true",
               "SIGREPORT_ENABLED": "true", "SUNMOON_ENABLED": "false"})
@@ -96,14 +96,14 @@ REC = {"from": "!aaaaaaaa", "to": "^all", "channel": 0, "text": "", "snr": 6.5, 
 OURS = "!cccccccc"
 
 def run(text, c, post, wget=None, st=None, unlocked=False, rec=None):
-    """One message through plan_response + plan_jev_rescue, exactly as the main loop does."""
+    """One message through plan_response + plan_s1_rescue, exactly as the main loop does."""
     J._state["backoff_until"] = 0.0
     wget = wget or WGet()
     rec = dict(rec or REC, text=text)
     st = {} if st is None else st
     plan = R.plan_response(c, rec["from"], text, get=wget, unlocked=unlocked)
     before = copy.deepcopy(plan)
-    out, sig, trace = R.plan_jev_rescue(
+    out, sig, trace = R.plan_s1_rescue(
         c, st, rec, OURS, plan,
         lambda hint: R.plan_response(c, rec["from"], text, get=wget, unlocked=unlocked,
                                      route_hint=hint),
@@ -117,7 +117,7 @@ R.channel_busy = lambda cfg, ts=None: (False, 0.0, "quiet")
 def suite():
     print("\n== 1. flag off: never asked, nothing changes ==")
     p = Post("weather", 1.0)
-    b, o, s, t, _ = run("cal is it raining", cfg(JEV_ROUTE_ENABLED="false"), p)
+    b, o, s, t, _ = run("cal is it raining", cfg(S1_ROUTE_ENABLED="false"), p)
     ck("not called", p.calls == [])
     ck("plan untouched, no trace", o == b and s is None and t is None)
     ck("default config is OFF", J.enabled(dict(R.DEFAULTS)) is False)
@@ -183,7 +183,7 @@ def suite():
     ck("rescued into a measured report", s is not None and s[0] is True and t["acted"] == "sigreport",
        repr(t))
     ck("trace names Jev as the test gate",
-       any(g["gate"] == "is_a_test_jev" for g in (t or {}).get("sigreport_gates", [])))
+       any(g["gate"] == "is_a_test_routed" for g in (t or {}).get("sigreport_gates", [])))
     ck("the report carries the radio's number", s is not None and "6.5" in (s[4] or ""), repr(s and s[4]))
     p = Post("sigreport", 0.97)
     b, o, s, t, _ = run("Cal, hows the link holding up?", cfg(), p,
@@ -219,7 +219,7 @@ def suite():
     for name, p in cases:
         b, o, s, t, _ = run("cal is it raining", cfg(), p)
         ck(f"{name}: plan unchanged, no report", o == b and s is None and t["acted"] is None, repr(t))
-    c = cfg(JEV_KEY_FILE="/nonexistent/key")
+    c = cfg(S1_KEY_FILE="/nonexistent/key")
     p = Post("weather", 1.0)
     b, o, s, t, _ = run("cal is it raining", c, p)
     ck("missing key file: never calls, plan unchanged", p.calls == [] and o == b and t["error"] == "no_key")
@@ -245,7 +245,7 @@ def suite():
     ck("rescuable set is exactly weather, caps, sigreport",
        tuple(sorted(J.RESCUABLE)) == ("caps", "sigreport", "weather"))
     ck("every rescuable route is an option", all(r in J.CRITERIA for r in J.RESCUABLE))
-    ck("config key reaches load_config (DEFAULTS merge)", "JEV_ROUTE_ENABLED" in R.DEFAULTS)
+    ck("config key reaches load_config (DEFAULTS merge)", "S1_ROUTE_ENABLED" in R.DEFAULTS)
 
     print("\n== 10. guards asked in the same call (review findings 1 and 6) ==")
     body = p.calls[0]["body"]
@@ -285,21 +285,21 @@ def suite():
     else:
         ck("CAL_CHANNEL is a config key (needed for the private-channel rule)", False)
     p = Post("weather", 0.99)
-    b, o, s, t, _ = run("cal is it raining", cfg(JEV_PRIVATE_OK="true"), p, rec=dict(REC, to=OURS))
-    ck("JEV_PRIVATE_OK=true is the only way a DM is sent", len(p.calls) == 1)
-    ck("JEV_PRIVATE_OK defaults to false", R.DEFAULTS.get("JEV_PRIVATE_OK") == "false")
+    b, o, s, t, _ = run("cal is it raining", cfg(S1_PRIVATE_OK="true"), p, rec=dict(REC, to=OURS))
+    ck("S1_PRIVATE_OK=true is the only way a DM is sent", len(p.calls) == 1)
+    ck("S1_PRIVATE_OK defaults to false", R.DEFAULTS.get("S1_PRIVATE_OK") == "false")
 
     print("\n== 12. bounded, and fails open (review findings 4 and 5) ==")
     import time as _t
     p = Post("weather", 0.99, sleep=3)
-    t0 = _t.time(); r = J.classify(cfg(JEV_TIMEOUT_S="0.5"), "cal is it raining", post=p)
+    t0 = _t.time(); r = J.classify(cfg(S1_TIMEOUT_S="0.5"), "cal is it raining", post=p)
     ck("a slow server is cut off at the deadline", _t.time() - t0 < 1.5 and r["route"] is None
        and r["error"] == "TimeoutError", f"{_t.time()-t0:.2f}s {r}")
     ck("the failure starts a backoff", J._state["backoff_until"] > _t.time())
     p2 = Post("weather", 0.99)
     J._state["backoff_until"] = _t.time() + 60
     pl = R.plan_response(cfg(), REC["from"], "cal is it raining", get=WGet())
-    _, _, tr = R.plan_jev_rescue(cfg(), {}, dict(REC, text="cal is it raining"), OURS, pl,
+    _, _, tr = R.plan_s1_rescue(cfg(), {}, dict(REC, text="cal is it raining"), OURS, pl,
                                  lambda h: R.plan_response(cfg(), REC["from"], "cal is it raining",
                                                            get=WGet(), route_hint=h),
                                  classify=lambda c, x: J.classify(c, x, post=p2))
@@ -307,7 +307,7 @@ def suite():
        p2.calls == [] and (tr or {}).get("reason") == "backoff", repr(tr))
     J._state["backoff_until"] = 0.0
     p = Post("weather", 0.99)
-    J.classify(cfg(JEV_TIMEOUT_S="1.5"), "x", post=p)
+    J.classify(cfg(S1_TIMEOUT_S="1.5"), "x", post=p)
     ck("the configured timeout reaches the HTTP call", p.calls[0]["timeout"] == 1.5)
     bad = [("choice is a list", {"route": {"choice": ["weather"], "confidence": 1.0}}),
            ("choice is a dict", {"route": {"choice": {"a": 1}, "confidence": 1.0}}),
@@ -366,7 +366,7 @@ def suite():
     sent, recs, saves = [], [], []
     st = {}; d = {"ts": "t", "id": 1}
     sig = (True, "sigreport", "^all", 0, "Copy: direct, SNR 6.5", [{"gate": "x", "pass": True}], {"hops": 0})
-    R.send_jev_sigreport(st, REC, d, sig, 123, enqueue_fn=lambda *a: sent.append(a),
+    R.send_s1_sigreport(st, REC, d, sig, 123, enqueue_fn=lambda *a: sent.append(a),
                          record=lambda x: recs.append(dict(x)), save=lambda x: saves.append(1))
     ck("queued exactly once", sent == [("Copy: direct, SNR 6.5", "^all", 0)])
     ck("budget spent", sum((st.get("sig_day") or {}).values()) == 1 and REC["from"] in st.get("sig_per_sender", {}))
@@ -376,13 +376,13 @@ def suite():
     src = open(R.__file__).read()
     import re as _re
     ck("the main loop continues right after the send (no model reply for the same message)",
-       _re.search(r"send_jev_sigreport\(st, rec, d, j_sig, new_off\)\n\s+continue\n", src) is not None)
+       _re.search(r"send_s1_sigreport\(st, rec, d, j_sig, new_off\)\n\s+continue\n", src) is not None)
 
     print("\n== 17. the local backend: same decision, our own hardware ==")
-    lc = cfg(JEV_BACKEND="local", JEV_KEY_FILE="/nonexistent/key", JEV_LOCAL_URL="http://box:8799/v1/systemone",
-             JEV_LOCAL_TIMEOUT_S="30")
+    lc = cfg(S1_BACKEND="local", S1_KEY_FILE="/nonexistent/key", S1_LOCAL_URL="http://box:8799/v1/systemone",
+             S1_LOCAL_TIMEOUT_S="30")
     ck("default backend is the cloud one", J.backend(dict(R.DEFAULTS)) == "typesafe")
-    ck("an unknown backend falls back to the cloud one", J.backend({"JEV_BACKEND": "wat"}) == "typesafe")
+    ck("an unknown backend falls back to the cloud one", J.backend({"S1_BACKEND": "wat"}) == "typesafe")
     p = Post("weather", 0.99)
     b, o, s_, t, _ = run("cal is it raining", lc, p)
     ck("local needs no key file", len(p.calls) == 1 and t.get("error") is None, repr(t))
@@ -412,22 +412,22 @@ def suite():
     import time as _t
     J._state["backoff_until"] = 0.0
     hot = Post(raise_=__import__("urllib").error.HTTPError("u", 503, "Service Unavailable", {}, None))
-    b, o, s_, t, _ = run("cal is it raining", cfg(JEV_BACKEND="local", JEV_BUSY_BACKOFF_S="120",
-                                                 JEV_BACKOFF_S="3000", JEV_KEY_FILE="/nonexistent/key"), hot)
+    b, o, s_, t, _ = run("cal is it raining", cfg(S1_BACKEND="local", S1_BUSY_BACKOFF_S="120",
+                                                 S1_BACKOFF_S="3000", S1_KEY_FILE="/nonexistent/key"), hot)
     ck("a hot local scorer reads as busy, not as an outage", t.get("error") == "busy", repr(t))
     ck("and it backs off for the SHORT window", 0 < J._state["backoff_until"] - _t.time() <= 121,
        str(round(J._state["backoff_until"] - _t.time())))
     ck("plan unchanged when it is busy", o == b and s_ is None)
     J._state["backoff_until"] = 0.0
     bad = Post(raise_=__import__("urllib").error.HTTPError("u", 422, "Unprocessable Content", {}, None))
-    b, o, s_, t, _ = run("cal is it raining", cfg(JEV_BACKEND="local", JEV_KEY_FILE="/nonexistent/key"), bad)
+    b, o, s_, t, _ = run("cal is it raining", cfg(S1_BACKEND="local", S1_KEY_FILE="/nonexistent/key"), bad)
     ck("a 4xx is a rejected request, not an outage", t.get("error") == "http_422", repr(t))
     ck("and it does NOT silence the router", J._state["backoff_until"] <= _t.time(),
        str(round(J._state["backoff_until"] - _t.time())))
     ck("the plan is unchanged after a 4xx", o == b and s_ is None)
     J._state["backoff_until"] = 0.0
     red = Post(raise_=__import__("urllib").error.HTTPError("u", 302, "Found", {}, None))
-    b, o, s_, t, _ = run("cal is it raining", cfg(JEV_BACKEND="local", JEV_KEY_FILE="/nonexistent/key"), red)
+    b, o, s_, t, _ = run("cal is it raining", cfg(S1_BACKEND="local", S1_KEY_FILE="/nonexistent/key"), red)
     ck("a redirect is refused, not followed", t.get("error") == "http_302", repr(t))
     ck("and a redirect does not silence the router", J._state["backoff_until"] <= _t.time())
     ck("the opener refuses to follow 3xx at all",
@@ -435,7 +435,7 @@ def suite():
        any(isinstance(h, J._NoRedirect) for h in J._OPENER.handlers))
     J._state["backoff_until"] = 0.0
     lim = Post(raise_=__import__("urllib").error.HTTPError("u", 429, "Too Many Requests", {}, None))
-    b, o, s_, t, _ = run("cal is it raining", cfg(JEV_BACKEND="local", JEV_KEY_FILE="/nonexistent/key"), lim)
+    b, o, s_, t, _ = run("cal is it raining", cfg(S1_BACKEND="local", S1_KEY_FILE="/nonexistent/key"), lim)
     ck("but 429 still waits -- being rate-limited is a reason to back off",
        J._state["backoff_until"] > _t.time(), repr(t))
     J._state["backoff_until"] = 0.0
@@ -479,7 +479,7 @@ def _decide_no_floor(c, res):
 def _decide_no_guards(c, res):
     if not res or res.get("route") not in J.RESCUABLE:
         return None
-    return res["route"] if (res.get("conf") or 0) >= float(c.get("JEV_MIN_CONF", "0.8")) else None
+    return res["route"] if (res.get("conf") or 0) >= float(c.get("S1_MIN_CONF", "0.8")) else None
 MUTANTS = [
     ("unlocked DMs are sent", lambda: setattr(J, "eligible", _elig_ignores_unlock)),
     ("claimed messages are second-guessed", lambda: setattr(J, "eligible", _elig_ignores_claim)),

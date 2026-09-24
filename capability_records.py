@@ -205,49 +205,49 @@ RECORDS = (
         "oracle_key": None,
     },
     {
-        "flag": "JEV_ROUTE_ENABLED", "name": "second-opinion routing", "kind": "path",
-        "module": "jevroute.py", "model_runs": True,
+        "flag": "S1_ROUTE_ENABLED", "name": "second-opinion routing", "kind": "path",
+        "module": "s1route.py", "model_runs": True,
         "answers": "Nothing by itself. When no word rule claimed an addressed message, it asks a "
                    "decision model (Jev, TypeSafe AI) which existing capability should answer, "
                    "and hands the message to that capability. The capability writes the reply.",
         "trigger": "Only the fallthrough: an addressed message no doer claimed, about to go to "
-                   "the model. Acted on only at or above JEV_MIN_CONF, only into weather, caps "
+                   "the model. Acted on only at or above S1_MIN_CONF, only into weather, caps "
                    "or sigreport, and only when a same-call guard agrees (weather must be about "
                    "now; a signal report must be about this link).",
         "who": "allow-listed senders on the addressed path, on the public channel. DMs and "
-               "Cal's own channel only if JEV_PRIVATE_OK is set.",
+               "Cal's own channel only if S1_PRIVATE_OK is set.",
         "out_of_scope": [
             {"limit": "It never overrules a word rule. A message any doer claims is not sent to "
                       "Jev at all, so a working regex cannot be second-guessed.",
-             "where": "jevroute.py:eligible"},
+             "where": "s1route.py:eligible"},
             {"limit": "It never sees an unlocked DM or a message the sanitizer flagged as "
                       "injection-shaped, and never a DM or Cal's own channel unless "
-                      "JEV_PRIVATE_OK is set.",
-             "where": "jevroute.py:eligible"},
+                      "S1_PRIVATE_OK is set.",
+             "where": "s1route.py:eligible"},
             {"limit": "It will not send a past-tense weather question to the current reading, "
                       "or a question about another station to the sender's own signal numbers.",
-             "where": "jevroute.py:GUARDS"},
+             "where": "s1route.py:GUARDS"},
             {"limit": "It does not answer a signal question that names another node, short id "
                       "or callsign, whatever the model says.",
              "where": "sigreport.py:names_other_node"},
             {"limit": "It cannot route to calc or to the greeting ack. calc answers only a "
                       "successful parse, and answering more greetings is a policy change, not a "
                       "routing fix.",
-             "where": "jevroute.py:RESCUABLE"},
+             "where": "s1route.py:RESCUABLE"},
             {"limit": "It computes and writes nothing. Every number on air still comes from "
                       "Python or the radio, and each capability keeps its own refusals: a "
                       "forecast is still refused, a failed fetch still says so, a signal report "
                       "still needs measurements, cooldown and budget.",
-             "where": "responder.py:plan_jev_rescue"},
+             "where": "responder.py:plan_s1_rescue"},
             {"limit": "It does not answer channel chatter that was not addressed to Cal. That "
                       "widening was measured and deliberately not built.",
-             "where": "responder.py:plan_jev_rescue"},
-            {"limit": "With JEV_BACKEND=typesafe, arming sends the sanitized message text to a "
+             "where": "responder.py:plan_s1_rescue"},
+            {"limit": "With S1_BACKEND=typesafe, arming sends the sanitized message text to a "
                       "third party (api.typesafe.ai), and the model version is pinned. With "
-                      "JEV_BACKEND=local it goes to this operator's own scorer instead and no "
+                      "S1_BACKEND=local it goes to this operator's own scorer instead and no "
                       "message text leaves the house; the threshold was measured separately for "
                       "each, on the wording each one is given.",
-             "where": "jevroute.py:backend"},
+             "where": "s1route.py:backend"},
         ],
         "oracle_key": None,
     },
