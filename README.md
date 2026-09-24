@@ -165,3 +165,11 @@ what Cal would have said. Hardware and reasoning: [`docs/design-essay.md`](docs/
 - [NOAA / National Weather Service](https://www.weather.gov) — current conditions (public
   domain).
 
+
+## License
+
+[GPL-3.0](LICENSE), the same license as Meshtastic itself. Copyright © 2026 deanssamclaw. You may
+use, change and share this code, but if you distribute a modified version you must share its
+source under the GPL too. The dependencies keep their own licenses: Meshtastic's Python library is
+GPL-3.0; SemIf, pypubsub and protobuf are permissive. Model weights are downloaded separately and
+are not part of this repo.
