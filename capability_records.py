@@ -165,7 +165,7 @@ RECORDS = (
                       "send boundary is the outbox DIRECTORY, since bridge.py broadcasts any "
                       "file dropped there. The eval executes the module with writes into "
                       "outbox/ trapped, and mutation-proves the trap.",
-             "where": "eval_drafts.py"},
+             "where": "evals/eval_drafts.py"},
             {"limit": "It never builds a model argv. It calls the responder's locked one, so "
                       "--permission-mode plan and --setting-sources \"\" are inherited rather "
                       "than restated — a second call site would drop both and nothing would "
