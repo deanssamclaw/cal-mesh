@@ -373,7 +373,7 @@ for h in (0, 1, 2, 5, None):
 
 # --- 3. the gates ---------------------------------------------------------------------------
 responder = _load("responder")
-CFG_ON = {"SIGREPORT_ENABLED": "true", "TRIGGER_WORD": "cal"}
+CFG_ON = {"RESPONDER_ENABLED": "true", "SIGREPORT_ENABLED": "true", "TRIGGER_WORD": "cal"}
 
 
 def plan(cfg=None, r=None, st=None, ts=None):
@@ -384,8 +384,14 @@ def plan(cfg=None, r=None, st=None, ts=None):
 
 # DEFAULT OFF is the house gate, and it is asserted rather than assumed.
 expect(responder.DEFAULTS["SIGREPORT_ENABLED"] == "false", "SIGREPORT_ENABLED must default to false")
-off = responder.plan_sigreport({}, {}, rec(text="Range test"), "!cccccccc")
+off = responder.plan_sigreport({"RESPONDER_ENABLED": "true"}, {}, rec(text="Range test"), "!cccccccc")
 expect(off[0] is False and off[1] == "sigreport_disabled", f"disabled config must refuse: {off[1]}")
+# MASTER KILL SWITCH (2026-09-24): with RESPONDER_ENABLED off, the report is silent even with its
+# own flag on -- it used to answer anyone with the master switch off. An empty config is off too.
+mk = responder.plan_sigreport(dict(CFG_ON, RESPONDER_ENABLED="false"), {}, rec(text="Range test"), "!cccccccc")
+expect(mk[0] is False and mk[1] == "disabled", f"master switch off must refuse: {mk[1]}")
+mk = responder.plan_sigreport({"SIGREPORT_ENABLED": "true"}, {}, rec(text="Range test"), "!cccccccc")
+expect(mk[0] is False and mk[1] == "disabled", f"an absent master switch is OFF: {mk[1]}")
 
 # The channel gate needs a quiet, fresh status file to pass; build one so the gates below are
 # testing themselves rather than the fixture.

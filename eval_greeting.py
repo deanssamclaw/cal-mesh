@@ -31,7 +31,7 @@ def check(name, got, want):
 def cfg(**over):
     """Default config answers in the greeting's register (GREET_TEXT empty), as deployed."""
     c = dict(R.DEFAULTS)
-    c.update({"GREETING_ENABLED": "true", "GREET_TEXT": "",
+    c.update({"RESPONDER_ENABLED": "true", "GREETING_ENABLED": "true", "GREET_TEXT": "",
               "GREET_MAX_PER_DAY": "6", "GREET_SENDER_COOLDOWN_S": "86400"})
     c.update(over)
     return c
@@ -124,6 +124,10 @@ check("GREET_TEXT override wins for every greeting", outs, {"Heard you"})
 
 ok, why, *_ = R.plan_greeting(cfg(GREETING_ENABLED="false"), st, rec("Good morning"), OURS)
 check("disabled -> no ack", (ok, why), (False, "greeting_disabled"))
+# MASTER KILL SWITCH (2026-09-24): RESPONDER_ENABLED=false silences the greeting too, even with
+# its own flag on. It used to keep answering strangers with the master switch off.
+ok, why, *_ = R.plan_greeting(cfg(RESPONDER_ENABLED="false"), st, rec("Good morning"), OURS)
+check("master switch off -> no ack, whatever GREETING_ENABLED says", (ok, why), (False, "disabled"))
 
 ok, why, *_ = R.plan_greeting(cfg(), st, rec("Good morning", to=OURS), OURS)
 check("DM is not acked (broadcast only)", (ok, why), (False, "greeting_not_broadcast"))

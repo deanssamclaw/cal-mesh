@@ -61,6 +61,7 @@ def expect(cond, msg):
 def cfg(**kw):
     c = dict(tracer.DEFAULTS)
     c["TRACER_ENABLED"] = "true"
+    c["RESPONDER_ENABLED"] = "true"
     c.update({k: str(v) for k, v in kw.items()})
     return c
 
@@ -83,8 +84,11 @@ A, B, C = "!aaaaaaaa", "!bbbbbbbb", "!deadbeef"
 
 # --- the gate ---------------------------------------------------------------------------
 expect(tracer.DEFAULTS["TRACER_ENABLED"] == "false", "TRACER_ENABLED must default to false")
-off = tracer.plan([node(A)], {}, [], OURS, dict(tracer.DEFAULTS), now=NOW)
+off = tracer.plan([node(A)], {}, [], OURS, dict(tracer.DEFAULTS, RESPONDER_ENABLED="true"), now=NOW)
 expect(off[0] is None and off[1] == "tracer_disabled", f"disabled must refuse: {off[1]}")
+# MASTER KILL SWITCH (2026-09-24): RESPONDER_ENABLED=false proposes no probe, TRACER on or not.
+mk = tracer.plan([node(A)], {}, [], OURS, cfg(RESPONDER_ENABLED="false"), now=NOW)
+expect(mk[0] is None and mk[1] == "responder_disabled", f"master switch off must refuse: {mk[1]}")
 expect(off[2] == [] and off[3] == [], "a disabled loop must not even rank")
 
 # --- budget, read from the bridge's own record -------------------------------------------

@@ -65,10 +65,9 @@ mesh actually asks and what Cal would have said. Green is the line
 [`docs/design-essay.md`](docs/design-essay.md).
 
 **Off switches** (config is re-read live, no restart):
-- `RESPONDER_ENABLED=false` stops the ladder and model replies.
-- The signal report and the greeting ack are **not** covered by that switch. They have their own:
-  `SIGREPORT_ENABLED` and `GREETING_ENABLED`.
-- Each capability has its own `*_ENABLED`.
+- `RESPONDER_ENABLED=false` is the master switch: Cal transmits nothing on his own (no reply,
+  signal report, greeting or probe). Manual `./mesh send` still works.
+- Each capability also has its own `*_ENABLED`.
 - `S1_ROUTE_ENABLED=false` turns routing off, and `S1_FALLBACK=none` stops anything going to the
   cloud.
 

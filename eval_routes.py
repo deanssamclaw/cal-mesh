@@ -322,7 +322,7 @@ def drain(cfg, queued, state=None, util=5.0):
         return f.sent, after
 
 
-ON = {"TRACEROUTE_ENABLED": "true", "TRACEROUTE_MIN_GAP_S": 180}
+ON = {"RESPONDER_ENABLED": "true", "TRACEROUTE_ENABLED": "true", "TRACEROUTE_MIN_GAP_S": 180}
 
 
 def first(sent, key):
@@ -335,6 +335,9 @@ sent, _ = drain({}, [TRACED])
 check("send: DISABLED by default — an absent config key must not transmit", sent, [])
 sent, _ = drain({"TRACEROUTE_ENABLED": "false"}, [TRACED])
 check("send: explicitly disabled does not transmit", sent, [])
+# MASTER KILL SWITCH (2026-09-24): RESPONDER_ENABLED=false means no autonomous probe either.
+sent, _ = drain(dict(ON, RESPONDER_ENABLED="false"), [TRACED])
+check("send: the master switch off does not transmit, even with TRACEROUTE_ENABLED", sent, [])
 
 sent, st = drain(ON, [TRACED])
 check("send: enabled with an empty state transmits exactly once", len(sent), 1)
