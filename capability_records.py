@@ -215,7 +215,8 @@ RECORDS = (
                    "or sigreport, and only when a same-call guard agrees (weather must be about "
                    "now; a signal report must be about this link).",
         "who": "allow-listed senders on the addressed path, on the public channel. DMs and "
-               "Cal's own channel only if S1_PRIVATE_OK is set.",
+               "Cal's own channel only if S1_PRIVATE_OK is set. ARMED 2026-09-24 on the local "
+               "backend; the cloud backend remains unused.",
         "out_of_scope": [
             {"limit": "It never overrules a word rule. A message any doer claims is not sent to "
                       "Jev at all, so a working regex cannot be second-guessed.",
