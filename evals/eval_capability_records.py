@@ -5,7 +5,7 @@ This page is a set of assertions about code. Two ways it can rot: the registry s
 matching what is armed, and a stated limit points at code that no longer exists. Both
 fail silently on a page that still renders. Both are checked here.
 """
-import json, os, re, sys
+import subprocess, json, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if os.path.basename(HERE) == "evals":   # the repo root; a copy run from a temp dir is its own
@@ -50,7 +50,14 @@ for owner, ref in refs:
     fn, _, sym = ref.partition(":")
     path = os.path.join(HERE, fn)
     if not os.path.exists(path):
-        bad.append("%s -> missing file %s" % (owner, fn))
+        # A gitignored RUNTIME file (config, dm-context.txt) does not exist in a fresh clone.
+        # That is not a dangling reference: SKIP it there (amber), and it is checked for real
+        # on any station that has one.
+        ign = subprocess.run(["git", "-C", HERE, "check-ignore", "-q", fn]).returncode == 0
+        if ign:
+            print("  SKIP where-ref %s -> %s: a runtime file, absent in this checkout" % (owner, fn))
+        else:
+            bad.append("%s -> missing file %s" % (owner, fn))
         continue
     if sym:
         try:
@@ -86,7 +93,9 @@ ck("allow-list is a COUNT, not a list", isinstance(payload["allowed_count"], int
 # ---------------------------------------------------------- rule 2: no invented values
 print("\n[rule 2 -- a row may say nothing known, never guess]")
 try:
-    triage = json.load(open(os.path.join(HERE, "triage.json")))
+    # The SAME file build_payload read (CR.TRIAGE), not a path of our own: comparing two
+    # different files made this check depend on where the repo was checked out.
+    triage = json.load(open(CR.TRIAGE))
 except Exception:
     triage = {}
 for r in payload["records"]:
