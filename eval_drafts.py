@@ -459,6 +459,15 @@ for name, (old, new) in MUTANTS.items():
 import json as _js, os as _os, tempfile as _tf
 sys.path.insert(0, HERE)
 import drafts as drafts   # HERE is on sys.path; siblings import
+# A FRESH INSTALL has no banked drafts yet. The checks below that need THIS station's real rows
+# say SKIP there (run-evals.sh reports amber, never green) rather than FAIL; on a station that
+# has run drafts.py, a missing row is still a failure.
+_FRESH = not os.path.exists(drafts.DRAFTS)
+def ck_live(name, cond, detail=""):
+    if _FRESH:
+        print(f"  SKIP {name} -- needs this station's own drafts.jsonl (fresh install)")
+    else:
+        ck(name, cond, detail)
 
 _cfg = drafts.load_cfg()
 
@@ -506,7 +515,7 @@ _real = next((x for x in drafts._load_rows()
 _rows2 = [dict(_real, via="model")] if _real else []
 _r2 = drafts.audit(_cfg, rows=_rows2, our="!me")
 _hit = [d for d in _r2["drift"] if d["now"] != "model"]
-ck("a banked row a doer would now claim is reported as drift",
+ck_live("a banked row a doer would now claim is reported as drift",
    bool(_real) and len(_hit) == 1, "" if _real else "no contact-report row in the bank")
 
 # 5. REGIME IS RE-STAMPED ONLY ON A ROW THAT WAS ACTUALLY REWRITTEN. `armed`/`commit` say which
@@ -590,7 +599,7 @@ try:
     _prec = {"text": "Aye", "from": (_src_row or {}).get("from"), "to": "^all",
              "reaction": None, "ts": (_src_row or {}).get("ts")}
     drafts.cal_reply(drafts.load_cfg(), _prec, "!me")
-    ck("a free-prose prompt does carry it",
+    ck_live("a free-prose prompt does carry it",
        bool(_seen_prompt) and "Other traffic on the channel" in _seen_prompt[-1])
 finally:
     drafts._r.run_claude = _orig_rc2
@@ -645,7 +654,7 @@ if _t:
        not any(x["text"] == (_t.get("text") or "").strip() and x["who"] == _t.get("from")
                for x in _c))
 else:
-    ck("a message is never its own context", False, "fixture row missing")
+    ck_live("a message is never its own context", False, "fixture row missing")
 
 # A row with nothing around it must say so rather than render an empty box -- "no context" is
 # itself evidence: it is what proves the model invented "sounds like great news".

@@ -9,7 +9,7 @@ model. A message no regex claims therefore reaches the one component that can in
 not hypothetical: `Cal, hows the link holding up?` was answered "Link's solid and steady over
 here" with no number behind it (sigreport.py records that), and 10 of 14 natural present-tense
 weather asks ("is it raining", "how cold is it") match no weather trigger at all. Widening the
-regexes is the fix that has broken something every round it was tried (README, session 126).
+regexes is the fix that has broken something every round it was tried.
 
 A System One model (TypeSafe's Jev in the cloud, or the local scorer on jlab) answers one typed
 question -- which service should answer this? -- with a probability for every option. It does not write text and it computes
@@ -179,7 +179,7 @@ def enabled(cfg):
 
 def backend(cfg):
     """typesafe | local | None. An unrecognised value is None and the router does not run.
-    It used to fall back to typesafe, and the config loader keeps an inline comment as part of
+    It used to fall back to typesafe, and the config loader then kept an inline comment as part of
     the value -- so `S1_BACKEND=local  # typesafe | local` silently sent message text to the
     cloud (review 2026-09-24). A misconfigured backend fails CLOSED, never to the other one."""
     b = str(_cfg(cfg, "S1_BACKEND")).strip().lower()
@@ -314,12 +314,15 @@ def classify(cfg, text, post=None, now=None, slot=None):
         questions.update({k: {"type": "noul", "instructions": v} for k, v in GUARDS.items()})
         body = {"model": MODEL, "state": {"mesh_message": text}, "questions": questions}
         headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
+    tkey = "S1_LOCAL_TIMEOUT_S" if local else "S1_TIMEOUT_S"
     try:
-        timeout = float(_cfg(cfg, "S1_LOCAL_TIMEOUT_S" if local else "S1_TIMEOUT_S"))
+        timeout = float(_cfg(cfg, tkey))
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError
     except ValueError:
-        timeout = float(DEFAULTS["S1_TIMEOUT_S"])
+        # That key's OWN default: a bad local timeout used to fall back to the cloud's 2 s, and
+        # a 2 s deadline on a ~13 s scorer fails every call.
+        timeout = float(DEFAULTS[tkey])
     t0 = time.time()
     try:
         url = _cfg(cfg, "S1_LOCAL_URL") if local else ENDPOINT
