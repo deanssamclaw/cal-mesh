@@ -334,7 +334,9 @@ def first(sent, key):
     mutation, it is the eval not running. The self-test below refuses to score it as one."""
     return sent[0].get(key) if sent else None
 
-sent, _ = drain({}, [TRACED])
+# RESPONDER_ENABLED on, TRACEROUTE_ENABLED absent: only the traceroute default is under test.
+# With the master switch also absent, this passed on a build whose default was ON (self-test).
+sent, _ = drain({"RESPONDER_ENABLED": "true"}, [TRACED])
 check("send: DISABLED by default — an absent config key must not transmit", sent, [])
 sent, _ = drain({"TRACEROUTE_ENABLED": "false"}, [TRACED])
 check("send: explicitly disabled does not transmit", sent, [])
