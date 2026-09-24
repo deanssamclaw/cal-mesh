@@ -30,13 +30,45 @@ and `dm` / `calch` / `kw` are the addressing flags that decide which population 
 | `semif_analyze.py FILE` | Fits ONE temperature on the un-addressed rows, applies it to the addressed ones, reports accuracy/ECE and the rescue candidates. Fitting and evaluation never share rows. |
 | `score_local.py FILE` | Scores any runner's output exactly as the built router would act: fallthrough only, `RESCUABLE` only, the floor, both guards, the node-name backstop. |
 
-## Reproducing the headline
+## Reproducing the headline — what each step needs, and what is missing
 
-```bash
-bash semif_chunks.sh                  # ~1 h on 8 threads, thermally gated
-python3 semif_analyze.py semif_results.jsonl
-python3 score_local.py results_semif.json
-```
+The SemIf result is three steps. **Only the middle one runs from public inputs plus the
+scorer's own output; the chain does not close from this repo alone.** Every script reads
+`eval_data.json` from the working directory.
+
+| Step | Reads | Writes | Input made by public code? |
+|---|---|---|---|
+| `bash semif_chunks.sh` | `~/jev-eval/semif_decisions.jsonl` | `~/jev-eval/semif_results.jsonl` | **No.** Nothing here writes `semif_decisions.jsonl`. |
+| `python3 semif_analyze.py semif_results.jsonl` | that file, `eval_data.json`, `semif_index.json` | `semif_calibrated.json` | **No** for `eval_data.json` and `semif_index.json`. |
+| `python3 score_local.py FILE` | `FILE`, `eval_data.json` | stdout only | **No** for a SemIf `FILE`: nothing here writes one. |
+
+What each missing input has to look like, read off the scripts:
+
+* **`semif_decisions.jsonl`** — SemIf input, one row per line:
+  `{"id": ..., "state": "<message text>", "question": "...", "options": [{"id": "weather", "description": "..."}, ...]}`.
+  `semif_analyze.py` maps option **position** to `list(criteria)`, so the options must be the
+  route criteria in that order. `tools/system-one/system_one_server.py` (`_rows`) builds exactly
+  this row from `s1route`'s local request; whether the offline file used the same wording is not
+  recorded here.
+* **`semif_index.json`** — a list of `{"id": <row id>, "text": <eval_data row "text">, "addressed": bool}`.
+  `addressed` splits the rows: `false` rows fit the temperature, `true` rows are scored.
+* **`semif_results.jsonl`** — written by `semif-score`; the scripts use only `id` and `option_logits`.
+* **`FILE` for `score_local.py`** — the shape `jev_local.py` and `small_local.py` write:
+  `{"model", "done", "elapsed_s", "thermal_pause_s", "results": [{"text", "route", "conf", "probs": {route: p}, "weather_now", "other_station", "timing": {"wall_s"}, "letter_mass"}]}`.
+  Every result needs `timing.wall_s` and `letter_mass`; `eval_data.json` rows also need
+  `jev_route` and `jev_act`.
+
+**The gap.** `semif_analyze.py` writes `{"T": ..., "candidates": [{"text", "route", "conf"}]}` —
+the rescue candidates at conf >= 0.8 **before the guards** — not a `score_local.py` input. The
+SemIf run's two guard questions, and a SemIf `results_semif.json` for `score_local.py`, were
+produced outside this repo. So from public code you can
+reproduce the fitted temperature and the pre-guard candidates; the final "+2 / +3, nothing
+broken" for SemIf also needs a `results_semif.json` in the shape above, with `weather_now` and
+`other_station` scored per row. The Ollama and small-model runners (`jev_local.py`,
+`small_local.py`) do write `score_local.py` input directly.
+
+`semif_chunks.sh` also hard-codes `~/jev-eval`, the GGUF path and `thermal_zone2`; the scorer
+setup it assumes is in [`tools/system-one/README.md`](../system-one/README.md).
 
 ## Notes that cost time to learn
 

@@ -8,10 +8,13 @@ bars on the live service (other_station 0.5166 vs 0.5 on a third-party ask; weat
 the corpus the floor was chosen on. The service returns p at T; the logit gap is T*ln(p/(1-p)),
 so one pass reports the guard at any temperature.
 
-Usage: python3 guard_probe.py URL T_SERVED > out.jsonl   (gates each call on jlab <= 70 C)
+Usage: python3 guard_probe.py URL T_SERVED > out.jsonl
+  T_SERVED is the scorer's S1_TEMPERATURE (its /health reports it). Between calls it waits until
+  the scorer reports <= 70 C on its own /health, so a hot box is not measured hot. A summary
+  table (the ranges in docs/router.md step 6) goes to stderr.
 """
-import json, math, subprocess, sys, time, urllib.request
-sys.path.insert(0, __import__("os").path.expanduser("~/cal-mesh"))
+import json, math, sys, time, urllib.request
+sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), "..", ".."))
 import s1route
 
 # (text, guard, truth) -- truth is whether the guard SHOULD say yes.
@@ -57,19 +60,31 @@ def body_for(text):
     return cap["body"]
 
 
-def temp():
-    return int(subprocess.check_output(["ssh", "jlab", "cat /sys/class/thermal/thermal_zone2/temp"])) // 1000
+def temp(url):
+    """The scorer's own reading, from GET /health -- no ssh, no machine-specific sensor path."""
+    try:
+        with urllib.request.urlopen(url.split("/v1/")[0] + "/health", timeout=10) as r:
+            return int(json.loads(r.read()).get("cpu_c", 0))
+    except Exception:
+        return 0
 
 
 url, T = sys.argv[1], float(sys.argv[2])
+seen = {}
 for text, guard, truth in PROBES:
-    while temp() > 70:
+    while temp(url) > 70:
         time.sleep(10)
     req = urllib.request.Request(url, json.dumps(body_for(text)).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=90) as r:
         a = json.loads(r.read())["answers"]
     p = min(max(a[guard]["noul"], 1e-6), 1 - 1e-6)
     gap = T * math.log(p / (1 - p))
+    seen.setdefault((guard, truth), []).append(a[guard]["noul"])
     print(json.dumps({"text": text, "guard": guard, "truth": truth, "p_served": a[guard]["noul"],
                       "p_T1": round(1 / (1 + math.exp(-gap)), 4), "gap": round(gap, 3),
                       "route": a["route"]["choice"], "conf": a["route"]["confidence"]}), flush=True)
+print("\nguard           should say yes      should say no", file=sys.stderr)
+for g in ("weather_now", "other_station"):
+    y, n = seen.get((g, True), []), seen.get((g, False), [])
+    rng = lambda v: f"{min(v):.2f} - {max(v):.2f} ({len(v)})" if v else "-"
+    print(f"{g:15} {rng(y):19} {rng(n)}", file=sys.stderr)

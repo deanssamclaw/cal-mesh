@@ -1,0 +1,35 @@
+# system-one.service.example -- copy to /etc/systemd/system/system-one.service and replace every
+# <you> and <this box's tailnet 100.x address>. See README.md in this directory.
+[Unit]
+Description=System One scorer — local typed decisions for cal-mesh s1route
+Documentation=https://github.com/deanssamclaw/cal-mesh/blob/main/tools/system-one/README.md
+After=network-online.target
+
+[Service]
+Type=simple
+User=<you>
+WorkingDirectory=/home/<you>/system-one
+# The venv carries llama-cpp-python + SemIf; it is not in the repo (see README.md).
+ExecStart=/home/<you>/jev-eval/.venv/bin/python /home/<you>/system-one/system_one_server.py
+# The TAILNET address (`tailscale ip -4`), never 0.0.0.0: there is no auth on this port, and the
+# tailnet is the boundary. Loopback (the server's default) if cal-mesh runs on this same box.
+Environment=S1_HOST=<this box's tailnet 100.x address>
+Environment=S1_THREADS=8
+Environment=S1_TEMPERATURE=1.45
+Environment=S1_BUSY_TEMP_C=95
+# The package sensor is machine-specific; the server's default is thermal_zone2. Find yours with
+# the loop in README.md and set it here if it differs.
+#Environment=S1_ZONE=/sys/class/thermal/thermal_zoneN/temp
+# The reference box also runs other services and reaches ~100 C under load: the scorer yields to
+# anything interactive, and refuses work above S1_BUSY_TEMP_C rather than cooking the laptop.
+Nice=10
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/<you>/system-one
+
+[Install]
+WantedBy=multi-user.target
