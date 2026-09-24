@@ -1,14 +1,39 @@
 # cal-mesh — an AI station on a Meshtastic radio mesh
 
-Cal is a station on a LoRa mesh (LilyGO T-Deck, US / LONG_FAST) that answers questions over the
-air. It works as a **field reference that still answers when nothing else can**: sun and moon
-times, RF and unit maths, signal reports, current weather. Capabilities that need no network
-rank first, because the moment this earns its place is the moment the internet is gone too.
+![Cal's dashboard: three questions, the capability that answered each, and the reply](docs/img/exchanges.png)
 
-**What it won't do is as much of the design as what it will.** Every number on air comes from
-code or from the radio, never from a language model. Every capability has an explicit point
-where it says "I can't verify that". Each one ships switched off until an offline eval and an
-independent adversarial review pass.
+*The public dashboard: each question, the capability that answered it, and what went out on air.
+Illustrative data with placeholder node IDs; the replies are in Cal's real formats.*
+
+> **Status:** one operator's station, shared so you can build your own. It runs every day, but it
+> is not a product and no support is promised. Forks and issues are welcome.
+
+Cal is a station on a LoRa mesh that answers questions over the air: a **field reference that
+still answers when nothing else can**. It runs on a laptop and a LilyGO T-Deck, and apart from
+the radio bridge it is Python's standard library only. Six capabilities answer from code or from
+the radio (signal reports, sun and moon, maths and RF, weather, a capability list, a greeting).
+A language model answers only what none of them claim, and words the weather report around
+numbers that were fetched; every number on air comes from code or the radio. When no rule
+claims a message, a small open model on a second laptop can route it to the right capability in
+~13 s, with TypeSafe's Jev as a cloud backup at ~$0.00003 a decision. Every capability ships
+switched off until 35 eval suites and an independent adversarial review pass.
+
+**What it won't do is as much of the design as what it will.** Each capability has an explicit
+point where it says "I can't verify that" rather than guessing.
+
+## Example
+
+> **Cal, hows the link holding up?**
+> Copy: 2 hops via RLY1, last leg RSSI -97, SNR 4.5 &nbsp;&nbsp;*— signal report: the radio's own numbers*
+>
+> **cal wavelength of 915 mhz**
+> 915 MHz: wavelength 12.9 in, quarter-wave 3.2 in (free space) &nbsp;&nbsp;*— calc: computed in Python*
+>
+> **cal 5 mi in km**
+> 5 mi = 8.0467 km &nbsp;&nbsp;*— calc*
+>
+> **cal when is sunset**
+> Sunset 7:14 PM &nbsp;&nbsp;*— sun/moon: works with no internet at all*
 
 ## How it works
 
@@ -47,6 +72,19 @@ touches the radio, and `dashboard.py` publishes every decision along the way.
 - **Everything is on the page.** Each reply's trace shows which rule, capability or model
   produced it. Positions are coarsened. No coordinates or credentials are published.
 
+## The files that matter
+
+- **`bridge.py`** — the only process that touches the radio. Writes what it hears to
+  `inbox.jsonl`, transmits what appears in `outbox/`.
+- **`responder.py`** — the decision. Gates, word rules, capabilities, and the model as the last
+  resort. Every decision goes to `decisions.jsonl`.
+- **`s1route.py`** — the second opinion on a message no rule claimed. Picks a capability; writes
+  nothing.
+- **`sigreport.py`, `sunmoon.py`, `calc.py`, `weather.py`, `capabilities.py`** — the capabilities.
+- **`dashboard.py`** — the public page and the per-reply decision trace (stdlib HTTP server).
+- **`config`** — every switch, re-read live. Start from `config.example`.
+- **`evals/`** — 35 suites; `./run-evals.sh` decides whether anything ships.
+
 ## What Cal answers
 
 | Capability | Where the answer comes from | State |
@@ -65,19 +103,32 @@ The live list, with every limit, is on the dashboard's capabilities page.
 
 ## Run it
 
+**Requirements:** a Meshtastic radio reachable over USB or its TCP API (port 4403), macOS or
+Linux, Python 3.12+. Optional: `node` (3 eval suites), the `claude` CLI (model replies), a spare
+Linux box (local routing scorer), a TypeSafe key (cloud backup).
+
 ```bash
-git clone https://github.com/deanssamclaw/cal-mesh.git ~/cal-mesh && cd ~/cal-mesh   # must live at ~/cal-mesh
+# 1. Clone. The scripts expect this exact path.
+git clone https://github.com/deanssamclaw/cal-mesh.git ~/cal-mesh && cd ~/cal-mesh
+
+# 2. Install the radio library (~1 min)
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp config.example config        # TRANSPORT, PORT or HOST, ALLOW_FROM; leave RESPONDER_ENABLED=false
-nc -vz meshtastic.local 4403    # if TRANSPORT=tcp: the radio's API must answer first
-./run-evals.sh                  # needs node for 3 suites; a fresh clone is amber until it has traffic
+
+# 3. Configure: TRANSPORT, PORT or HOST, ALLOW_FROM. Leave RESPONDER_ENABLED=false.
+cp config.example config
+
+# 4. If TRANSPORT=tcp, the radio's API must answer first
+nc -vz meshtastic.local 4403
+
+# 5. Run the evals (~3 min)
+./run-evals.sh
 ```
 
-Start the services from [`deploy/`](deploy) (launchd or systemd), then `./mesh watch` to see
-traffic arrive. Leave the responder off for a week and read `decisions.jsonl`: it shows what your
-mesh actually asks and what Cal would have said. Green is the line
-`GREEN — every suite ran and passed.`, never just exit 0. Hardware and reasoning:
-[`docs/design-essay.md`](docs/design-essay.md).
+If step 5 ends `GREEN — every suite ran and passed.`, your setup works. A fresh clone shows
+**amber** (a few SKIPs) until the bridge has captured some traffic; FAIL is never expected. Then
+start the services from [`deploy/`](deploy) and run `./mesh watch` to see traffic arrive. Leave
+the responder off for a week and read `decisions.jsonl`: it shows what your mesh actually asks and
+what Cal would have said. Hardware and reasoning: [`docs/design-essay.md`](docs/design-essay.md).
 
 **Off switches** (config is re-read live, no restart):
 - `RESPONDER_ENABLED=false` is the master switch: Cal transmits nothing on his own (no reply,
@@ -100,3 +151,17 @@ mesh actually asks and what Cal would have said. Green is the line
 | [`docs/router-record.md`](docs/router-record.md) | how routing was decided, measured and armed |
 | [`docs/proposals/`](docs/proposals) | design proposals, including the ones that lost |
 | [`deploy/`](deploy) · [`tools/system-one/`](tools/system-one) | service definitions · the local routing scorer |
+
+## Acknowledgements
+
+- [Meshtastic](https://meshtastic.org) — the firmware and the Python library the bridge uses.
+- [SemIf](https://github.com/TheoLeeCJ/SemIf-OpenJev) (MIT) — the option scorer behind the local
+  routing model.
+- [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) via
+  [bartowski's GGUF](https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF) — the frozen model it
+  scores with.
+- [TypeSafe AI](https://typesafe.ai) — Jev, the cloud System One model the router was first
+  built against and now falls back to.
+- [NOAA / National Weather Service](https://www.weather.gov) — current conditions (public
+  domain).
+
