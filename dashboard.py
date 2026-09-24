@@ -7773,6 +7773,11 @@ function spineHtml(x,t){
     // message went, which is the whole reason the local backend exists.
     const jloc=jr.backend==='local';
     const jwho=jloc?'routed on our own hardware':'routed by Jev';
+    // FALLBACK: the local scorer could not answer, so this message went to the cloud. Said
+    // plainly, with the reason, because it is the one case where public text left the house.
+    const jfb=jr.fallback_from?`<span class="hint">The scorer in the house could not answer `
+      +`(<code>${esc(jr.fallback_from.error||'?')}</code>), so this public message was sent to `
+      +`Jev, the cloud backup.</span>`:'';
     if(jr.acted)
       s+=stage('pass',jwho,`sent to <b>${esc(jr.acted)}</b>${cf}`
           +((jr.answered_by&&jr.answered_by!==jr.acted&&!(jr.acted==='caps'&&jr.answered_by==='capabilities'))
@@ -7780,13 +7785,13 @@ function spineHtml(x,t){
         `<span class="hint">no word rule matched this message. A decision model `
         +`(<code>${esc(jr.model||'jev')}</code>, ${jloc?'on another computer in the house &mdash; the message did not leave the house':'a service at TypeSafe AI'}) was asked one question &mdash; which of `
         +`a fixed list of services should answer &mdash; and picked one. It writes nothing and `
-        +`computes nothing; the reply below comes from that capability, with its own checks.</span>`);
+        +`computes nothing; the reply below comes from that capability, with its own checks.</span>`+jfb);
     else
       s+=stage('skip','second opinion',jr.error?`${jloc?'the local scorer':'Jev'} unavailable (<code>${esc(jr.error)}</code>)`
           :`${jloc?'the local scorer':'Jev'} said <b>${esc(jr.route||'nothing')}</b>${cf} &mdash; not acted on`,
         `<span class="hint">${jr.error?'so the message took its usual path, exactly as if it did not exist'
           :jr.declined?'the capability it named declined (<code>'+esc(jr.declined)+'</code>), so the usual path answered'
-          :'below the confidence floor, or not a capability it may route to &mdash; the usual path answered'}</span>`);
+          :'below the confidence floor, or not a capability it may route to &mdash; the usual path answered'}</span>`+jfb);
   }
   if(t.forecast_asked)
     s+=stage('stop','refused','asked about a future condition',

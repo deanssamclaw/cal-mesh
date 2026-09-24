@@ -154,8 +154,19 @@ DEFAULTS = {
     # request with a slow 4xx must not cost up to S1_LOCAL_TIMEOUT_S on every message either
     # (review 2026-09-24: a 25 s 422 backed off 0 s, forever).
     "S1_REJECTS_MAX": "3",
+    # none | typesafe. A SECOND scorer, asked only when the local one could not answer (hot, busy,
+    # down, timed out, rejected, malformed) or is sitting out a backoff. OFF by default, because
+    # turning it on reverses the decision that armed this router: that no message text leaves the
+    # house. PUBLIC traffic only, always -- a DM or Cal's channel never goes to the fallback, even
+    # with S1_PRIVATE_OK=true (that flag was a decision about the scorer on our own hardware).
+    # Measured: the cloud path answers in ~0.25 s on the pinned jev-1.13.0 (2026-09-24), and the
+    # floor, guards and walls are the same code on both.
+    "S1_FALLBACK": "none",
 }
-_state = {"backoff_until": 0.0, "rejects": 0}
+# The PRIMARY scorer's failure state at top level; the fallback keeps its own, so an outage of
+# one never silences the other.
+_state = {"backoff_until": 0.0, "rejects": 0,
+          "fallback": {"backoff_until": 0.0, "rejects": 0}}
 
 
 def _cfg(cfg, key):
@@ -175,6 +186,16 @@ def backend(cfg):
     return b if b in ("typesafe", "local") else None
 
 
+def fallback_ok(cfg, private=False, now=None):
+    """True if the cloud may be asked for THIS message when the local scorer cannot answer.
+    Unknown values are none (fail closed), and only a local primary has a fallback."""
+    if str(_cfg(cfg, "S1_FALLBACK")).strip().lower() != "typesafe":
+        return False
+    if backend(cfg) != "local" or private:
+        return False
+    return (time.time() if now is None else now) >= _state["fallback"]["backoff_until"]
+
+
 def eligible(cfg, plan, private=False, now=None):
     """(ok, reason). The whole of rule 1 and rule 2 -- one place, so it cannot drift.
     `private` is decided by the caller from the packet: a DM, or Cal's own channel."""
@@ -192,7 +213,8 @@ def eligible(cfg, plan, private=False, now=None):
         return False, "private_traffic"
     if not (plan.get("clean") or "").strip():
         return False, "empty"
-    if (time.time() if now is None else now) < _state["backoff_until"]:
+    if ((time.time() if now is None else now) < _state["backoff_until"]
+            and not fallback_ok(cfg, private, now)):
         return False, "backoff"
     return True, "fallthrough"
 
@@ -246,7 +268,8 @@ def _prob(v):
     return v
 
 
-def _backoff(cfg, key, now):
+def _backoff(cfg, key, now, st=None):
+    st = _state if st is None else st
     try:
         back = float(_cfg(cfg, key))
         if not math.isfinite(back):
@@ -255,14 +278,15 @@ def _backoff(cfg, key, now):
         back = float(DEFAULTS[key])
     # Capped at a day: `S1_BACKOFF_S=1e18` is finite and would have kept the router off until
     # the next restart with nothing on the page saying why.
-    _state["backoff_until"] = (time.time() if now is None else now) + min(86400.0, max(0.0, back))
-    _state["rejects"] = 0
+    st["backoff_until"] = (time.time() if now is None else now) + min(86400.0, max(0.0, back))
+    st["rejects"] = 0
 
 
-def classify(cfg, text, post=None, now=None):
+def classify(cfg, text, post=None, now=None, slot=None):
     """{'route','conf','weather_now','other_station','model','ms','error'}; route None on ANY
     failure (rule 4). `post(url, body, headers, timeout)` is injectable so the eval never touches
     the network. A network-shaped failure starts the backoff window."""
+    st = _state if slot is None else _state[slot]
     res = {"route": None, "conf": None, "weather_now": None, "other_station": None,
            "model": None, "ms": None, "error": None, "backend": backend(cfg)}
     if res["backend"] is None:
@@ -316,7 +340,7 @@ def classify(cfg, text, post=None, now=None):
         # request with a slow malformed body cost up to the full timeout on every message.
         res["ms"] = round((time.time() - t0) * 1000)
         res["error"] = "bad_answer"
-        _backoff(cfg, "S1_BACKOFF_S", now)
+        _backoff(cfg, "S1_BACKOFF_S", now, st)
         return res
     except Exception as e:                     # network-shaped: timeout, HTTP, DNS
         res["ms"] = round((time.time() - t0) * 1000)
@@ -331,28 +355,52 @@ def classify(cfg, text, post=None, now=None):
         code = getattr(e, "code", None)
         if isinstance(code, int) and 300 <= code < 500 and code != 429:
             res["error"] = f"http_{code}"
-            _state["rejects"] += 1
+            st["rejects"] += 1
             try:
                 most = int(_cfg(cfg, "S1_REJECTS_MAX"))
             except ValueError:
                 most = int(DEFAULTS["S1_REJECTS_MAX"])
-            if _state["rejects"] >= min(100, max(1, most)):
-                _backoff(cfg, "S1_BACKOFF_S", now)
+            if st["rejects"] >= min(100, max(1, most)):
+                _backoff(cfg, "S1_BACKOFF_S", now, st)
             return res
         # A local scorer refusing because the CPU is hot (or because it is already scoring
         # something else) is a healthy answer, not an outage: a shorter window.
         busy = local and code == 503
         if busy:
             res["error"] = "busy"
-        _backoff(cfg, "S1_BUSY_BACKOFF_S" if busy else "S1_BACKOFF_S", now)
+        _backoff(cfg, "S1_BUSY_BACKOFF_S" if busy else "S1_BACKOFF_S", now, st)
         return res
-    _state["rejects"] = 0
+    st["rejects"] = 0
     res["ms"] = round((time.time() - t0) * 1000)
     # Unrounded: decide() compares these against the floor, and rounding first let 0.7999 act
     # at a 0.8 floor. The trace rounds for display; the decision never sees a rounded value.
     res.update({"route": route, "conf": conf, "weather_now": wn, "other_station": oth,
                 "model": model})
     return res
+
+
+def consult(cfg, text, private=False, primary=None, fallback=None, now=None):
+    """The primary scorer, then -- only if it could not answer and fallback_ok -- the cloud one.
+    `primary(cfg, text)` / `fallback(cfg, text)` are injectable for the eval. The result says
+    which backend answered, and `fallback_from` names the local failure that sent it there."""
+    primary = primary or classify
+    fallback = fallback or (lambda c, x: classify(c, x, slot="fallback"))
+    t = time.time() if now is None else now
+    if t < _state["backoff_until"]:
+        res = {"route": None, "error": "backoff", "backend": backend(cfg), "ms": 0}
+    else:
+        res = primary(cfg, text)
+    if res.get("route") is not None or res.get("error") in (None, "bad_backend", "no_key"):
+        return res
+    if not fallback_ok(cfg, private, now):
+        return res
+    fb = fallback(dict(cfg, S1_BACKEND="typesafe"), text)
+    # No key means no request was made: nothing left the house, so the result must not say it
+    # did (review 2026-09-24 -- the page printed "sent to Jev" for a call that never happened).
+    if fb.get("error") in ("no_key", "bad_backend"):
+        return res
+    fb["fallback_from"] = {"backend": res.get("backend"), "error": res.get("error"), "ms": res.get("ms")}
+    return fb
 
 
 def decide(cfg, res):

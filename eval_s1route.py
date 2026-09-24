@@ -95,9 +95,14 @@ REC = {"from": "!aaaaaaaa", "to": "^all", "channel": 0, "text": "", "snr": 6.5, 
        "hop_start": 3, "hop_limit": 3, "id": 1}
 OURS = "!cccccccc"
 
-def run(text, c, post, wget=None, st=None, unlocked=False, rec=None):
-    """One message through plan_response + plan_s1_rescue, exactly as the main loop does."""
-    J._state["backoff_until"] = 0.0
+def run(text, c, post, wget=None, st=None, unlocked=False, rec=None, fb=None, keep_backoff=False):
+    """One message through plan_response + plan_s1_rescue, exactly as the main loop does.
+    `fb` is the cloud FALLBACK's stub; by default one that records calls, so no test can reach
+    the network through the fallback by accident."""
+    if not keep_backoff:
+        J._state["backoff_until"] = 0.0
+        J._state["fallback"]["backoff_until"] = 0.0
+    fb = Post("conversation") if fb is None else fb
     wget = wget or WGet()
     rec = dict(rec or REC, text=text)
     st = {} if st is None else st
@@ -107,7 +112,8 @@ def run(text, c, post, wget=None, st=None, unlocked=False, rec=None):
         c, st, rec, OURS, plan,
         lambda hint: R.plan_response(c, rec["from"], text, get=wget, unlocked=unlocked,
                                      route_hint=hint),
-        classify=lambda cc, t: J.classify(cc, t, post=post))
+        classify=lambda cc, t: J.classify(cc, t, post=post),
+        fallback_classify=lambda cc, t: J.classify(cc, t, post=fb, slot="fallback"))
     return before, out, sig, trace, wget
 
 _real_busy = R.channel_busy
@@ -561,6 +567,110 @@ def suite():
     J._state["backoff_until"] = 0.0
     J._state["backoff_until"] = 0.0
 
+    print("\n== 18. the cloud FALLBACK: off by default, public only, its own failure state ==")
+    import urllib.error as _ue
+    hot = lambda: Post(raise_=_ue.HTTPError("u", 503, "busy", {}, None))
+    LOC = dict(S1_BACKEND="local", S1_LOCAL_URL="http://box:8799/v1/systemone")
+    ck("S1_FALLBACK defaults to none", J.DEFAULTS["S1_FALLBACK"] == "none")
+    fb = Post("sigreport", 0.98, other=0.1)
+    b, o, s_, t, _ = run("Cal, hows the link holding up?", cfg(**LOC), hot(), fb=fb)
+    ck("default: a failed local scorer does NOT reach the cloud", fb.calls == [] and s_ is None
+       and t.get("backend") == "local", repr(t))
+    fb = Post("sigreport", 0.98, other=0.1)
+    b, o, s_, t, _ = run("Cal, hows the link holding up?", cfg(S1_FALLBACK="typesafe", **LOC), hot(), fb=fb)
+    ck("armed: a hot local scorer falls back, once", len(fb.calls) == 1, str(len(fb.calls)))
+    ck("the fallback call is the CLOUD shape, with the key and the pinned model",
+       fb.calls and isinstance(fb.calls[0]["body"].get("state"), dict)
+       and fb.calls[0]["body"].get("model") == J.MODEL
+       and fb.calls[0]["headers"].get("Authorization", "").startswith("Bearer "))
+    ck("and it acts on the cloud answer through the same gates", s_ is not None and t.get("acted") == "sigreport", repr(t))
+    ck("the trace names the cloud AND why the house could not answer",
+       t.get("backend") == "typesafe" and (t.get("fallback_from") or {}).get("error") == "busy", repr(t))
+    ck("no key and no message text in the trace", KEY not in json.dumps(t) and "holding up" not in json.dumps(t))
+    fb = Post("sigreport", 0.98, other=0.1)
+    b, o, s_, t, _ = run("Cal, hows the link holding up?", cfg(S1_FALLBACK="typesafe", S1_PRIVATE_OK="true", **LOC),
+                         hot(), fb=fb, rec=dict(REC, to=OURS))
+    ck("a DM NEVER goes to the fallback, even with S1_PRIVATE_OK=true", fb.calls == [], str(len(fb.calls)))
+    calch = R.cal_channel(cfg(CAL_CHANNEL="1"))
+    fb = Post("sigreport", 0.98, other=0.1)
+    run("Cal, hows the link holding up?", cfg(S1_FALLBACK="typesafe", S1_PRIVATE_OK="true", CAL_CHANNEL="1", **LOC),
+        hot(), fb=fb, rec=dict(REC, channel=calch))
+    ck("nor does Cal's own channel", fb.calls == [])
+    fb = Post("sigreport", 0.98, other=0.1); lp = Post("sigreport", 0.95, other=0.1)
+    run("Cal, hows the link holding up?", cfg(S1_FALLBACK="typesafe", **LOC), lp, fb=fb)
+    ck("a local scorer that answers is never second-guessed by the cloud", len(lp.calls) == 1 and fb.calls == [])
+    fb = Post("conversation", 0.9); lp = Post("conversation", 0.95)
+    run("Cal, hows the link holding up?", cfg(S1_FALLBACK="typesafe", **LOC), lp, fb=fb)
+    ck("a local answer of 'conversation' is an answer, not a failure", fb.calls == [])
+    # during the LOCAL backoff: the house is not asked, the cloud is
+    J._state["backoff_until"] = _t.time() + 300; J._state["fallback"]["backoff_until"] = 0.0
+    fb = Post("sigreport", 0.98, other=0.1); lp = Post("sigreport", 0.95, other=0.1)
+    b, o, s_, t, _ = run("Cal, hows the link holding up?", cfg(S1_FALLBACK="typesafe", **LOC), lp, fb=fb, keep_backoff=True)
+    ck("inside the local backoff: local skipped, cloud asked", lp.calls == [] and len(fb.calls) == 1
+       and (t.get("fallback_from") or {}).get("error") == "backoff", repr(t))
+    J._state["backoff_until"] = _t.time() + 300
+    lp = Post("sigreport", 0.95)
+    b, o, s_, t, _ = run("Cal, hows the link holding up?", cfg(**LOC), lp, keep_backoff=True)
+    ck("inside the local backoff with NO fallback: nothing asked, as before",
+       lp.calls == [] and (t or {}).get("reason") == "backoff", repr(t))
+    J._state["backoff_until"] = 0.0
+    # the cloud failing backs off the CLOUD slot, not the house
+    fb = Post(raise_=OSError("cloud down"))
+    run("Cal, hows the link holding up?", cfg(S1_FALLBACK="typesafe", **LOC), hot(), fb=fb)
+    ck("a failed fallback backs off its own slot", J._state["fallback"]["backoff_until"] > _t.time())
+    ck("and the house's window is the busy one, untouched by the cloud's failure",
+       J._state["backoff_until"] - _t.time() <= 121, str(J._state["backoff_until"] - _t.time()))
+    J._state["backoff_until"] = 0.0
+    fb2 = Post("sigreport", 0.98, other=0.1)
+    run("Cal, hows the link holding up?", cfg(S1_FALLBACK="typesafe", **LOC), hot(), fb=fb2, keep_backoff=True)
+    ck("while the cloud is backed off it is not asked again", fb2.calls == [])
+    J._state["fallback"]["backoff_until"] = 0.0; J._state["backoff_until"] = 0.0
+    # the guards and walls apply to a cloud answer exactly as to a local one
+    fb = Post("sigreport", 0.99, other=0.9)
+    b, o, s_, t, _ = run("cal how's jim coming through", cfg(S1_FALLBACK="typesafe", **LOC), hot(), fb=fb)
+    ck("a cloud answer still has to pass the other-station guard", s_ is None and t.get("acted") is None, repr(t))
+    fb = Post("sigreport", 0.99, other=0.05)
+    b, o, s_, t, _ = run("cal how's jim coming through", cfg(S1_FALLBACK="typesafe", **LOC), hot(), fb=fb)
+    ck("and the closed-vocabulary wall", s_ is None and t.get("declined") == "sigreport_not_own_link", repr(t))
+    for v in ("cloud", "Typesafe x", "yes", ""):
+        ck(f"S1_FALLBACK={v!r} is none (fails closed)", not J.fallback_ok(cfg(S1_FALLBACK=v, **LOC)))
+    ck("a cloud PRIMARY has no fallback", not J.fallback_ok(cfg(S1_FALLBACK="typesafe", S1_BACKEND="typesafe")))
+    fb = Post("sigreport", 0.98, other=0.1)
+    b, o, s_, t, _ = run("Cal, hows the link holding up?",
+                         cfg(S1_FALLBACK="typesafe", S1_KEY_FILE="/nonexistent/key", **LOC), hot(), fb=fb)
+    ck("no key: nothing sent, and the trace does not claim it was",
+       fb.calls == [] and "fallback_from" not in t and t.get("error") == "busy", repr(t))
+    # THE PRODUCTION PATH: the main loop passes neither classify function, so consult's own
+    # default fallback runs. Every other case here injects one, and a mutant that dropped its
+    # slot="fallback" (cloud failures then backing off the HOUSE) went uncaught. Stub the HTTP
+    # layer instead, and let the real defaults run.
+    _real_post = J._http_post
+    seen = []
+    def _net(url, body, headers, timeout):
+        seen.append(url)
+        if "systemone" in url and url.startswith("http://box"):
+            raise _ue.HTTPError(url, 503, "busy", {}, None)
+        raise OSError("cloud down")
+    J._http_post = _net
+    try:
+        J._state["backoff_until"] = 0.0; J._state["fallback"]["backoff_until"] = 0.0
+        rec_ = dict(REC, text="Cal, hows the link holding up?")
+        c_ = cfg(S1_FALLBACK="typesafe", **LOC)
+        pl = R.plan_response(c_, rec_["from"], rec_["text"], get=WGet())
+        R.plan_s1_rescue(c_, {}, rec_, OURS, pl, lambda h: pl)
+        ck("default path: house asked, then the cloud", len(seen) == 2 and seen[1] == J.ENDPOINT, repr(seen))
+        ck("default path: the cloud's failure backs off the CLOUD slot",
+           J._state["fallback"]["backoff_until"] - _t.time() > 200, repr(J._state))
+        ck("default path: and the house keeps its own short busy window",
+           0 < J._state["backoff_until"] - _t.time() <= 121, repr(J._state))
+    finally:
+        J._http_post = _real_post
+        J._state["backoff_until"] = 0.0; J._state["fallback"]["backoff_until"] = 0.0
+    fb = Post("sigreport", 0.98, other=0.1)
+    run("Cal, hows the link holding up?", cfg(S1_FALLBACK="typesafe", S1_ROUTE_ENABLED="false", **LOC), hot(), fb=fb)
+    ck("router off: the fallback is off too", fb.calls == [])
+    J._state["backoff_until"] = 0.0; J._state["fallback"]["backoff_until"] = 0.0
+
     print("\n== 16. the trace names what answered ==")
     p = Post("weather", 0.99, now=0.95)
     b, o, s, t, _ = run("cal is it hotter than 12*8 out", cfg(), p)
@@ -577,13 +687,13 @@ if FAILS:
 # --- MUTATIONS: each must turn the suite red. In-process; a crash is not a catch. ------------
 print("\n== mutations (each must be caught) ==")
 _real_classify = J.classify
-def _classify_backoff_on_4xx(cfg, text, post=None, now=None):
-    r = _real_classify(cfg, text, post=post, now=now)
+def _classify_backoff_on_4xx(cfg, text, post=None, now=None, slot=None):
+    r = _real_classify(cfg, text, post=post, now=now, slot=slot)
     if str(r.get("error", "")).startswith("http_4"):
         J._state["backoff_until"] = time.time() + 300
     return r
 real = {"classify": _real_classify, "opener": J._OPENER, "eligible": J.eligible, "decide": J.decide, "RESCUABLE": J.RESCUABLE, "MODEL": J.MODEL,
-        "wd": J._with_deadline, "non": R.sigreport.names_other_node, "olo": R.sigreport.own_link_only, "commit": R.commit_sigreport,
+        "wd": J._with_deadline, "non": R.sigreport.names_other_node, "olo": R.sigreport.own_link_only, "fbok": J.fallback_ok, "commit": R.commit_sigreport,
         "backend": J.backend, "LI": J.LOCAL_INSTRUCTIONS}
 def _elig_ignores_unlock(c, plan, **kw):
     return real["eligible"](c, dict(plan, unlocked=False), **kw)
@@ -596,6 +706,8 @@ def _elig_ignores_backoff(c, plan, **kw):
     return real["eligible"](c, plan, **kw)
 def _decide_no_floor(c, res):
     return res.get("route") if res and res.get("route") in J.RESCUABLE else None
+def _fb_ignores_private(c, private=False, now=None):
+    return real["fbok"](c, False, now)
 def _decide_no_guards(c, res):
     # The real decide with both guards forced to pass -- so the mutant differs ONLY in the guards.
     return real["decide"](c, dict(res, weather_now=1.0, other_station=0.0) if res else res)
@@ -611,6 +723,8 @@ MUTANTS = [
     ("no wall-clock deadline", lambda: setattr(J, "_with_deadline", lambda fn, d: fn())),
     ("node-name backstop off", lambda: setattr(R.sigreport, "names_other_node", lambda t: False)),
     ("closed-vocabulary wall off", lambda: setattr(R.sigreport, "own_link_only", lambda t: True)),
+    ("fallback sends private traffic", lambda: setattr(J, "fallback_ok", _fb_ignores_private)),
+    ("fallback on by default", lambda: J.DEFAULTS.__setitem__("S1_FALLBACK", "typesafe")),
     ("send does not spend the budget", lambda: setattr(R, "commit_sigreport", lambda st, s, ts=None: None)),
     ("backend switch ignored", lambda: setattr(J, "backend", lambda cfg: "typesafe")),
     ("local sent the cloud prompt shape", lambda: setattr(J, "LOCAL_INSTRUCTIONS", J.INSTRUCTIONS)),
@@ -633,7 +747,8 @@ for name, apply in MUTANTS:
         J._with_deadline, R.sigreport.names_other_node, R.commit_sigreport = (
             real["wd"], real["non"], real["commit"])
         J.backend, J.LOCAL_INSTRUCTIONS = real["backend"], real["LI"]
-        R.sigreport.own_link_only = real["olo"]
+        R.sigreport.own_link_only = real["olo"]; J.fallback_ok = real["fbok"]
+        J.DEFAULTS["S1_FALLBACK"] = "none"
         J.classify = real["classify"]; J._OPENER = real["opener"]
         J._state["backoff_until"] = 0.0
         R.channel_busy = lambda cfg, ts=None: (False, 0.0, "quiet")
