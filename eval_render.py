@@ -85,7 +85,10 @@ _WL = re.search(r'rec\["trace"\] = \{k: dec\.get\(k\) for k in\s*\((.*?)\)', SRC
 if _WL is None:
     print("FAIL: could not read the trace whitelist out of dashboard.py")
     sys.exit(1)
-TRACE_KEYS = tuple(re.findall(r'"([a-z_]+)"', _WL.group(1)))
+# [a-z0-9_] and not [a-z_]: `s1_route` has a DIGIT in it, and the narrower class silently
+# dropped that key, so every Jev/router case rendered without its stage and still "passed" the
+# positive checks it no longer exercised.
+TRACE_KEYS = tuple(re.findall(r'"([a-z0-9_]+)"', _WL.group(1)))
 if "calc" not in TRACE_KEYS:
     print("FAIL: dashboard.py trace whitelist is missing 'calc' — the handler never reaches the page")
     sys.exit(1)
@@ -264,30 +267,30 @@ JR_W = {"asked": True, "route": "weather", "conf": 0.99, "model": "jev-1.13.0", 
 CASES["jev_weather"] = rec(text="Cal is it raining", reply="72F, light rain, S wind 6 mph",
     capability="weather", trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="weather",
         model="claude-haiku-4-5-20251001", injected_fact="72F, Light Rain, wind S 6 mph",
-        weather_ok=True, obs_station="KOJC", obs_age_s=600, dest="^all", jev_route=JR_W))
+        weather_ok=True, obs_station="KOJC", obs_age_s=600, dest="^all", s1_route=JR_W))
 CASES["jev_sigreport"] = rec(text="Cal, hows the link holding up?",
     reply="Copy: direct, RSSI -35, SNR 6.0", capability="sigreport", gen_ms=None,
     trace=dict(gates=GATES_OK, prompt_kind="fixed", dest="^all", gen_status="fixed_sigreport",
         sigreport_gates=[{"gate": g, "pass": True} for g in
-                         ("sigreport_enabled", "not_self", "not_a_reaction", "is_a_test_jev",
+                         ("sigreport_enabled", "not_self", "not_a_reaction", "is_a_test_routed",
                           "has_measurements", "channel_quiet", "sender_cooldown", "daily_budget")],
         sigreport=dict(hops=0, snr=6.0, rssi=-35, relay_name=None,
                        parts=["direct", "RSSI -35", "SNR 6.0"]),
-        jev_route=dict(JR_W, route="sigreport", conf=0.97, acted="sigreport")))
+        s1_route=dict(JR_W, route="sigreport", conf=0.97, acted="sigreport")))
 CASES["jev_calc"] = rec(text="cal is it hotter than 12*8 out", reply="12*8 = 96",
     capability="calc", gen_ms=None,
     trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="fixed", dest="^all",
         gen_status="fixed_calc", calc={"handler": "arith"},
-        jev_route=dict(JR_W, acted="weather", answered_by="calc")))
+        s1_route=dict(JR_W, acted="weather", answered_by="calc")))
 CASES["jev_xss"] = rec(text="Cal is it raining", reply="72F", capability="weather",
     trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="weather",
         model="claude-haiku-4-5-20251001", injected_fact="72F", weather_ok=True, dest="^all",
-        jev_route=dict(JR_W, model="<script>alert(1)</script>", route="<script>alert(2)</script>",
+        s1_route=dict(JR_W, model="<script>alert(1)</script>", route="<script>alert(2)</script>",
                        answered_by="<script>alert(3)</script>")))
 CASES["jev_xss_declined"] = rec(text="Cal what do you think", reply="Seems solid.",
     trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="general",
         model="claude-haiku-4-5-20251001", dest="^all",
-        jev_route=dict(JR_W, route="<script>alert(4)</script>", conf=0.41, acted=None,
+        s1_route=dict(JR_W, route="<script>alert(4)</script>", conf=0.41, acted=None,
                        declined="<script>alert(5)</script>")))
 # LOCAL BACKEND (2026-09-23): the same router, scored on our own hardware. The page must say
 # WHERE it ran -- naming Jev for a reply that never left the house is the same class of false
@@ -296,28 +299,28 @@ CASES["local_sigreport"] = rec(text="Cal, hows the link holding up?", reply="Cop
     capability="sigreport", gen_ms=None,
     trace=dict(gates=GATES_OK, prompt_kind="fixed", dest="^all", gen_status="fixed_sigreport",
         sigreport=dict(hops=0, snr=6.0, rssi=-35, relay_name=None, parts=["direct", "SNR 6.0"]),
-        jev_route=dict(JR_W, backend="local", model="semif-qwen3.5-4b-q4km", route="sigreport",
+        s1_route=dict(JR_W, backend="local", model="semif-qwen3.5-4b-q4km", route="sigreport",
                        conf=0.9, acted="sigreport", answered_by="sigreport")))
 CASES["local_busy"] = rec(text="Cal what do you think of the new repeater", reply="Seems solid.",
     trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="general",
         model="claude-haiku-4-5-20251001", dest="^all",
-        jev_route=dict(JR_W, backend="local", model=None, route=None, conf=None,
+        s1_route=dict(JR_W, backend="local", model=None, route=None, conf=None,
                        error="busy", acted=None)))
 CASES["jev_declined"] = rec(text="Cal what do you think of the new repeater",
     reply="Seems solid so far.", trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT,
         prompt_kind="general", model="claude-haiku-4-5-20251001", dest="^all",
-        jev_route=dict(JR_W, route="weather", conf=0.41, acted=None)))
+        s1_route=dict(JR_W, route="weather", conf=0.41, acted=None)))
 CASES["jev_error"] = rec(text="Cal what do you think of the new repeater",
     reply="Seems solid so far.", trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT,
         prompt_kind="general", model="claude-haiku-4-5-20251001", dest="^all",
-        jev_route=dict(JR_W, route=None, conf=None, model=None, error="TimeoutError", acted=None)))
+        s1_route=dict(JR_W, route=None, conf=None, model=None, error="TimeoutError", acted=None)))
 
 CHECKS = [
-    # ---- jevroute: a model chose the path, and the page must never say otherwise ----
+    # ---- s1route: a model chose the path, and the page must never say otherwise ----
     ("jev_weather", ["routed by Jev", "no word rule matched", "did not write or look up anything"],
      ["plain word matching"],
      "a Jev-routed weather reply must not be captioned as word matching with no model involved"),
-    ("jev_sigreport", ["routed by Jev", "is_a_test_jev", "no model wrote this reply"],
+    ("jev_sigreport", ["routed by Jev", "is_a_test_routed", "no model wrote this reply"],
      ["no model ran &mdash; the responder"],
      "a decision model ran, so 'no model ran' is false; what is true is that no model WROTE it"),
     ("jev_sigreport", ["the shape rule did <b>not</b> match", "decision model"],
@@ -329,7 +332,7 @@ CHECKS = [
      ["nothing was fetched and no model ran"],
      "Jev named weather, the collision guard answered with calc: the trace must name what ran"),
     ("jev_xss", ["&lt;script&gt;"], ["<script>alert"],
-     "jev_route fields are rendered on a public page and must be escaped"),
+     "s1_route fields are rendered on a public page and must be escaped"),
     ("jev_xss_declined", ["&lt;script&gt;"], ["<script>alert"],
      "the declined line renders Jev's route too, and must escape it"),
     ("local_sigreport", ["routed on our own hardware", "did not leave the house",

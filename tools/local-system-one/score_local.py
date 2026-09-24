@@ -23,7 +23,7 @@ for name, pop in (("addressed public (default)", addr_pub), ("addressed incl. pr
     lad = sum(D[x["text"]]["current"] == D[x["text"]]["truth"] for x in pop)
     loc = score(pop, act); jev = score(pop, lambda x: D[x["text"]]["jev_act"])
     alone_loc = sum(x.get("route") == D[x["text"]]["truth"] for x in pop)
-    alone_jev = sum(D[x["text"]]["jev_route"] == D[x["text"]]["truth"] for x in pop)
+    alone_jev = sum(D[x["text"]]["s1_route"] == D[x["text"]]["truth"] for x in pop)
     print(f"  {name:28} n={len(pop):3}  ladder {lad:3} | built+LOCAL {loc[0]} (+{loc[1]} -{loc[2]}) | built+JEV {jev[0]} (+{jev[1]} -{jev[2]}) | route-alone local {alone_loc} vs Jev {alone_jev}")
 # calibration: ECE of route confidence (max prob) vs correctness, 10 bins
 pts = [(max(x["probs"].values()), x["route"] == D[x["text"]]["truth"]) for x in res if x.get("probs")]

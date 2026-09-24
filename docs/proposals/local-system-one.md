@@ -11,7 +11,7 @@ changed by this work***
 
 ## 0. The question
 
-`jevroute` is merged and OFF. Arming it sends the sanitized text of an addressed fallthrough
+`s1route` is merged and OFF. Arming it sends the sanitized text of an addressed fallthrough
 message to TypeSafe. That privacy cost is the only reason it is not on, so: can an open model on
 our own hardware answer the same question, and how much does the answer cost in quality?
 
@@ -22,7 +22,7 @@ measured here.
 
 The same 319 unique non-reaction inbox messages, the same adjudicated labels, the same scoring as
 the built router: act only on a fallthrough, only into weather / caps / sigreport, only at
-confidence >= `JEV_MIN_CONF` (0.8), with the same `weather_now` / `other_station` guards and the
+confidence >= `S1_MIN_CONF` (0.8), with the same `weather_now` / `other_station` guards and the
 same `sigreport.names_other_node` backstop. Ambiguous adjudications were counted against the
 model. All of it ran on **jlab** (i9-9980HK, 16 threads, no GPU, 31 GB), thermally gated: a call
 begins only at or below 70 °C, and a watchdog stops everything after five minutes at 99 °C.
@@ -75,7 +75,7 @@ only matters if the broadcast widening in `jev-routing.md` §2 is ever built.
 
 ## 3. What arming locally would cost
 
-* **New production code:** a second classifier behind the same flag (`jevroute.classify` grows a
+* **New production code:** a second classifier behind the same flag (`s1route.classify` grows a
   backend), a local scorer process on jlab, its config, its evals, and another adversarial review.
   Every guard, gate and fail-open path in `jev-routing.md` §3 stays as it is.
 * **A dependency on jlab:** ~7 s per decision on a box that also runs the weather app, reaches
@@ -91,10 +91,10 @@ only matters if the broadcast widening in `jev-routing.md` §2 is ever built.
   and the chosen option — never message text.
 * **Reachability is tailnet-only.** The unit binds jlab's `100.x` address: reachable by this
   operator's own devices, not the LAN and not the internet, and there is no auth on the port — the
-  tailnet is the boundary. `JEV_LOCAL_URL` must be that address, **not** a MagicDNS hostname: on a
+  tailnet is the boundary. `S1_LOCAL_URL` must be that address, **not** a MagicDNS hostname: on a
   host with Funnel enabled the name resolves to the public relay (`jlab` → a `199.x`), which would
   quietly take the router off the tailnet.
-* **`JEV_BACKEND=local`** in cal-mesh points `jevroute` at it. No key is read or sent; every gate,
+* **`S1_BACKEND=local`** in cal-mesh points `s1route` at it. No key is read or sent; every gate,
   guard, threshold and fail-open path is the same code as the cloud path.
 * **The local prompt is not the cloud prompt.** The measurement was taken with the state as plain
   text and a question that names no state field. Sending the cloud shape to the local scorer moved
@@ -103,7 +103,7 @@ only matters if the broadcast widening in `jev-routing.md` §2 is ever built.
   Guard wording is load-bearing too: rephrasing `other_station` moved one message from 0.33 to
   0.52, across its bar.
 * **Measured end to end through the running service**, all 56 addressed messages replayed from the
-  Mac over the tailnet with jevroute's own constants, and scored against the clean label set
+  Mac over the tailnet with s1route's own constants, and scored against the clean label set
   (`tools/clean-labels`): **addressed public 23 → 25 of 25, +2, nothing broken — the same as the
   cloud service**; addressed including private 46 → 48 against the cloud service's 49. None of the
   23 `unsure` labels falls in either population, so the headline rests only on labels the rules
@@ -112,14 +112,14 @@ only matters if the broadcast widening in `jev-routing.md` §2 is ever built.
 * **One difference from the offline run, and it is the guard wording.** With the production
   `other_station` text the DM *"Hows the radio holding up?"* scores **0.52**, just over its 0.5
   bar, and is not rescued; the offline run's wording put it at 0.33. It is a DM, so the default
-  build excludes it either way — but **if `JEV_PRIVATE_OK` is ever set, that guard's wording
+  build excludes it either way — but **if `S1_PRIVATE_OK` is ever set, that guard's wording
   should be re-measured rather than assumed.** Tuning it now, on the same 56 messages it would be
   scored against, would be fitting the test.
 
 * **A 4xx is not an outage (found by running, 2026-09-23).** SemIf refuses input whose GGUF and
   reference tokenizations disagree — a single `❤️` returns **422** — and the router treated any
   HTTP error as a network failure, so one such message would have silenced it for
-  `JEV_BACKOFF_S`. A 4xx other than 429 now fails open immediately with `http_<code>` and no
+  `S1_BACKOFF_S`. A 4xx other than 429 now fails open immediately with `http_<code>` and no
   backoff; 429 still waits, because being rate-limited is a reason to.
 
 ## 3b. What a security review found (2026-09-23)
@@ -152,12 +152,12 @@ was availability:
 any row over 4096 tokens, which is what bounds per-question cost; no message text is logged; a
 500 returns only an exception class name; the systemd hardening is live on the running process;
 the privacy gates (`unlocked`, `flagged`, `private_traffic`) cannot be reopened by
-`JEV_PRIVATE_OK`; the key is never read on the local path; and every attacker-influenceable
-`jev_route` field on the page goes through `esc()`.
+`S1_PRIVATE_OK`; the key is never read on the local path; and every attacker-influenceable
+`s1_route` field on the page goes through `esc()`.
 
 ## 4. Decision
 
-**`jevroute` stays OFF, and if it is ever armed it is armed LOCAL-FIRST** — the local backend is
+**`s1route` stays OFF, and if it is ever armed it is armed LOCAL-FIRST** — the local backend is
 built and measured (§3a) so that arming is one config line rather than a project.
 
 The reasoning is the size of the prize, not the quality of the options. On 44 days of real traffic

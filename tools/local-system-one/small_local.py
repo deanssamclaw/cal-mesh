@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """decider / laya on the addressed set. Both take TypeSafe-shaped typed questions, so the
-criteria and guards are jevroute's own, verbatim. Usage: small_local.py decider|laya [N]"""
+criteria and guards are s1route's own, verbatim. Usage: small_local.py decider|laya [N]"""
 import json, sys, time
 BACKEND = sys.argv[1]; LIMIT = int(sys.argv[2]) if len(sys.argv) > 2 else 56
 D = json.load(open("eval_data.json")); CRIT = D["criteria"]; GUARDS = D["guards"]

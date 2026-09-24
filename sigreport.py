@@ -183,7 +183,7 @@ def _normalize(text):
     return s.strip(" .!,;:-–—\"'?")
 
 
-# For a message a ROUTER (jevroute) called a signal ask, rather than one the shape rule matched:
+# For a message a ROUTER (s1route) called a signal ask, rather than one the shape rule matched:
 # another node named anywhere in the RAW text refuses it. Raw, because `_normalize` lowercases
 # and a callsign is upper-case -- `_CONTACT_OTHER_NODE`'s callsign branch can never match after
 # normalisation (found in the 2026-09-21 review; left alone there, since changing an armed rule

@@ -315,9 +315,9 @@ def build_latency(path=DECISIONS):
                 model_ms.append(float(g))
             else:
                 fixed += 1
-                # jevroute: a decision model chose the capability, though none wrote the reply.
+                # s1route: a decision model chose the capability, though none wrote the reply.
                 # Counted apart so the tile cannot say "no model ran" of a reply one routed.
-                if isinstance(r.get("jev_route"), dict) and r["jev_route"].get("acted"):
+                if isinstance(r.get("s1_route"), dict) and r["s1_route"].get("acted"):
                     routed += 1
     except Exception:
         pass

@@ -105,8 +105,8 @@ arrives after the paste is not a guard.
   the oracle verdicts. All gitignored: they carry message text and third-party node ids.
 - `tools/local-system-one/` — offline runners that compared five open System One models against the
   cloud router on this node's own traffic. Never imported by the responder. See the proposal above.
-- `jevroute.py` — the second-opinion router (default OFF). One Choice question, pinned model, the
-  option text in one block. Key read from `JEV_KEY_FILE`, never logged. See above.
+- `s1route.py` — the second-opinion router (default OFF). One Choice question, pinned model, the
+  option text in one block. Key read from `S1_KEY_FILE`, never logged. See above.
 - `mesh` — CLI: `mesh send "…"` · `mesh read [N]` · `mesh watch` · `mesh nodes` · `mesh status` · `mesh log`
 - `bridge.log` / `responder.log` / `dashboard.log`
 
@@ -286,17 +286,21 @@ The eval allows contact reports as a **class**, via a skeleton written by hand i
 than a call into `_is_contact_report`: a fixture built from the thing under test could only ever
 pass. Breaking either condition, or the rule entirely, fails the suite.
 
-## Second-opinion routing (jevroute, default OFF)
+## Second-opinion routing (s1route, default OFF)
 
-Every doer claims a message with a regex; what no regex claims falls to the model. `jevroute.py`
+*Named for the model class, not a vendor: what runs locally is a frozen Qwen3.5-4B scored by
+SemIf. It was `jevroute`/`JEV_*` until 2026-09-23, after the cloud service it was first built
+against.*
+
+Every doer claims a message with a regex; what no regex claims falls to the model. `s1route.py`
 asks one more question on **that fallthrough only** — *which service should answer this?* — of
 **Jev** (`jev-1.13.0`, TypeSafe AI), a decision model that writes no text and computes nothing. It
 can only send a message to a doer that already exists, and that doer keeps every refusal it had.
 
 - **Asked only** when an addressed message reached the fallthrough. **Private traffic stays home
-  by default**: DMs and Cal's own channel are excluded unless `JEV_PRIVATE_OK=true`; unlocked DMs
+  by default**: DMs and Cal's own channel are excluded unless `S1_PRIVATE_OK=true`; unlocked DMs
   and sanitizer-flagged messages are excluded always. A message the ladder answers never leaves.
-- **Acts only** into weather, caps or sigreport, at `JEV_MIN_CONF` (0.8) or above, and only when
+- **Acts only** into weather, caps or sigreport, at `S1_MIN_CONF` (0.8) or above, and only when
   a same-call guard agrees: weather must be about **now** (past-tense asks were getting the current
   reading), sigreport must be about **this** link and name no other node. Never calc, never
   greeting. Any failure = today's behaviour; the timeout bounds the whole call, with a backoff.
@@ -310,17 +314,17 @@ can only send a message to a doer that already exists, and that doer keeps every
 - **A local model now buys the same three fixes.** SemIf's scorer on a frozen Qwen3.5-4B on jlab,
   with one fitted temperature, matches Jev exactly on both addressed populations (25/25 and 50/56,
   0 broken) at ~7 s a decision with nothing leaving the house; bigger and smaller models were both
-  worse, because the lever is calibration, not size. **Decision: jevroute stays OFF, and if it is
+  worse, because the lever is calibration, not size. **Decision: s1route stays OFF, and if it is
   ever armed it is armed local-first** — with the triggers that would re-open that in
   [`docs/proposals/local-system-one.md`](docs/proposals/local-system-one.md). Runners:
   [`tools/local-system-one/`](tools/local-system-one).
-- **Two backends, one decision.** `JEV_BACKEND=typesafe` asks the cloud service; `JEV_BACKEND=local`
+- **Two backends, one decision.** `S1_BACKEND=typesafe` asks the cloud service; `S1_BACKEND=local`
   asks `system_one_server.py` on jlab and **no message text leaves the house** — no key is sent, and
   the local path uses its own measured prompt wording (the cloud shape costs it 0.11 of confidence,
   which crosses the floor). Arming either is still one flag, and arming the cloud one is what sends
-  text to a third party. Config: `JEV_ROUTE_ENABLED`, `JEV_BACKEND`, `JEV_LOCAL_URL`,
-  `JEV_LOCAL_TIMEOUT_S`, `JEV_BUSY_BACKOFF_S`, `JEV_MIN_CONF`, `JEV_TIMEOUT_S`, `JEV_BACKOFF_S`,
-  `JEV_PRIVATE_OK`, `JEV_KEY_FILE`.
+  text to a third party. Config: `S1_ROUTE_ENABLED`, `S1_BACKEND`, `S1_LOCAL_URL`,
+  `S1_LOCAL_TIMEOUT_S`, `S1_BUSY_BACKOFF_S`, `S1_MIN_CONF`, `S1_TIMEOUT_S`, `S1_BACKOFF_S`,
+  `S1_PRIVATE_OK`, `S1_KEY_FILE`.
 - The decision is on the page: the trace draws a **routed by Jev** stage, and a Jev-routed weather
   reply no longer claims "plain word matching, no model involved".
 
@@ -342,7 +346,7 @@ Nothing goes on air because it looked right. The gate is the same for every tier
 **default OFF → offline eval → independent adversarial review → arm.**
 
 - **The eval runs with no radio and no network.** Current corpus: calc 273 checks, sun/moon 873,
-  greeting 91, DM 71 + 45, render 74, routing 21, jevroute 103 + 11 mutants, plus a page parser. Numbers only mean something
+  greeting 91, DM 71 + 45, render 74, routing 21, s1route 103 + 11 mutants, plus a page parser. Numbers only mean something
   where they are pinned to an outside source — sun/moon is measured against **43 U.S. Naval
   Observatory times, worst error 43 seconds**; the RF pack against published worked values.
 - **Mutation decides whether a check is real.** Break the code deliberately and the eval must go
