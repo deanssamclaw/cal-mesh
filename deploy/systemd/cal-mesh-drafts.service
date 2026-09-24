@@ -1,0 +1,9 @@
+[Unit]
+Description=cal-mesh drafts (one run; started by cal-mesh-drafts.timer)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/cal-mesh
+ExecStart=%h/cal-mesh/.venv/bin/python %h/cal-mesh/drafts.py --limit 40
+StandardOutput=append:%h/cal-mesh/drafts.log
+StandardError=append:%h/cal-mesh/drafts.log

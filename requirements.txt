@@ -1,0 +1,9 @@
+# cal-mesh. Everything except the radio bridge is standard library; this is the bridge's side.
+# Known working 2026-09-24 on Python 3.14.7 (3.12+ expected to work). pypubsub and protobuf
+# come in with meshtastic; pinned here only so a fresh install matches the one that runs.
+meshtastic==2.7.11
+pypubsub==4.0.7
+protobuf==7.35.1
+# The responder shells out to the `claude` CLI for its last-resort model reply; install it
+# separately (https://claude.com/claude-code). The local routing scorer has its own
+# dependencies on its own box: tools/system-one/README.md.

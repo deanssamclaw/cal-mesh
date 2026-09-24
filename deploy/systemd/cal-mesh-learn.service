@@ -1,0 +1,9 @@
+[Unit]
+Description=cal-mesh learn (one run; started by cal-mesh-learn.timer)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/cal-mesh
+ExecStart=%h/cal-mesh/.venv/bin/python %h/cal-mesh/learn.py --quiet
+StandardOutput=append:%h/cal-mesh/learn.log
+StandardError=append:%h/cal-mesh/learn.log

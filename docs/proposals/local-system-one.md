@@ -4,8 +4,12 @@
 
 *Cal · v1 2026-09-23 · re: `github.com/deanssamclaw/cal-mesh` · sits under
 [`jev-routing.md`](jev-routing.md), which built the router · runners in
-[`tools/local-system-one/`](../../tools/local-system-one) · **nothing armed; no production code
-changed by this work***
+[`tools/local-system-one/`](../../tools/local-system-one) · **status 2026-09-24: ARMED on this
+scorer, Jev as the backup for public messages when it cannot answer** · build it yourself:
+[`docs/router.md`](../router.md), server in [`tools/system-one/`](../../tools/system-one)*
+
+> The sections below are the record as written on 2026-09-23 ("OFF", "~7 s" per decision offline).
+> What changed since is at the end: arming, the review, and the corrections.
 
 ---
 
@@ -92,9 +96,10 @@ only matters if the broadcast widening in `jev-routing.md` §2 is ever built.
   today's path — but the rescue is only as available as jlab.
 * **11 GB on jlab** (venv, the 4B GGUF, the SemIf checkout) and about a day of work.
 
-## 3a. How it is wired (built 2026-09-23, still OFF)
+## 3a. How it is wired (built 2026-09-23; armed 2026-09-24)
 
-* **`system_one_server.py` on jlab** (`~/system-one`, a systemd unit, `127.0.0.1:8799`): loads the
+* **`system_one_server.py` on jlab** (`~/system-one`, a systemd unit, port 8799 on the tailnet
+  address — the code's default bind is loopback; the unit overrides it): loads the
   4B GGUF once, serves TypeSafe's request shape, applies the fitted temperature, and answers
   **503 above 95 °C** so a hot laptop degrades instead of cooking. It logs question ids, timings
   and the chosen option — never message text.

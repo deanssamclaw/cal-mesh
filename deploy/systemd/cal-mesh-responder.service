@@ -1,0 +1,18 @@
+# systemd --user unit for Linux. Install: cp to ~/.config/systemd/user/, then
+#   systemctl --user daemon-reload && systemctl --user enable --now cal-mesh-responder
+# (and `loginctl enable-linger $USER` so it runs without a login session).
+[Unit]
+Description=cal-mesh responder
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/cal-mesh
+ExecStart=%h/cal-mesh/.venv/bin/python %h/cal-mesh/responder.py
+Restart=on-failure
+RestartSec=10
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+StandardOutput=append:%h/cal-mesh/responder.log
+StandardError=append:%h/cal-mesh/responder.log
+
+[Install]
+WantedBy=default.target
