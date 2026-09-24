@@ -12,13 +12,28 @@ independent adversarial review pass.
 
 ## How it works
 
+```mermaid
+flowchart LR
+    rin(["📻 Radio"]) --> bin["<b>bridge.py</b><br/><i>receives</i>"]
+    bin --> resp{"<b>responder.py</b><br/>does a word rule<br/>claim it?"}
+    resp -- "yes" --> cap["<b>Capability</b><br/>signal · sun/moon · calc<br/>weather · what-can-you-do<br/><i>answers from real data</i>"]
+    resp -- "no — and it's<br/>addressed to Cal" --> s1{{"<b>s1route</b><br/>which capability should answer?<br/><i>local scorer · Jev backup</i>"}}
+    s1 -- "confident, checks pass" --> cap
+    s1 -- "not sure" --> llm["<b>Language model</b><br/><i>writes a reply,<br/>computes nothing</i>"]
+    cap --> bout["<b>bridge.py</b><br/><i>transmits</i>"]
+    llm --> bout
+    bout --> rout(["📻 Radio"])
+
+    classDef radio fill:#e8f1fb,stroke:#3b82c4,color:#123;
+    classDef code fill:#eef7ee,stroke:#3f9142,color:#123;
+    classDef model fill:#fdf3e4,stroke:#c98a1b,color:#123;
+    class rin,rout radio;
+    class bin,bout,resp,cap code;
+    class s1,llm model;
 ```
- radio ─▶ bridge.py ─▶ inbox.jsonl ─▶ responder.py ─▶ outbox/ ─▶ bridge.py ─▶ radio
-          (only process                 word rules pick a capability; if none does, a
-           that touches                 decision model may route it (s1route); otherwise
-           the radio)                   a language model replies, with nothing to compute
-                              dashboard.py ─▶ public page: every reply's full decision trace
-```
+
+Green is plain code; amber is where a model is involved. `bridge.py` is the only process that
+touches the radio, and `dashboard.py` publishes every decision along the way.
 
 - **Capabilities first, model last.** Each capability is a small deterministic program that
   claims a message with a word rule and answers from real data. The model only sees what nothing
