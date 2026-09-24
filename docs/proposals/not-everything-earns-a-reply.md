@@ -35,7 +35,10 @@ silent on**, with the same floor and guards the router uses.
 
 **The armed capabilities already catch what they can.** Cal answered 74 distinct messages in that
 window and was silent on 302, and of those 302 about **four a month** are ones a doer could answer
-well. The widening is worth roughly one message a month per door.
+well. *(Corrected 2026-09-24: 4 in 45.3 days is **2.6 a month**, 95% interval 0.7–6.8, and one of
+the 4 — "Storm is brewing" — is a known wrong answer, so about two. The "1 good in 18" for model
+prose is 18 grades from one reviewer on one day: 95% interval 0.1%–27%. The verdict stands; the
+margin is wide.)* The widening is worth roughly one message a month per door.
 
 **The only large door is the one the evidence says to keep shut.** Model prose on un-addressed
 chatter is 14 messages a week, in a class that graded `good` **once in eighteen**.

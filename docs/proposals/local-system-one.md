@@ -65,9 +65,18 @@ breakages. Every fix is a link/signal ask — the failure class `sigreport.py` w
    0.67. At a 0.8 floor they contribute nothing. Laya's own README is explicit that its headline
    number is the checkpoint fine-tuned on that benchmark's split, and that the base checkpoints are
    near chance zero-shot; measured here on our traffic, they are.
-3. **Calibration was the whole lever.** SemIf picks *fewer* routes correctly than the ad-hoc
-   readout (44 vs 50 of 56) and is the only local system that matches Jev where it counts, because
-   its confident tail is clean. ECE 0.042 against 0.052 and 0.107 and 0.174 for the others.
+3. ~~Calibration was the whole lever.~~ **Corrected 2026-09-24: the lever was SemIf's option
+   scoring, not the temperature.** Uncalibrated (T=1.0), SemIf makes the *same three* rescues as at
+   T=1.45 — re-run from the saved logits. What it has that the ad-hoc readout lacks is a clean
+   confident tail: it picks *fewer* routes correctly (44 vs 50 of 56) but everything it is sure of
+   is right. The ECE 0.042 quoted here was over all 319 rows, 263 of which fitted the temperature
+   (in-sample); on the 56 held-out rows it is **0.062**. The comparison ECEs are on different
+   populations and do not rank these systems.
+   Points 1 and 2 also say more than the runs show: the 30B ran as raw completion while the 4B ran
+   through its chat template (different readout, generation and architecture), and on the clean
+   labels the 30B has the *best* raw routing (48/56) and breaks one message, not two. What the
+   evidence licenses: **SemIf's scorer on the 4B was the only local setup with no break at the floor,
+   on 56 messages.** See "Review 2026-09-24" at the end.
 
 **Where Jev is still clearly better:** raw routing (302/319 vs 237) and the un-addressed channel
 chatter — on all 319 as if everything were eligible, Jev fixes 9 and the local model 3. That gap
@@ -170,8 +179,9 @@ having, and the operator made that call. The measurements in §1 and §2 are unc
 verdict is.
 
 **Measured on the armed path, 2026-09-24:** *"Cal, hows the link holding up?"* → `sigreport`
-at **0.899**, guard clear, all nine sigreport gates run, reply on air
-`Copy: direct, RSSI -40, SNR 6.5` — the radio's own numbers, where the model previously wrote
+at **0.899**, guard clear, all nine sigreport gates run, reply built
+`Copy: direct, RSSI -40, SNR 6.5` (an in-process run of the real responder path, not a message
+received or sent: as of 2026-09-24 05:10 CT nothing had arrived since arming) — the radio's own numbers, where the model previously wrote
 "Link's solid and steady over here" with nothing behind it. A conversational message on the same
 path (*"what do you think of the new antenna"*) routes to `conversation` at 0.91 and is left to
 the model, unchanged.
@@ -201,3 +211,42 @@ with the corpus — `S1_MIN_CONF` was measured on 56 messages, and live traffic 
 * **The measurement is small.** 25 addressed public messages, one adjudicator, agreements between
   ladder and model were not audited, and at least one label pair is inconsistent
   ("Testing 35 and paola exit" vs "Testt 151st and 35"). Treat the +2 as a direction, not a rate.
+
+## Review 2026-09-24 — what held, what did not, what changed
+
+An end-to-end review (four reviewers, each required to execute what it claimed) re-derived the
+numbers above from the saved per-row outputs and probed the running service.
+
+**Did not hold, corrected above:** "calibration was the lever" (T=1.0 acts identically); ECE 0.042
+(in-sample; 0.062 held out); "bigger was worse" (confounded with readout; the 30B routes best on
+clean labels); the armed-path reply "on air" (an in-process run). **Weaker than written:** "local
+= Jev" was measured against labels that side with Jev on every disputed addressed message, and
+the default population is 7 fallthrough messages with 2 fixes — a direction, not a rate.
+
+**The guards had never been measured on held-out text.** The service's temperature was fitted on
+the route question only. `tools/local-system-one/guard_probe.py` scores 24 hand-written probes,
+labelled before scoring, sharing no text with the corpus (live service, T=1.45):
+
+| Guard | should say yes | should say no | bar |
+|---|---|---|---|
+| `weather_now` | 0.80 – 0.99 (4) | 0.04 – 0.19 (4) | 0.8 |
+| `other_station` | **0.57** – 0.95 (8) | 0.19 – **0.53** (8) | 0.5 |
+
+`weather_now` separates cleanly. **`other_station` barely does**: sender's-own-link asks reach 0.53
+(one refused, which only costs the rescue) and third-party asks go as low as 0.57. Lowering the bar
+would refuse real link asks, so it stays, and the walls behind it moved into code. Widening the
+name-list backstop (`sigreport.names_other_node`) was not enough: a second reviewer's 34 fresh
+third-party asks got 27 past it ("how's jim coming through", "how's their signal", "the beacon").
+A list of what a third party looks like cannot be finished, so the routed path now also requires
+the opposite — **`sigreport.own_link_only`: every word must be link-question vocabulary**, and any
+name, place, pronoun or station word refuses. All 34 are refused; every real signal ask in the
+corpus passes; about half of a deliberately hard set of self-asks that mention a place ("how's my
+snr from Shawnee") are refused too, which costs a rescue and nothing else.
+
+**Fixed with it:** the scorer refuses a second concurrent caller at once (503 busy) instead of
+queueing it past the caller's deadline (`jlab-ops 8d04945`); a malformed answer and a run of 4xx
+now back off; an unrecognised `S1_BACKEND` turns the router off instead of falling back to the
+cloud, and the config loader drops inline comments; the public trace carries a generation failure's
+code, never the CLI's output.
+
+**Still true:** the first week of live traffic is this router's only held-out test.

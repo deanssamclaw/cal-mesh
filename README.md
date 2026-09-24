@@ -313,8 +313,10 @@ can only send a message to a doer that already exists, and that doer keeps every
   caught it. Full detail: [`docs/proposals/jev-routing.md`](docs/proposals/jev-routing.md).
 - **A local model now buys the same three fixes.** SemIf's scorer on a frozen Qwen3.5-4B on jlab,
   with one fitted temperature, matches Jev exactly on both addressed populations (25/25 and 50/56,
-  0 broken) at ~7 s a decision with nothing leaving the house; bigger and smaller models were both
-  worse, because the lever is calibration, not size. **ARMED 2026-09-24 on the local backend** (it stayed off until the local path removed the privacy cost) — with the triggers that would re-open that in
+  0 broken) at ~7 s a decision with nothing leaving the house. Of the five local setups tried it
+  was the only one with no break at the floor; the difference was SemIf's option scoring, not the
+  temperature and not size (corrected 2026-09-24 — and "matches Jev" was measured on labels that
+  side with Jev on every disputed message; see the review section of the proposal). **ARMED 2026-09-24 on the local backend** (it stayed off until the local path removed the privacy cost) — with the triggers that would re-open that in
   [`docs/proposals/local-system-one.md`](docs/proposals/local-system-one.md). Runners:
   [`tools/local-system-one/`](tools/local-system-one).
 - **Two backends, one decision.** `S1_BACKEND=local` asks `system_one_server.py` on jlab and
