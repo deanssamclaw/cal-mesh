@@ -322,10 +322,18 @@ can only send a message to a doer that already exists, and that doer keeps every
 - **Two backends, one decision.** `S1_BACKEND=local` asks `system_one_server.py` on jlab and
   **no message text leaves the house** — no key is sent, and the local path uses its own measured
   prompt wording (the cloud shape costs it 0.11 of confidence, which crosses the floor).
-  `S1_BACKEND=typesafe` asks the cloud service and is unused. **Armed 2026-09-24 on the local
-  backend**; `S1_PRIVATE_OK` stays false, so DMs and Cal's own channel are still excluded. Config:
-  `S1_ROUTE_ENABLED`, `S1_BACKEND`, `S1_LOCAL_URL`, `S1_LOCAL_TIMEOUT_S`, `S1_BUSY_BACKOFF_S`,
-  `S1_MIN_CONF`, `S1_TIMEOUT_S`, `S1_BACKOFF_S`, `S1_PRIVATE_OK`, `S1_KEY_FILE`.
+  `S1_BACKEND=typesafe` asks the cloud service (Jev) instead. **Armed 2026-09-24 on the local
+  backend**; `S1_PRIVATE_OK` stays false, so DMs and Cal's own channel are still excluded.
+- **Jev as the backup (`S1_FALLBACK=typesafe`, built 2026-09-24, OFF by default).** When the local
+  scorer cannot answer — hot, busy, down, timed out, malformed, or sitting out a backoff — a
+  PUBLIC message is asked of Jev instead, through the same floor, guards and walls, and the page
+  says it left the house and why. A DM or Cal's channel never goes to the backup, whatever
+  `S1_PRIVATE_OK` says; the two scorers keep separate failure state. If jlab is chronically
+  slow rather than down, Jev effectively becomes the router: after one timeout the house sits out
+  `S1_BACKOFF_S` (300 s) and every public ask in that window goes to the cloud, with one 30 s
+  probe of the house per window. Config: `S1_ROUTE_ENABLED`,
+  `S1_BACKEND`, `S1_FALLBACK`, `S1_LOCAL_URL`, `S1_LOCAL_TIMEOUT_S`, `S1_BUSY_BACKOFF_S`,
+  `S1_MIN_CONF`, `S1_TIMEOUT_S`, `S1_BACKOFF_S`, `S1_REJECTS_MAX`, `S1_PRIVATE_OK`, `S1_KEY_FILE`.
 - The decision is on the page: the trace draws a **routed on our own hardware** stage (or
   **routed by Jev** if the cloud backend is ever used), names the model that chose, and a routed
   weather reply no longer claims "plain word matching, no model involved".

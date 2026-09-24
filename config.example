@@ -161,3 +161,11 @@ S1_BACKEND=typesafe
 S1_LOCAL_URL=http://127.0.0.1:8799/v1/systemone
 S1_LOCAL_TIMEOUT_S=30   # three CPU forward passes, not a network hop
 S1_BUSY_BACKOFF_S=120   # the local scorer answers "too hot" rather than cooking the laptop
+
+# CLOUD BACKUP for the local scorer: none | typesafe. With `typesafe`, a message the local scorer
+# could not answer (hot, busy, down, timed out, malformed) or that arrives while it is backed off
+# is asked of Jev instead -- ~0.25 s, same floor, guards and walls. PUBLIC traffic only: a DM or
+# Cal's channel never goes to the backup, whatever S1_PRIVATE_OK says. Turning this on means some
+# public message text leaves the house; the page says so on every message it happens to.
+# Needs S1_KEY_FILE. To switch to Jev outright instead, set S1_BACKEND=typesafe.
+S1_FALLBACK=none

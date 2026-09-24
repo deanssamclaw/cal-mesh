@@ -1401,7 +1401,7 @@ def send_s1_sigreport(st, rec, d, sig, new_off, enqueue_fn=None, record=None, sa
     return True
 
 
-def plan_s1_rescue(cfg, st, rec, ours, plan, replan, classify=None):
+def plan_s1_rescue(cfg, st, rec, ours, plan, replan, classify=None, fallback_classify=None):
     """s1route's one mount point: (plan, sig, trace). PURE apart from the classify call, which
     is injectable, so the whole decision is offline-testable like plan_response.
 
@@ -1422,7 +1422,8 @@ def plan_s1_rescue(cfg, st, rec, ours, plan, replan, classify=None):
         return plan, None, None
     if not ok:
         return plan, None, {"asked": False, "reason": why}
-    res = (classify or s1route.classify)(cfg, plan["clean"])
+    res = s1route.consult(cfg, plan["clean"], private=private, primary=classify,
+                          fallback=fallback_classify)
     act = s1route.decide(cfg, res)
     rnd = lambda v: round(v, 3) if isinstance(v, float) else v
     trace = {"asked": True, "backend": res.get("backend"), "route": res.get("route"),
@@ -1431,6 +1432,9 @@ def plan_s1_rescue(cfg, st, rec, ours, plan, replan, classify=None):
              "other_station": rnd(res.get("other_station")),
              "model": res.get("model"), "ms": res.get("ms"), "error": res.get("error"),
              "acted": None}
+    if res.get("fallback_from"):
+        # The message LEFT THE HOUSE for this answer; the trace says so and says why.
+        trace["fallback_from"] = res["fallback_from"]
     if act in ("weather", "caps"):
         p2 = replan(act)
         if p2.get("capability") is not None:

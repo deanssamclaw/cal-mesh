@@ -306,6 +306,19 @@ CASES["local_busy"] = rec(text="Cal what do you think of the new repeater", repl
         model="claude-haiku-4-5-20251001", dest="^all",
         s1_route=dict(JR_W, backend="local", model=None, route=None, conf=None,
                        error="busy", acted=None)))
+# CLOUD FALLBACK (2026-09-24): the house could not answer, so a PUBLIC message went to Jev. The
+# page must say it left the house, and why -- this is the one path where that happens.
+CASES["fallback_sigreport"] = rec(text="Cal, hows the link holding up?", reply="Copy: direct, SNR 6.0",
+    capability="sigreport", gen_ms=None,
+    trace=dict(gates=GATES_OK, prompt_kind="fixed", dest="^all", gen_status="fixed_sigreport",
+        sigreport=dict(hops=0, snr=6.0, rssi=-35, relay_name=None, parts=["direct", "SNR 6.0"]),
+        s1_route=dict(JR_W, backend="typesafe", route="sigreport", conf=0.98, acted="sigreport",
+                       answered_by="sigreport", fallback_from={"backend": "local", "error": "busy", "ms": 3})))
+CASES["fallback_xss"] = rec(text="Cal what do you think", reply="Seems solid.",
+    trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT, prompt_kind="general",
+        model="claude-haiku-4-5-20251001", dest="^all",
+        s1_route=dict(JR_W, backend="typesafe", route="conversation", conf=0.9, acted=None,
+                       fallback_from={"backend": "local", "error": "<script>alert(6)</script>"})))
 CASES["jev_declined"] = rec(text="Cal what do you think of the new repeater",
     reply="Seems solid so far.", trace=dict(gates=GATES_OK, sanitize=SAN_PUNCT,
         prompt_kind="general", model="claude-haiku-4-5-20251001", dest="^all",
@@ -341,6 +354,13 @@ CHECKS = [
     ("local_busy", ["the local scorer unavailable", "exactly as if it did not exist"],
      ["routed on our own hardware", "Jev unavailable"],
      "a local scorer that refuses because the CPU is hot reads as no opinion, not as a routing decision"),
+    ("fallback_sigreport", ["routed by Jev", "a service at TypeSafe AI", "could not answer",
+                            "<code>busy</code>", "the cloud backup"], ["did not leave the house"],
+     "a fallback reply LEFT the house: the page must say so, and why, and never the opposite"),
+    ("fallback_xss", ["&lt;script&gt;", "the cloud backup"], ["<script>alert"],
+     "the fallback reason is rendered on a public page and must be escaped"),
+    ("local_sigreport", [], ["the cloud backup"],
+     "a reply scored in the house must not claim a fallback happened"),
     ("jev_declined", ["second opinion", "not acted on"], ["routed by Jev"],
      "a consulted-and-overruled route is still part of how the reply came to exist"),
     ("jev_error", ["Jev unavailable", "exactly as if it did not exist"], ["routed by Jev"],
