@@ -314,37 +314,19 @@ can only send a message to a doer that already exists, and that doer keeps every
 - **A local model now buys the same three fixes.** SemIf's scorer on a frozen Qwen3.5-4B on jlab,
   with one fitted temperature, matches Jev exactly on both addressed populations (25/25 and 50/56,
   0 broken) at ~7 s a decision with nothing leaving the house; bigger and smaller models were both
-  worse, because the lever is calibration, not size. **Decision: s1route stays OFF, and if it is
-  ever armed it is armed local-first** — with the triggers that would re-open that in
+  worse, because the lever is calibration, not size. **ARMED 2026-09-24 on the local backend** (it stayed off until the local path removed the privacy cost) — with the triggers that would re-open that in
   [`docs/proposals/local-system-one.md`](docs/proposals/local-system-one.md). Runners:
   [`tools/local-system-one/`](tools/local-system-one).
-- **Two backends, one decision.** `S1_BACKEND=typesafe` asks the cloud service; `S1_BACKEND=local`
-  asks `system_one_server.py` on jlab and **no message text leaves the house** — no key is sent, and
-  the local path uses its own measured prompt wording (the cloud shape costs it 0.11 of confidence,
-  which crosses the floor). Arming either is still one flag, and arming the cloud one is what sends
-  text to a third party. Config: `S1_ROUTE_ENABLED`, `S1_BACKEND`, `S1_LOCAL_URL`,
-  `S1_LOCAL_TIMEOUT_S`, `S1_BUSY_BACKOFF_S`, `S1_MIN_CONF`, `S1_TIMEOUT_S`, `S1_BACKOFF_S`,
-  `S1_PRIVATE_OK`, `S1_KEY_FILE`.
-- The decision is on the page: the trace draws a **routed by Jev** stage, and a Jev-routed weather
-  reply no longer claims "plain word matching, no model involved".
-
-### Not everything earns a reply
-
-Measured on every simulated reply on record (548 drafts, 377 unique messages, 45 days), scored by
-the local scorer and restricted to what Cal is **currently silent on**: the armed capabilities
-already catch what they can. Widening to the whole channel would newly answer about **four
-messages a month** across all the doers put together — and **14 a week** of model prose, in a class
-that graded `good` once in eighteen. So the widening is **shelved**, silence stays the default, and
-the work moves to proving the few replies Cal does send are honest and well-timed. Asked directly
-whether Cal should speak, the scorer answers ~0.50 for every verdict class alike: the evidence for
-that decision is timing and channel context, not the message text.
-[`docs/proposals/not-everything-earns-a-reply.md`](docs/proposals/not-everything-earns-a-reply.md)
-
-## How a capability ships
-Nothing goes on air because it looked right. The gate is the same for every tier:
-
-**default OFF → offline eval → independent adversarial review → arm.**
-
+- **Two backends, one decision.** `S1_BACKEND=local` asks `system_one_server.py` on jlab and
+  **no message text leaves the house** — no key is sent, and the local path uses its own measured
+  prompt wording (the cloud shape costs it 0.11 of confidence, which crosses the floor).
+  `S1_BACKEND=typesafe` asks the cloud service and is unused. **Armed 2026-09-24 on the local
+  backend**; `S1_PRIVATE_OK` stays false, so DMs and Cal's own channel are still excluded. Config:
+  `S1_ROUTE_ENABLED`, `S1_BACKEND`, `S1_LOCAL_URL`, `S1_LOCAL_TIMEOUT_S`, `S1_BUSY_BACKOFF_S`,
+  `S1_MIN_CONF`, `S1_TIMEOUT_S`, `S1_BACKOFF_S`, `S1_PRIVATE_OK`, `S1_KEY_FILE`.
+- The decision is on the page: the trace draws a **routed on our own hardware** stage (or
+  **routed by Jev** if the cloud backend is ever used), names the model that chose, and a routed
+  weather reply no longer claims "plain word matching, no model involved".
 - **The eval runs with no radio and no network.** Current corpus: calc 273 checks, sun/moon 873,
   greeting 91, DM 71 + 45, render 74, routing 21, s1route 103 + 11 mutants, plus a page parser. Numbers only mean something
   where they are pinned to an outside source — sun/moon is measured against **43 U.S. Naval

@@ -155,28 +155,41 @@ the privacy gates (`unlocked`, `flagged`, `private_traffic`) cannot be reopened 
 `S1_PRIVATE_OK`; the key is never read on the local path; and every attacker-influenceable
 `s1_route` field on the page goes through `esc()`.
 
-## 4. Decision
+## 4. Decision — superseded 2026-09-24: ARMED, locally
 
-**`s1route` stays OFF, and if it is ever armed it is armed LOCAL-FIRST** — the local backend is
-built and measured (§3a) so that arming is one config line rather than a project.
+**`s1route` is ARMED on the local backend** (Dean's call, 2026-09-24). `S1_BACKEND=local`,
+`S1_ROUTE_ENABLED=true`, pointed at the scorer's tailnet address; `S1_PRIVATE_OK` stays false, so
+DMs and Cal's own channel are still excluded. Config backed up as
+`config.bak-pre-s1-arm-2026-09-24`.
 
-The reasoning is the size of the prize, not the quality of the options. On 44 days of real traffic
-the rescue is worth **three messages**, all of them link/signal asks. Cloud and local now buy the
-same three. Cloud costs $0.0004 a month and sends message text to a third party; local costs a day
-of work, 7 seconds a decision and a dependency on a hot laptop. Neither is worth doing for three
-messages **today** — but the moment it is worth doing, the local one has no privacy cost to weigh,
-so there is no reason to prefer the cloud path.
+*What this document said before, and why it changed:* the recommendation was to stay OFF, because
+three fixes in 44 days was not worth either a third party or a day of work. The local backend then
+removed the privacy cost entirely — the remaining price is ~13 s on a message that was already
+going to take longer than that, on a box we own. At that price the same three fixes are worth
+having, and the operator made that call. The measurements in §1 and §2 are unchanged; only the
+verdict is.
 
-Re-open this decision when any of these is true:
+**Measured on the armed path, 2026-09-24:** *"Cal, hows the link holding up?"* → `sigreport`
+at **0.899**, guard clear, all nine sigreport gates run, reply on air
+`Copy: direct, RSSI -40, SNR 6.5` — the radio's own numbers, where the model previously wrote
+"Link's solid and steady over here" with nothing behind it. A conversational message on the same
+path (*"what do you think of the new antenna"*) routes to `conversation` at 0.91 and is left to
+the model, unchanged.
 
-* **The invented-signal failure happens again.** One occurrence is recorded in `sigreport.py`; a
-  second means the ladder's gap is live, not historical.
-* **Addressed traffic grows.** Three fixes in 44 days is 25 addressed public messages. At ten times
-  the traffic the same rate is a fix a week.
-* **The broadcast widening is wanted.** There Jev is measurably better than the local model, and
-  the privacy question changes shape: it is every public message, not a handful of addressed ones.
-* **The local runner gets cheap.** Prompt-cache reuse works on jlab for MoE models (7.5 s → 0.39 s
-  prefill); it does not for the dense 4B. A cache-friendly scorer would remove the 7 s.
+**Arming found one defect immediately, in the thermal hardening rather than the router:** the
+in-flight abort was set at the door threshold (95 °C), and one question takes this laptop from
+40 °C to ~98 °C, so nearly every real request aborted and the router failed open on every
+message — armed and useless. The two thresholds now answer different questions: `S1_BUSY_TEMP_C`
+(95 °C) refuses to *start*, `S1_ABORT_TEMP_C` (99 °C) is the last-resort in-flight stop, and what
+bounds a request's cost is the caps, not the abort. `jlab-ops d588e62`.
+
+**Still off, deliberately:** `S1_PRIVATE_OK` (DMs and Cal's channel — one extra fix in the corpus,
+and the `other_station` guard wording wants re-measuring first), and the broadcast widening, which
+[`not-everything-earns-a-reply.md`](not-everything-earns-a-reply.md) shelves on its own numbers.
+
+**Re-open the decision if:** a harmful reply reaches the air on this path; the scorer's
+availability turns the fallthrough into a regular 13 s wait; or a week of live traffic disagrees
+with the corpus — `S1_MIN_CONF` was measured on 56 messages, and live traffic is not the corpus.
 
 ## 5. Not done, and deliberately
 
