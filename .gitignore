@@ -6,6 +6,7 @@
 inbox.jsonl
 sent.jsonl
 decisions.jsonl
+s1-fallback.jsonl
 snr-history.jsonl
 status.json
 nodes.json
