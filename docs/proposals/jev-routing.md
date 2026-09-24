@@ -3,7 +3,12 @@
 > **Renamed 2026-09-23.** The module was `jevroute.py` with `JEV_*` config keys, after the
 > cloud service it was first built against. What actually runs is a frozen Qwen3.5-4B scored by
 > SemIf on our own hardware, so it is now `s1route.py` with `S1_*` keys — "System One" being the
-> model class, not a vendor. The cloud backend still exists as `S1_BACKEND=typesafe` and is off.
+> model class, not a vendor. The cloud backend still exists as `S1_BACKEND=typesafe`.
+>
+> **Status 2026-09-24: ARMED** on the local scorer ([`local-system-one.md`](local-system-one.md)),
+> and Jev is switched on as the **backup** (`S1_FALLBACK=typesafe`): asked only when the local
+> scorer cannot answer, and only for public-channel messages. Build it yourself:
+> [`docs/router.md`](../router.md). What follows is the record as of 2026-09-21.
 
 **What happens to a message no word rule claims, before it reaches the model**
 
@@ -17,7 +22,7 @@
 
 Every doer claims a message with a regex. A message that no regex claims falls to the language
 model, which is the one component here that can invent. Widening the regexes is the fix that has
-broken something every round it was tried (README, *How a capability ships*).
+broken something every round it was tried.
 
 This adds one question, asked **only on that fallthrough**: *which service should answer this?* It
 is answered by **Jev**, a "System One" decision model from TypeSafe AI. Jev does not write text and
@@ -117,8 +122,11 @@ of a reply a decision model routed; the evals forbid it.
 - [x] default OFF
 - [x] offline eval — `eval_s1route` 103 checks + 11 in-process mutants; **24 corpus mutants, all caught** (§6)
 - [x] independent adversarial review that executes — done 2026-09-21, findings in §6, all fixed
-- [ ] operator's call on the privacy cost (§4), and separately on `S1_PRIVATE_OK`
-- [ ] re-measure on the inbox at arm time; move `S1_MIN_CONF` only on a re-measurement
+- [x] operator's call on the privacy cost (§4) — resolved 2026-09-24 by arming on the LOCAL
+  scorer (no text leaves the house); Jev became the public-only backup the same day.
+  `S1_PRIVATE_OK` stays false.
+- [x] re-measure at arm time — the end-to-end replay through the running local service
+  (local-system-one.md §2); `S1_MIN_CONF` unchanged at 0.8
 
 ## 6. The review, and what it changed
 

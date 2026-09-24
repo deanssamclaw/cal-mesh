@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.example.mesh-drafts</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__MESH_PYTHON__</string>
+        <string>__HOME__/cal-mesh/drafts.py</string>
+        <string>--limit</string>
+        <string>40</string>
+    </array>
+    <key>WorkingDirectory</key><string>__HOME__/cal-mesh</string>
+    <!-- 06:30, fifteen minutes after mesh-learn, so the distiller has folded the day's
+         decisions before this reads them. Daily is ample: the measured median is 8 inbound
+         a day and a run takes 40, so it keeps up and works the backlog down at the same time.
+         Newest first, so a run that cannot cover everything covers what just happened. -->
+    <key>StartCalendarInterval</key>
+    <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>30</integer></dict>
+    <key>RunAtLoad</key><false/>
+    <key>StandardOutPath</key><string>__HOME__/cal-mesh/drafts.log</string>
+    <key>StandardErrorPath</key><string>__HOME__/cal-mesh/drafts.log</string>
+</dict>
+</plist>

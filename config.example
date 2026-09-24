@@ -1,10 +1,12 @@
 # cal-mesh config — copy this to `config` and fill in your own values.
-# The real `config` is gitignored (machine-specific). Reload the bridge after edits:
-#   launchctl kickstart -k gui/$(id -u)/com.cal.mesh-bridge
+# The real `config` is gitignored (machine-specific). The responder and dashboard re-read it on
+# every pass; the BRIDGE reads it at start, so restart the bridge after changing TRANSPORT, PORT
+# or HOST (launchctl kickstart -k gui/$(id -u)/<your bridge label>, or systemctl --user restart
+# cal-mesh-bridge). The repo is expected at ~/cal-mesh: several scripts use that path.
 
 # --- USB (most reliable while the node is plugged into this machine) ---
 TRANSPORT=serial
-PORT=/dev/cu.usbmodemXXXXXXXXXXXX
+PORT=/dev/cu.usbmodemXXXXXXXXXXXX   # macOS. Linux: /dev/ttyACM0 or /dev/ttyUSB0 (user in `dialout`)
 
 # --- WiFi (survives unplugging; node runs untethered on the LAN) ---
 # Set TRANSPORT=tcp to use this. HOST is the node's mDNS name (survives DHCP changes).
@@ -15,7 +17,8 @@ PORT=/dev/cu.usbmodemXXXXXXXXXXXX
 HOST=Meshtastic.local
 
 # --- RESPONDER (Level 2: autonomous replies) ---
-# Master kill switch. false = capture/log only, never transmits autonomously.
+# Kill switch for the ladder and model replies. NOTE: the signal report and the greeting ack
+# are gated by their OWN flags below, not by this one -- set those false too to go fully quiet.
 RESPONDER_ENABLED=false
 RESPONDER_MODEL=claude-haiku-4-5-20251001
 # Node IDs allowed to trigger a reply. ADVISORY ONLY — Meshtastic node IDs are
@@ -136,36 +139,61 @@ DRAFTS_ENABLED=false
 DRAFTS_MAX_PER_RUN=40
 DRAFTS_MAX_PER_DAY=120
 
-# JEVROUTE — a second opinion on routing (default OFF). See s1route.py and
-# docs/proposals/jev-routing.md. Asked ONLY when no doer claimed an addressed message and it is
-# about to go to the model; never on an unlocked DM or a sanitizer-flagged message, and never on
-# a DM or Cal's own channel unless S1_PRIVATE_OK=true. Acts only into weather, caps or
-# sigreport, each of which keeps its own refusals. Sends the sanitized message text to TypeSafe
-# AI (api.typesafe.ai) — that is the privacy cost of arming.
+# S1ROUTE — a second opinion on routing. Full runbook: docs/router.md. Shipped OFF here; the
+# operator's own config armed it 2026-09-24. Asked ONLY when no doer claimed an addressed message
+# and it is about to go to the model; never on an unlocked DM or a sanitizer-flagged message, and
+# never on a DM or Cal's own channel unless S1_PRIVATE_OK=true. Acts only into weather, caps or
+# sigreport, each of which keeps its own refusals. All S1_* keys are re-read on every loop pass:
+# setting S1_ROUTE_ENABLED=false turns it off with no restart (after the batch in hand).
+# Inline `# comments` after a value are ignored by the loader.
 S1_ROUTE_ENABLED=false
-S1_MIN_CONF=0.8
-S1_TIMEOUT_S=2          # wall-clock bound on the whole call
-S1_BACKOFF_S=300        # after a network failure, skip Jev this long
+S1_MIN_CONF=0.8         # confidence the scorer must reach before anything acts
 S1_PRIVATE_OK=false     # DMs + Cal's channel: a second, separate decision
-S1_KEY_FILE=~/.credentials/typesafe
+S1_REJECTS_MAX=3        # this many 4xx in a row counts as an outage and backs off
 
-# Which scorer answers the question. `local` is system_one_server.py on jlab (a frozen
-# Qwen3.5-4B scored by SemIf with one fitted temperature): measured to make the SAME rescues as
-# the cloud service and break nothing, at ~13 s instead of 0.25 s, with no message text leaving
-# the house. The local path sends NO key and uses its own measured prompt wording.
-# typesafe | local. NO inline comment on these lines: the loader keeps it as part of the value,
-# and an unrecognised backend turns the router OFF (it used to fall back to the cloud).
+# Which scorer answers first: local | typesafe. An unrecognised value turns the router OFF.
+#   local    = tools/system-one/ on your own Linux box (a frozen Qwen3.5-4B scored by SemIf):
+#              ~13 s a decision on CPU, no key, no message text leaves the house.
+#   typesafe = Jev, TypeSafe AI's cloud service: ~0.25 s, needs a key, sends the sanitized
+#              message text to api.typesafe.ai. Model pinned to jev-1.13.0.
 S1_BACKEND=typesafe
-# The scorer's TAILNET address (100.x). Do not use a MagicDNS hostname: on a host with Funnel
-# enabled it resolves to the public relay instead, and the router would leave the tailnet.
+# The local scorer's TAILNET address (100.x). Never a MagicDNS hostname: on a host with Funnel
+# enabled it resolves to the public relay, and the router would leave the tailnet.
 S1_LOCAL_URL=http://127.0.0.1:8799/v1/systemone
-S1_LOCAL_TIMEOUT_S=30   # three CPU forward passes, not a network hop
-S1_BUSY_BACKOFF_S=120   # the local scorer answers "too hot" rather than cooking the laptop
+S1_LOCAL_TIMEOUT_S=30   # wall-clock; three CPU forward passes, not a network hop
+S1_BUSY_BACKOFF_S=120   # after the local scorer answers 503 (too hot, or already busy)
+S1_TIMEOUT_S=2          # wall-clock bound on a cloud call
+S1_BACKOFF_S=300        # after a failure or malformed answer, skip that scorer this long
+# Jev API key: one line, the key only (issued at console.typesafe.ai/keys). chmod 600.
+S1_KEY_FILE=~/.credentials/typesafe
 
 # CLOUD BACKUP for the local scorer: none | typesafe. With `typesafe`, a message the local scorer
 # could not answer (hot, busy, down, timed out, malformed) or that arrives while it is backed off
-# is asked of Jev instead -- ~0.25 s, same floor, guards and walls. PUBLIC traffic only: a DM or
-# Cal's channel never goes to the backup, whatever S1_PRIVATE_OK says. Turning this on means some
-# public message text leaves the house; the page says so on every message it happens to.
-# Needs S1_KEY_FILE. To switch to Jev outright instead, set S1_BACKEND=typesafe.
+# is asked of Jev instead -- same floor, guards and walls. PUBLIC traffic only: a DM or Cal's
+# channel never goes to the backup, whatever S1_PRIVATE_OK says. Every use is appended to
+# s1-fallback.jsonl, counted on the capabilities page, and named in that message's trace.
+# Cost: ~760 input tokens a call at $0.042 per million (2026-09-24), i.e. ~$0.00003.
 S1_FALLBACK=none
+
+# --- Keys the code reads that had no entry here (defaults shown; all OFF unless you arm them) ---
+# SIGNAL REPORT: answers a radio check / range test / contact report with the radio's own
+# numbers. Runs FIRST, for any sender. Its own flag: RESPONDER_ENABLED does not gate it.
+SIGREPORT_ENABLED=false
+SIGREPORT_SENDER_COOLDOWN_S=30
+SIGREPORT_MAX_PER_DAY=20
+SIGREPORT_MAX_CHARS=64
+SIGREPORT_MAX_CH_UTIL=25
+SIGREPORT_STATUS_MAX_AGE_S=600
+# "What can you do": composed from the live flags.
+CAPS_ENABLED=false
+# A follow-up question the model asked may be answered by the same node within the TTL.
+CLARIFY_FOLLOWUP_ENABLED=false
+CLARIFY_TTL_S=180
+# Cal's own (PSK) channel index; every message on it is addressed to Cal. -1 = none.
+CAL_CHANNEL=-1
+# Weather observations older than this are refused, not narrated.
+WEATHER_MAX_OBS_AGE_S=5400
+# Remembered DM thread for the one unlocked node.
+DM_MEMORY_ENABLED=false
+DM_MEMORY_MAX_TURNS=8
+DM_MEMORY_MAX_CHARS=1200

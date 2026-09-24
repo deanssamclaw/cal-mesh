@@ -1,0 +1,10 @@
+[Unit]
+Description=cal-mesh tracer schedule
+
+[Timer]
+OnUnitActiveSec=2h
+OnBootSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

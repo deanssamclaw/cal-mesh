@@ -214,7 +214,7 @@ We are not there. What's there is the scaffolding, and the constraints that will
 
 ## Build one
 
-Everything is public: **[github.com/deanssamclaw/cal-mesh](https://github.com/deanssamclaw/cal-mesh)** — Python, standard library only for the dashboard, launchd plists included.
+Everything is public: **[github.com/deanssamclaw/cal-mesh](https://github.com/deanssamclaw/cal-mesh)** — Python, standard library everywhere except the radio bridge (`requirements.txt`), with launchd and systemd service definitions in [`deploy/`](../deploy). To add the second-opinion router on top, follow [`router.md`](router.md) once this is running.
 
 ```bash
 # 1. Flash the BaseUI (non-tft) Meshtastic build for your device.
@@ -235,6 +235,8 @@ cd ~/cal-mesh && cp config.example config
 # 5. Send something by hand — keep it short, airtime is shared
 ./mesh send "testing, 5 to 7 words"
 ```
+
+(The maintained version of these steps, with the venv and the eval run, is the README's *Run it*.)
 
 Leave `RESPONDER_ENABLED=false` for a week before you arm anything. Read `decisions.jsonl` — it logs every inbound message the responder evaluated, whether it matched, why, and what it *would* have said. You will learn what your mesh actually asks before a single word of yours goes on the air, and it will not be what you expected.
 

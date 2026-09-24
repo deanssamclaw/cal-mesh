@@ -484,6 +484,11 @@ def suite():
     # FAILS CLOSED (review 2026-09-24): the config loader keeps an inline comment as part of the
     # value, and falling back to the cloud sent message text to a third party on a typo.
     ck("an unknown backend is None, not the cloud one", J.backend({"S1_BACKEND": "wat"}) is None)
+    _pl = Post("weather", 0.99)
+    J.classify(cfg(S1_BACKEND="local", S1_LOCAL_TIMEOUT_S="banana"), "x", post=_pl)
+    ck("a bad LOCAL timeout falls back to the local default, not the cloud's 2 s",
+       _pl.calls and _pl.calls[0]["timeout"] == float(J.DEFAULTS["S1_LOCAL_TIMEOUT_S"]), repr(_pl.calls[:1]))
+    J._state["backoff_until"] = 0.0
     ck("surrounding whitespace is not a bad backend", J.backend({"S1_BACKEND": " local "}) == "local")
     J._state["backoff_until"] = 0.0
     J.classify(cfg(S1_BACKOFF_S="1e18"), "x", post=Post(raise_=OSError("down")))

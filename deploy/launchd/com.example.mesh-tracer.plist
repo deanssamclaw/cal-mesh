@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.example.mesh-tracer</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>__HOME__/cal-mesh/tracer.py</string>
+    <string>--enqueue</string>
+  </array>
+  <key>WorkingDirectory</key><string>__HOME__/cal-mesh</string>
+  <!-- Every 2 hours: 12 runs a day against a 12-probe cap, so the campaign spreads across
+       the day instead of spending the whole budget before lunch. -->
+  <key>StartInterval</key><integer>7200</integer>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>__HOME__/cal-mesh/tracer.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/cal-mesh/tracer.log</string>
+</dict>
+</plist>

@@ -20,12 +20,19 @@ cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" || exit 2
 SELF=""
 [ "${1:-}" = "--self-test" ] && SELF="--self-test"
 
+# The interpreter: $PYTHON if set, else the repo's own .venv (what the README installs), else
+# python3. A suite whose library is missing SKIPs, and a SKIP is never green.
+PY="${PYTHON:-}"
+[ -z "$PY" ] && [ -x ./.venv/bin/python ] && PY=./.venv/bin/python
+[ -z "$PY" ] && PY=python3
+echo "  using $PY"
+
 pass=0; fail=0; skip=0
 failed=""; skipped=""
 out=$(mktemp)
 
 for f in eval_*.py; do
-  if python3 "./$f" $SELF >"$out" 2>&1; then
+  if "$PY" "./$f" $SELF >"$out" 2>&1; then
     # Anchored: a suite that PRINTS a skip line, not one that merely says the word. eval_guards
     # asserts "every skip is announced with the word SKIP" and was itself reported as skipped.
     if grep -qE '^[[:space:]]*SKIP' "$out"; then

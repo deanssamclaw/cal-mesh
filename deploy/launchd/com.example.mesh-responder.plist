@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.example.mesh-responder</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PYTHON__</string>
+        <string>__HOME__/cal-mesh/responder.py</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><dict><key>Crashed</key><true/></dict>
+    <key>ThrottleInterval</key><integer>10</integer>
+    <key>WorkingDirectory</key><string>__HOME__/cal-mesh</string>
+    <key>EnvironmentVariables</key>
+    <dict><key>PATH</key><string>__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+    <key>StandardOutPath</key><string>__HOME__/cal-mesh/responder.log</string>
+    <key>StandardErrorPath</key><string>__HOME__/cal-mesh/responder.log</string>
+</dict>
+</plist>

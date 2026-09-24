@@ -107,7 +107,7 @@ RECORDS = (
         "answers": "Arithmetic, unit conversion, RF wavelength and antenna cut lengths, "
                    "bolt torque, and concrete/lumber quantities.",
         "trigger": "A message whose text parses as one of those questions. No keyword list.",
-        "who": "anyone",
+        "who": "allow-listed senders (it runs after sender_allowed)",
         "out_of_scope": [
             {"limit": "SAE bolt grades 2, 5 and 8 only — any other grade is refused, not "
                       "interpolated.", "where": "calc.py:bolt_torque_ftlb"},
@@ -124,7 +124,7 @@ RECORDS = (
         "model_runs": False,
         "answers": "Sunrise, sunset, twilight and moon phase for the node's own location.",
         "trigger": "A message asking for one of those times.",
-        "who": "anyone",
+        "who": "allow-listed senders (it runs after sender_allowed)",
         "out_of_scope": [
             {"limit": "One location only — the node's own. It will not compute times for a "
                       "place you name, and no coordinate is published with the answer.",
@@ -339,7 +339,7 @@ RECORDS = (
         "module": "responder.py", "model_runs": True,
         "answers": "A direct message gets a larger character budget than an open-channel "
                    "reply, because it costs one recipient rather than the whole channel.",
-        "trigger": "Any direct message.", "who": "anyone who can DM the node",
+        "trigger": "Any direct message.", "who": "allow-listed senders who DM the node",
         "out_of_scope": [
             {"limit": "Truncation backs off to a word boundary rather than cutting mid-word.",
              "where": "responder.py:clean_reply"},

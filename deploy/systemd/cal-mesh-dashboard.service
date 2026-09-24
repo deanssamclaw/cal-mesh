@@ -1,0 +1,18 @@
+# systemd --user unit for Linux. Install: cp to ~/.config/systemd/user/, then
+#   systemctl --user daemon-reload && systemctl --user enable --now cal-mesh-dashboard
+# (and `loginctl enable-linger $USER` so it runs without a login session).
+[Unit]
+Description=cal-mesh dashboard
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/cal-mesh
+ExecStart=%h/cal-mesh/.venv/bin/python %h/cal-mesh/dashboard.py
+Restart=on-failure
+RestartSec=10
+
+StandardOutput=append:%h/cal-mesh/dashboard.log
+StandardError=append:%h/cal-mesh/dashboard.log
+
+[Install]
+WantedBy=default.target
