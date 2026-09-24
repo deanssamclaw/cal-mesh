@@ -298,6 +298,13 @@ def match(text, trigger="cal"):
             return None
     mw = _WHOLE_RE.match(s)
     if mw:
+        # A BARE "copy" IS AN ACKNOWLEDGEMENT, not a request (adjudicated 2026-09-24). In the log, one
+        # node sent "Copy" one minute after another node's "Radio check": one node answering
+        # another's check, and a report from Cal there barges into their exchange. It is a request
+        # only when it is ASKED ("Copy?", "you copy") or addressed ("Cal copy"). The question mark
+        # is read from the raw text because _normalize strips it.
+        if s == "copy" and not addressed and not text.rstrip().endswith("?"):
+            return None
         return {"via": "phrase", "text": s, "index": None}
     mt = _TAIL_RE.match(s)
     if mt:

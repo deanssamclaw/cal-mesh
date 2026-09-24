@@ -124,6 +124,15 @@ ALLOWED_SHAPES = {
     # doer's word -- so nothing was bypassed, and the guard was asking for a decision, not
     # reporting a defect. This is that decision.
     "new antenna test",
+    # ADJUDICATED 2026-09-24 (Dean). Four live fires, 09-13 -> 09-23, each a sender asking about
+    # their own signal: two bare "Testing", a "Radio check", and "Cal can you hear me?" on Cal's
+    # channel. The martin-city line is a contact report behind a lead-in the hand-written
+    # skeleton below does not cover; the fire is correct. A bare "copy" was NOT approved -- it is
+    # an acknowledgement -- and sigreport.match now refuses it; see the checks further down.
+    "testing",
+    "radio check",
+    "cal can you hear me?",
+    "it has it's busy moments... got you from martin city",
 }
 
 # CONTACT REPORTS are allowed as a CLASS, not enumerated, because their tail is a place name
@@ -210,6 +219,14 @@ for t in ("Range test", "range test", "RANGE TEST", "Tange test", "test", "Cal t
           "this is a test", "Cal this is another test", "testing 1 2 3", "hows my signal",
           "anyone copy me", "Cal, latency test", "link test", "coverage check"):
     expect(sigreport.match(t) is not None, f"trigger: should fire on {t!r}")
+
+# A BARE "copy" is an acknowledgement (adjudicated 2026-09-24): "Copy" one minute after another
+# node's "Radio check" is that node answering, not asking Cal. Asked or addressed, it still fires.
+expect(sigreport.match("Copy") is None, "a bare copy is an ack, not a request")
+expect(sigreport.match("copy.") is None, "a bare copy with a period is still an ack")
+expect(sigreport.match("Copy?") is not None, "copy ASKED still fires")
+expect(sigreport.match("Cal copy") is not None, "copy ADDRESSED still fires")
+expect(sigreport.match("copy me") is not None, "copy me is a request")
 
 # The trigger word is stripped only as a WHOLE WORD at the FRONT.
 expect(sigreport.match("Calibration test") is not None, "a node named Calibration may still test")
