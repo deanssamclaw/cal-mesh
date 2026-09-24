@@ -39,6 +39,14 @@ counted **against** Jev; agreements were not audited.
 | Addressed incl. DMs + Cal's channel (`S1_PRIVATE_OK=true`, n=56) | 47 | 50 — +3, 0 broken |
 | All 319, as if every message were eligible | 245 | 254 — +9, 0 broken |
 
+**Review 2026-09-24 — read these as smaller than they look.** The labels were adjudicated after
+seeing Jev's answers, and on every addressed message where the ladder and Jev disagree they side
+with Jev; relabelling alone turns the all-319 row from +9/0 broken into **+6/−3**. The default row
+rests on **7 messages that actually fall through**, 2 of them fixes (one sender, 08-08 and 08-09);
+0 broken of 5 is consistent with a false-act rate up to ~50%. The 0.8 floor and the option wording
+were chosen on the same messages. The ladder misroutes 9 of the 56 addressed messages (10 on the
+clean labels), not 4 as one summary said. The first week of live traffic is the held-out test.
+
 *Addressed* = a DM, the trigger word, or Cal's own channel — the responder's `addressed` gate.
 (Counting only DMs and the trigger word gives 44; the difference is Cal's channel.)
 

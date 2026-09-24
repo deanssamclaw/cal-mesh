@@ -316,6 +316,29 @@ else:
         ck(f"[{_name}] late runs marked: {_c['expect_late']}",
            _o["late"] == _c["expect_late"], _o)
 
+# --- gen_status is PUBLIC: nothing the CLI prints may reach it (review 2026-09-24) -------------
+# 0a807d4 kept the stderr tail out of the health strip, but run_claude still returned it inside
+# gen_status, and dashboard.correlate copies gen_status onto every message's public trace.
+print("\n== gen_status carries a code, never CLI output ==")
+import types, subprocess as _sp
+import responder as _R
+_real_run, _real_log = _R.subprocess.run, _R.log
+_R.log = lambda *a, **k: None
+try:
+    _R.subprocess.run = lambda *a, **k: types.SimpleNamespace(
+        returncode=1, stdout="Usage limit reached for org acct-SECRET", stderr="acct-SECRET auth")
+    _, st = _R.run_claude(dict(_R.DEFAULTS), "hi")
+    ck("a failing CLI: code only", st.startswith("gen_rc1") and "acct" not in st and "SECRET" not in st, st)
+    def _boom(*a, **k):
+        # The path must be IN the repr: FileNotFoundError(2, msg, path) drops the filename from
+        # its repr, so the first version of this check passed with the leak put back.
+        raise ValueError("bad exec /Users/someone/secret/path/claude")
+    _R.subprocess.run = _boom
+    _, st = _R.run_claude(dict(_R.DEFAULTS), "hi")
+    ck("an exception: type only", st.startswith("gen_exc:") and "/Users" not in st and "secret" not in st, st)
+finally:
+    _R.subprocess.run, _R.log = _real_run, _real_log
+
 # ---------------------------------------------------------------------------------------
 if "--self-test" in sys.argv:
     print("\nself-test — each mutation must FAIL a check above")
