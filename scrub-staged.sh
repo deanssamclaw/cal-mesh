@@ -27,18 +27,31 @@ fi
 # disclosure, and a check that cannot tell those apart teaches you to wave it through, which is
 # strictly worse than not having it. An id already in HEAD is reported and allowed; anything
 # else still halts. HEAD, not the worktree: an id you added but have not committed is new.
+# (4) 2026-09-24, Dean's call: an id the PUBLIC DASHBOARD already serves is published too.
+# It carries every sender Cal has heard (305 ids that day), so blocking one of them in a commit
+# protected nothing. Read from the public URL, the copy the internet actually sees -- not
+# localhost. If it cannot be reached, that set is EMPTY and the old rule applies (fail closed).
+# What this still blocks: an id nothing public carries yet, e.g. a DM partner's.
+PUBLIC_STATE_URL="https://mbp.taildc8b12.ts.net/cal-mesh/api/state"
 CAND=$(git diff --cached | grep -oE '![0-9a-f]{8}' | sort -u \
       | grep -vE '^!(aaaaaaaa|bbbbbbbb|cccccccc|deadbeef|xxxxxxxx)$' || true)
-IDS=""; KNOWN=""
+SERVED=""
+[ -n "$CAND" ] && SERVED=$(curl -s -m 8 "$PUBLIC_STATE_URL" 2>/dev/null | grep -oE '![0-9a-f]{8}' | sort -u || true)
+IDS=""; KNOWN=""; ONPAGE=""
 for id in $CAND; do
   if [ -n "$(git grep -lF "$id" HEAD -- . 2>/dev/null)" ]; then
     KNOWN="$KNOWN $id"
+  elif printf '%s\n' "$SERVED" | grep -qxF "$id"; then
+    ONPAGE="$ONPAGE $id"
   else
     IDS="$IDS $id"
   fi
 done
 if [ -n "$KNOWN" ]; then
   echo "  scrub: node ids already published in HEAD (allowed):$KNOWN"
+fi
+if [ -n "$ONPAGE" ]; then
+  echo "  scrub: node ids already served by the public dashboard (allowed):$ONPAGE"
 fi
 if [ -n "$IDS" ]; then
   echo "  SCRUB FAIL: node ids not previously published:"
