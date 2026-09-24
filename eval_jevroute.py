@@ -426,6 +426,14 @@ def suite():
        str(round(J._state["backoff_until"] - _t.time())))
     ck("the plan is unchanged after a 4xx", o == b and s_ is None)
     J._state["backoff_until"] = 0.0
+    red = Post(raise_=__import__("urllib").error.HTTPError("u", 302, "Found", {}, None))
+    b, o, s_, t, _ = run("cal is it raining", cfg(JEV_BACKEND="local", JEV_KEY_FILE="/nonexistent/key"), red)
+    ck("a redirect is refused, not followed", t.get("error") == "http_302", repr(t))
+    ck("and a redirect does not silence the router", J._state["backoff_until"] <= _t.time())
+    ck("the opener refuses to follow 3xx at all",
+       J._OPENER.handle_error.get("http", {}).get(302) is None or
+       any(isinstance(h, J._NoRedirect) for h in J._OPENER.handlers))
+    J._state["backoff_until"] = 0.0
     lim = Post(raise_=__import__("urllib").error.HTTPError("u", 429, "Too Many Requests", {}, None))
     b, o, s_, t, _ = run("cal is it raining", cfg(JEV_BACKEND="local", JEV_KEY_FILE="/nonexistent/key"), lim)
     ck("but 429 still waits -- being rate-limited is a reason to back off",
@@ -454,7 +462,7 @@ def _classify_backoff_on_4xx(cfg, text, post=None, now=None):
     if str(r.get("error", "")).startswith("http_4"):
         J._state["backoff_until"] = time.time() + 300
     return r
-real = {"classify": _real_classify, "eligible": J.eligible, "decide": J.decide, "RESCUABLE": J.RESCUABLE, "MODEL": J.MODEL,
+real = {"classify": _real_classify, "opener": J._OPENER, "eligible": J.eligible, "decide": J.decide, "RESCUABLE": J.RESCUABLE, "MODEL": J.MODEL,
         "wd": J._with_deadline, "non": R.sigreport.names_other_node, "commit": R.commit_sigreport,
         "backend": J.backend, "LI": J.LOCAL_INSTRUCTIONS}
 def _elig_ignores_unlock(c, plan, **kw):
@@ -487,6 +495,7 @@ MUTANTS = [
     ("backend switch ignored", lambda: setattr(J, "backend", lambda cfg: "typesafe")),
     ("local sent the cloud prompt shape", lambda: setattr(J, "LOCAL_INSTRUCTIONS", J.INSTRUCTIONS)),
     ("a 4xx silences the router", lambda: setattr(J, "classify", _classify_backoff_on_4xx)),
+    ("redirects are followed again", lambda: setattr(J, "_OPENER", __import__("urllib").request.build_opener())),
 ]
 escaped = []
 for name, apply in MUTANTS:
@@ -504,7 +513,7 @@ for name, apply in MUTANTS:
         J._with_deadline, R.sigreport.names_other_node, R.commit_sigreport = (
             real["wd"], real["non"], real["commit"])
         J.backend, J.LOCAL_INSTRUCTIONS = real["backend"], real["LI"]
-        J.classify = real["classify"]
+        J.classify = real["classify"]; J._OPENER = real["opener"]
         J._state["backoff_until"] = 0.0
         R.channel_busy = lambda cfg, ts=None: (False, 0.0, "quiet")
     caught = bool(FAILS) and crashed is None

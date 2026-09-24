@@ -122,6 +122,39 @@ only matters if the broadcast widening in `jev-routing.md` §2 is ever built.
   `JEV_BACKOFF_S`. A 4xx other than 429 now fails open immediately with `http_<code>` and no
   backoff; 429 still waits, because being rate-limited is a reason to.
 
+## 3b. What a security review found (2026-09-23)
+
+An adversarial reviewer attacked both halves and proved each finding by running it. **The input
+validation, the privacy gates, the secret handling and the page escaping all held.** What did not
+was availability:
+
+* **Blocker — one unauthenticated request could pin the laptop.** A near-token-limit question
+  measured **90 s at 97 °C**, and the 16-question cap allowed roughly **24 minutes** of that in a
+  single request. Worse, the thermal check ran **once, at the door**: a request accepted at 58 °C
+  ran to completion through 97 °C. Now: at most 4 questions, 4000 characters of state and of each
+  instruction, and **the temperature is re-checked between questions** and aborts with 503.
+  Measured after the fix: a request accepted at 20 °C with the sensor raised mid-flight returns
+  503 after 8.2 s instead of finishing.
+* **Slowloris.** The handler had no read timeout, so any tailnet node could hold threads open
+  with a body that never arrived — no model load required. A 10 s read timeout closes it;
+  measured at exactly 10.0 s.
+* **The thermal guard failed OPEN on a sensor error** (`cpu_c()` returned 0). A renamed zone
+  would have disabled it silently. It now reads 999 °C on any error, so the service refuses work
+  instead. `S1_ZONE` makes the sensor injectable, which is how the abort above is tested.
+* **The client followed redirects.** A spoofed scorer answering `302` sent the next request
+  wherever it pointed. It failed closed, but it now refuses to follow at all, and a 3xx is
+  treated like a 4xx: fail open, no backoff.
+* Not a finding in the end: `InaccessiblePaths` for the credentials directory was added and
+  removed — that path does not exist on jlab (the key lives on the Mac) and the directive failed
+  the unit with `226/NAMESPACE`.
+
+**What held, and is worth knowing:** the service binds only the tailnet address; SemIf refuses
+any row over 4096 tokens, which is what bounds per-question cost; no message text is logged; a
+500 returns only an exception class name; the systemd hardening is live on the running process;
+the privacy gates (`unlocked`, `flagged`, `private_traffic`) cannot be reopened by
+`JEV_PRIVATE_OK`; the key is never read on the local path; and every attacker-influenceable
+`jev_route` field on the page goes through `esc()`.
+
 ## 4. Decision
 
 **`jevroute` stays OFF, and if it is ever armed it is armed LOCAL-FIRST** — the local backend is

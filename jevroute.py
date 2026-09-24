@@ -179,9 +179,21 @@ def eligible(cfg, plan, private=False, now=None):
     return True, "fallthrough"
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """urlopen follows 3xx by default. A scorer that answers with a redirect is either
+    misconfigured or not ours, and following it would send the next request somewhere this
+    config never named -- with the cloud path, carrying an Authorization header. Refuse."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def _http_post(url, body, headers, timeout):
     req = urllib.request.Request(url, json.dumps(body).encode(), headers)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with _OPENER.open(req, timeout=timeout) as r:
         return json.loads(r.read(65536).decode("utf-8"))
 
 
@@ -275,8 +287,10 @@ def classify(cfg, text, post=None, now=None):
         # input whose GGUF and reference tokenizations disagree (some emoji) with a 422, and one
         # such message would otherwise have taken the router off the air for JEV_BACKOFF_S.
         # 429 is excluded: being rate-limited IS a reason to wait.
+        # 3xx is included: a redirect from the scorer is a rejected request, not an outage,
+        # and it must not silence the router either.
         code = getattr(e, "code", None)
-        if isinstance(code, int) and 400 <= code < 500 and code != 429:
+        if isinstance(code, int) and 300 <= code < 500 and code != 429:
             res["error"] = f"http_{code}"
             return res
         # A local scorer refusing because the CPU is hot is a healthy answer, not an outage, so
