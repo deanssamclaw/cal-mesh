@@ -272,6 +272,60 @@ def suite():
         ck(f"names_other_node: {txt!r}", R.sigreport.names_other_node(txt))
     ck("names_other_node: a plain self ask is clean",
        not R.sigreport.names_other_node("Cal, hows the link holding up?"))
+    # Review 2026-09-24: with the guard missing (0.05), every one of these was answered with the
+    # SENDER's link numbers. The model guard scored a plain third-party ask 0.5166 against its
+    # 0.5 bar on the live scorer, so the backstop is the wall, not a formality.
+    for txt in ("how is the Olathe repeater hearing you", "how is kd0abc's signal",
+                "how's 871C sounding", "what snr do you get from Bob", "Cal are you hearing Dave ok?",
+                "cal can you hear my buddy up north?", "Cal, how strong is Mike's station at your end?",
+                "Cal, is the router on the water tower still coming through?",
+                "cal hows the signal from the KC gateway", "cal are you picking up the new relay on the hill"):
+        ck(f"third party caught: {txt!r}", R.sigreport.names_other_node(txt))
+    p = Post("sigreport", 0.99, other=0.05)
+    b, o, s, t, _ = run("cal what snr do you get from Bob", cfg(), p)
+    ck("a named person, guard missing: refused, no sender numbers on air",
+       s is None and t.get("declined") == "sigreport_names_other_node", repr(t))
+    # ...and the backstop must NOT eat the sender's own link asks, or the rescue is gone. These
+    # include every real sigreport ask in the inbox that names a PLACE ("got you from Grandview"
+    # is the sender's location, not a station), and contractions ("How's", "What's").
+    # CLOSED VOCABULARY. The reviewer's 34 fresh third-party asks (written without seeing the
+    # code): the name-list backstop missed 27. Every one must now be refused on the routed path.
+    THIRD = ("cal how's the signal coming from the water plant", "cal what's the snr on the hilltop box",
+             "cal how well do you hear the one in Lawrence", "cal is the Lenexa site coming in clear",
+             "cal how's the link to the other T-Deck", "cal what rssi are you seeing on sarah",
+             "cal how does my dad's radio sound to you", "cal how's jim coming through",
+             "cal how is mom's signal", "cal can you hear the guy in Overland Park",
+             "cal how strong is the club's machine", "cal how's the mountaintop unit sounding",
+             "cal what's the link like between you and the tracker", "cal how's their signal",
+             "cal how is his signal on your end", "cal is she coming in ok",
+             "cal how's the solar box on the barn", "cal hows ab0cd doing on snr", "cal hows w0xyz",
+             "cal how's KE0-ABC sounding", "cal what's the snr from the church steeple",
+             "cal how is the hub at the fire station", "cal how loud is the mesh node downtown",
+             "cal can you hear the beacon", "cal how's the uncle's setup sounding",
+             "cal how's Meshy McMeshface coming through", "cal how's the link with the car",
+             "cal what's the snr on the rooftop one", "cal how do you hear everybody else",
+             "cal how's Johnson County ARES sounding", "cal how's my buddy's node",
+             "cal how's the signal from the park", "cal rate the signal from @deadbeef",
+             "cal how's the RNode on the silo", "cal how's my buddy")
+    leaked = [x for x in THIRD if R.sigreport.own_link_only(x) and not R.sigreport.names_other_node(x)]
+    ck(f"closed vocabulary: all {len(THIRD)} third-party asks refused", not leaked, repr(leaked))
+    p = Post("sigreport", 0.99, other=0.05)
+    b, o, s, t, _ = run("cal how's jim coming through", cfg(), p)
+    ck("end to end, guard missing, lower-case name: refused",
+       s is None and t.get("declined") == "sigreport_not_own_link", repr(t))
+    for txt in ("Cal, hows the link holding up?", "Cal, hardened test — you good?", "Cal, how's my signal?",
+                "cal how do you hear me", "Cal, you copy me ok?", "cal what's my snr",
+                "Cal how's the link between us tonight?", "cal am I coming in clear",
+                "Cal, how's my new antenna sounding?", "cal radio check, how am I",
+                "cal hows my new router sounding", "cal what's my signal like from here", "Hows the radio holding up?"):
+        ck(f"own link, both walls pass: {txt!r}", R.sigreport.own_link_only(txt) and not R.sigreport.names_other_node(txt))
+    for txt in ("Cal, hows the link holding up?", "Cal, hardened test — you good?", "Cal, how's my signal?",
+                "cal how do you hear me", "Cal, you copy me ok?", "What's my snr Cal", "How's my node sounding?",
+                "Cal, how's my new antenna sounding?", "cal radio check, how am I", "I got you from Grandview",
+                "I hear you from Grandview", "Got you here in Olathe. How's it going?",
+                "It has it's busy moments... got you from Martin City", "Cal can you hear me?",
+                "Cal's link ok?", "is Cal's radio up?"):
+        ck(f"self ask left alone: {txt!r}", not R.sigreport.names_other_node(txt))
 
     print("\n== 11. private traffic stays home (review finding 7) ==")
     p = Post("weather", 0.99)
@@ -313,7 +367,14 @@ def suite():
            ("choice is a dict", {"route": {"choice": {"a": 1}, "confidence": 1.0}}),
            ("confidence is true", {"route": {"choice": "weather", "confidence": True}}),
            ("confidence is a string", {"route": {"choice": "weather", "confidence": "0.95"}}),
-           ("confidence is NaN", {"route": {"choice": "weather", "confidence": float("nan")}}),
+           # Guards PRESENT: without them a KeyError rejected this before NaN was ever read, and
+           # removing the range check left the suite green (review 2026-09-24).
+           ("confidence is NaN", {"route": {"choice": "weather", "confidence": float("nan")},
+                                  "weather_now": {"noul": 1.0}, "other_station": {"noul": 0.0}}),
+           ("a guard is NaN", {"route": {"choice": "sigreport", "confidence": 1.0},
+                               "weather_now": {"noul": 1.0}, "other_station": {"noul": float("nan")}}),
+           ("confidence above 1", {"route": {"choice": "weather", "confidence": 1.5},
+                                   "weather_now": {"noul": 1.0}, "other_station": {"noul": 0.0}}),
            ("guard missing", {"route": {"choice": "weather", "confidence": 1.0}}),
            ("guard is a string", {"route": {"choice": "weather", "confidence": 1.0},
                                   "weather_now": {"noul": "yes"}, "other_station": {"noul": 0}})]
@@ -324,6 +385,38 @@ def suite():
         except Exception as e:
             ok, r = False, repr(e)
         ck(f"fails open, no exception: {name}", ok, repr(r))
+        J._state["backoff_until"] = 0.0
+    r = J.classify(cfg(), "cal is it raining", post=Post(body={"model": "x", "answers": {}}))
+    ck("a malformed answer backs off (a broken scorer, not one message)",
+       r["error"] == "bad_answer" and J._state["backoff_until"] > _t.time(), repr(r))
+    J._state["backoff_until"] = 0.0
+    def _garbage(*a):
+        raise __import__("json").JSONDecodeError("x", "<html>", 0)
+    r = J.classify(cfg(), "cal is it raining", post=_garbage)
+    ck("garbage JSON backs off too", r["error"] == "bad_answer" and J._state["backoff_until"] > _t.time(), repr(r))
+    J._state["backoff_until"] = 0.0
+    nan = float("nan")
+    for name, res in (("conf NaN", {"route": "weather", "conf": nan, "weather_now": 1.0, "other_station": 0.0}),
+                      ("weather_now NaN", {"route": "weather", "conf": 1.0, "weather_now": nan, "other_station": 0.0}),
+                      ("other_station NaN", {"route": "sigreport", "conf": 1.0, "weather_now": 1.0, "other_station": nan}),
+                      ("conf a string", {"route": "caps", "conf": "0.99", "weather_now": 1.0, "other_station": 0.0}),
+                      ("conf True", {"route": "caps", "conf": True, "weather_now": 1.0, "other_station": 0.0})):
+        ck(f"decide refuses on its own: {name}", J.decide(cfg(), res) is None, repr(J.decide(cfg(), res)))
+    ck("decide still acts on a clean answer",
+       J.decide(cfg(), {"route": "sigreport", "conf": 0.9, "weather_now": 0.0, "other_station": 0.1}) == "sigreport")
+    rej = Post(raise_=__import__("urllib").error.HTTPError("u", 422, "Unprocessable", {}, None))
+    lcfg = cfg(S1_BACKEND="local", S1_KEY_FILE="/nonexistent/key")
+    J._state["rejects"] = 0
+    J.classify(lcfg, "x", post=rej); J.classify(lcfg, "x", post=rej)
+    ck("two 4xx in a row: still no backoff", J._state["backoff_until"] <= _t.time())
+    J.classify(lcfg, "x", post=rej)
+    ck("the third in a row IS an outage (a scorer rejecting everything)", J._state["backoff_until"] > _t.time())
+    J._state["backoff_until"] = 0.0
+    J.classify(lcfg, "x", post=rej); J.classify(lcfg, "x", post=rej)
+    J.classify(lcfg, "x", post=Post("weather", 0.99)); J.classify(lcfg, "x", post=rej)
+    ck("a good answer resets the count", J._state["backoff_until"] <= _t.time() and J._state["rejects"] == 1,
+       repr(J._state))
+    J._state["rejects"] = 0
     J._state["backoff_until"] = 0.0
     r = J.classify(cfg(), "x", post=Post("weather", 0.99, body=None))
     big = Post("weather", 0.99); big.body = None
@@ -382,7 +475,34 @@ def suite():
     lc = cfg(S1_BACKEND="local", S1_KEY_FILE="/nonexistent/key", S1_LOCAL_URL="http://box:8799/v1/systemone",
              S1_LOCAL_TIMEOUT_S="30")
     ck("default backend is the cloud one", J.backend(dict(R.DEFAULTS)) == "typesafe")
-    ck("an unknown backend falls back to the cloud one", J.backend({"S1_BACKEND": "wat"}) == "typesafe")
+    # FAILS CLOSED (review 2026-09-24): the config loader keeps an inline comment as part of the
+    # value, and falling back to the cloud sent message text to a third party on a typo.
+    ck("an unknown backend is None, not the cloud one", J.backend({"S1_BACKEND": "wat"}) is None)
+    ck("surrounding whitespace is not a bad backend", J.backend({"S1_BACKEND": " local "}) == "local")
+    J._state["backoff_until"] = 0.0
+    J.classify(cfg(S1_BACKOFF_S="1e18"), "x", post=Post(raise_=OSError("down")))
+    ck("a huge backoff is capped at a day", J._state["backoff_until"] - _t.time() <= 86401,
+       str(J._state["backoff_until"] - _t.time()))
+    J._state["backoff_until"] = 0.0
+    ck("an inline comment is not silently the cloud", J.backend({"S1_BACKEND": "local  # typesafe | local"}) is None)
+    pbb = Post("weather", 0.99)
+    b, o, s_, t, _ = run("cal is it raining", cfg(S1_BACKEND="local # x"), pbb)
+    ck("a bad backend is never called, and says so on the trace",
+       pbb.calls == [] and o == b and (t or {}).get("reason") == "bad_backend", repr(t))
+    import tempfile as _tf
+    _f = _tf.NamedTemporaryFile("w", delete=False, suffix=".cfg")
+    _f.write("S1_BACKEND=local   # typesafe | local\nS1_LOCAL_TIMEOUT_S=30   # three passes\n"
+             "S1_ROUTE_ENABLED=true\n")
+    _f.close()
+    _old, R.CONFIG = R.CONFIG, _f.name
+    try:
+        _c = R.load_config()
+    finally:
+        R.CONFIG = _old
+    ck("the loader drops an inline comment (config.example writes them)",
+       _c["S1_BACKEND"] == "local" and _c["S1_LOCAL_TIMEOUT_S"] == "30", repr({k: _c[k] for k in ("S1_BACKEND", "S1_LOCAL_TIMEOUT_S")}))
+    ck("classify refuses a bad backend on its own", J.classify(cfg(S1_BACKEND="wat"), "x", post=pbb)["error"] == "bad_backend"
+       and pbb.calls == [])
     p = Post("weather", 0.99)
     b, o, s_, t, _ = run("cal is it raining", lc, p)
     ck("local needs no key file", len(p.calls) == 1 and t.get("error") is None, repr(t))
@@ -463,12 +583,12 @@ def _classify_backoff_on_4xx(cfg, text, post=None, now=None):
         J._state["backoff_until"] = time.time() + 300
     return r
 real = {"classify": _real_classify, "opener": J._OPENER, "eligible": J.eligible, "decide": J.decide, "RESCUABLE": J.RESCUABLE, "MODEL": J.MODEL,
-        "wd": J._with_deadline, "non": R.sigreport.names_other_node, "commit": R.commit_sigreport,
+        "wd": J._with_deadline, "non": R.sigreport.names_other_node, "olo": R.sigreport.own_link_only, "commit": R.commit_sigreport,
         "backend": J.backend, "LI": J.LOCAL_INSTRUCTIONS}
 def _elig_ignores_unlock(c, plan, **kw):
     return real["eligible"](c, dict(plan, unlocked=False), **kw)
 def _elig_ignores_claim(c, plan, **kw):
-    return (True, "fallthrough") if J.enabled(c) else (False, "jev_disabled")
+    return (True, "fallthrough") if J.enabled(c) else (False, "s1_disabled")
 def _elig_ignores_private(c, plan, private=False, **kw):
     return real["eligible"](c, plan, private=False, **kw)
 def _elig_ignores_backoff(c, plan, **kw):
@@ -477,9 +597,8 @@ def _elig_ignores_backoff(c, plan, **kw):
 def _decide_no_floor(c, res):
     return res.get("route") if res and res.get("route") in J.RESCUABLE else None
 def _decide_no_guards(c, res):
-    if not res or res.get("route") not in J.RESCUABLE:
-        return None
-    return res["route"] if (res.get("conf") or 0) >= float(c.get("S1_MIN_CONF", "0.8")) else None
+    # The real decide with both guards forced to pass -- so the mutant differs ONLY in the guards.
+    return real["decide"](c, dict(res, weather_now=1.0, other_station=0.0) if res else res)
 MUTANTS = [
     ("unlocked DMs are sent", lambda: setattr(J, "eligible", _elig_ignores_unlock)),
     ("claimed messages are second-guessed", lambda: setattr(J, "eligible", _elig_ignores_claim)),
@@ -491,6 +610,7 @@ MUTANTS = [
     ("model unpinned", lambda: setattr(J, "MODEL", "jev-latest")),
     ("no wall-clock deadline", lambda: setattr(J, "_with_deadline", lambda fn, d: fn())),
     ("node-name backstop off", lambda: setattr(R.sigreport, "names_other_node", lambda t: False)),
+    ("closed-vocabulary wall off", lambda: setattr(R.sigreport, "own_link_only", lambda t: True)),
     ("send does not spend the budget", lambda: setattr(R, "commit_sigreport", lambda st, s, ts=None: None)),
     ("backend switch ignored", lambda: setattr(J, "backend", lambda cfg: "typesafe")),
     ("local sent the cloud prompt shape", lambda: setattr(J, "LOCAL_INSTRUCTIONS", J.INSTRUCTIONS)),
@@ -513,6 +633,7 @@ for name, apply in MUTANTS:
         J._with_deadline, R.sigreport.names_other_node, R.commit_sigreport = (
             real["wd"], real["non"], real["commit"])
         J.backend, J.LOCAL_INSTRUCTIONS = real["backend"], real["LI"]
+        R.sigreport.own_link_only = real["olo"]
         J.classify = real["classify"]; J._OPENER = real["opener"]
         J._state["backoff_until"] = 0.0
         R.channel_busy = lambda cfg, ts=None: (False, 0.0, "quiet")

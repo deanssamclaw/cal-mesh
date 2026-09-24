@@ -15,7 +15,7 @@ Also emits, for the dashboard:
 Design note: a serial/TCP link has exactly one owner. This process IS that owner.
 While it runs, do NOT run `meshtastic --port ...` against Cal HT — send via the outbox.
 """
-import os, sys, time, json, glob, fcntl, threading, traceback, base64, hashlib
+import os, re, sys, time, json, glob, fcntl, threading, traceback, base64, hashlib
 from datetime import datetime, timezone
 
 BASE     = os.path.expanduser("~/cal-mesh")
@@ -65,6 +65,7 @@ def load_config():
             ln = ln.strip()
             if ln and not ln.startswith("#") and "=" in ln:
                 k, v = ln.split("=", 1)
+                v = re.split(r"\s+#", v, maxsplit=1)[0]   # inline comment is not the value (same rule as responder.load_config)
                 cfg[k.strip()] = v.strip()
     return cfg
 

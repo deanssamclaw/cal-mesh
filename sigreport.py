@@ -189,14 +189,80 @@ def _normalize(text):
 # normalisation (found in the 2026-09-21 review; left alone there, since changing an armed rule
 # is its own review). The 4-hex branch also catches a bare 4-digit number ("test 1234"): a false
 # positive here is silence from this doer and the message takes its usual path.
-_OTHER_NODE_RAW = re.compile(r"(@!?[0-9a-fA-F]{6,8}\b)|(![0-9a-fA-F]{8}\b)"
+#
+# CASE-INSENSITIVE, and it names THIRD PARTIES BY KIND AND BY NAME, not only by id (review
+# 2026-09-24). The model's `other_station` guard was measured sitting ON its bar for a plain
+# third-party ask on the live scorer (0.5166 vs 0.5), and every case below was answered with the
+# SENDER's own numbers when the guard missed: "how is kd0abc's signal" (lower-case callsign),
+# "how's 871C sounding" (upper-case short id), "what snr do you get from Bob", "how is the
+# Olathe repeater hearing you". This backstop is the wall; the model guard is the first filter.
+# A false positive costs only this rescue -- the message goes to the model as it did before.
+_OTHER_NODE_RAW = re.compile(r"(@!?[0-9a-f]{6,8}\b)|(![0-9a-f]{8}\b)"
                              r"|(\b[0-9a-f]{4}\b(?![0-9a-f]))"
-                             r"|(\b[A-Z]{1,2}\d[A-Z]{1,3}\b)|(\b[A-Z]{2,4}\d{2,3}\b)")
+                             r"|(\b[a-z]{1,2}\d[a-z]{1,3}\b)|(\b[a-z]{2,4}\d{2,3}\b)", re.I)
+# A station named by what it IS. "my node", "your router" (Cal's) are the link being asked about;
+# a PERSON is always a third party, "my buddy" included.
+_OTHER_KIND = re.compile(r"(?<!\bmy )(?<!\bour )(?<!\byour )"
+                         r"\b(repeaters?|routers?|nodes?|relays?|digi\w*|gateways?|towers?|"
+                         r"base ?stations?|stations?)\b"
+                         r"|\b(buddy|buddies|friends?|neighbou?rs?|brother|wife|husband|son|dad)\b", re.I)
+# A station named by a PERSON or PLACE: a capitalised word after from/of/to/at, or a possessive
+# ("Mike's station"). Raw text, so the capital survives. Cal itself is not a third party.
+# NOT a bare "from Grandview": "I got you from Grandview" is a contact report giving the sender's
+# LOCATION, and five labelled signal asks in the corpus read that way. So "from" counts only after
+# a word that makes the named thing a SIGNAL SOURCE ("snr from Bob", "get from Bob").
+_OTHER_NAMED = re.compile(r"\b(?:hear|hearing|heard|reach|reaching)\s+(?:the\s+)?(?!Cal\b)[A-Z][a-z]+"
+                          r"|\b(?:get|getting|signal|snr|rssi|reception|copy)\s+(?:\w+\s+)?from\s+"
+                          r"(?:the\s+)?(?!Cal\b)[A-Z][a-z]+"
+                          r"|\b(?!(?:Cal|How|What|Where|Who|When|Why|It|That|There|Here|"
+                          r"He|She|Let|Everything|Nothing|Something)['\u2019])[A-Z][a-z]+['\u2019]s\b")
 
 
 def names_other_node(text):
-    """True if the raw text names a node, short id or callsign. Used only on the routed path."""
-    return bool(_OTHER_NODE_RAW.search(text or ""))
+    """True if the raw text names another station -- by id, callsign, kind or name. Used only on
+    the routed path, where a false positive is silence from this doer and nothing more."""
+    if not isinstance(text, str):
+        return True                    # not text: refuse, the safe direction here
+    t = _OWN_GEAR.sub(" ", text)       # "my new router" is the sender's own gear, not a station
+    return bool(_OTHER_NODE_RAW.search(t) or _OTHER_KIND.search(t) or _OTHER_NAMED.search(t))
+
+
+# CLOSED VOCABULARY, for the routed path only (review 2026-09-24, second round). Two rounds of
+# widening `names_other_node` still missed 27 of 34 fresh third-party asks ("how's jim coming
+# through", "how's their signal", "the beacon", "the one in Lawrence"): a list of what a third
+# party LOOKS like can never be finished. This inverts it. A routed signal ask is answered only if
+# EVERY word is one a question about the sender's own link to Cal is made of; any name, place,
+# pronoun or station word outside the list refuses. A refusal costs one rescue (about two a month
+# in total) and the message goes to the model as it did before; a miss puts the sender's numbers
+# on air as an answer about somebody else. That asymmetry is why the list is closed.
+_OWN_LINK_WORDS = frozenset("""
+    cal hey hi hello yo ok okay please thanks thx
+    how hows what whats is are am do does did can could still
+    you your ya u me my i im we our us between
+    the a this that it its and so
+    link signal signals radio reception snr rssi connection
+    holding up doing coming in through clear clearly
+    hear hearing heard copy copying read reading readable receive receiving getting get out
+    good fine alright loud strong weak sounding sound sounds like
+    check test testing hardened range mic
+    now tonight today there here over on at end side working reach reaching making
+""".split())
+# "from here" / "from home" are the sender's own location, not a signal source. Any OTHER "from X"
+# is left to refuse: "snr from Bob" and "snr from Shawnee" read the same to a word list.
+_OWN_PLACE = re.compile(r"\bfrom\s+(?:here|home|my\s+(?:house|place|home|car|truck|yard))\b", re.I)
+# The sender's OWN equipment may be named, but only as "my/our [new] X" -- "my buddy" is a person.
+_OWN_GEAR = re.compile(r"\b(?:my|our)\s+(?:new\s+|old\s+|home\s+)?(?:radio|node|router|station|"
+                       r"setup|antenna|rig|t-?deck|rnode|heltec|handheld|ht)\b", re.I)
+
+
+def own_link_only(text):
+    """True only if the text is made entirely of the words a question about the sender's own
+    link to Cal is made of. Pure text, no I/O. Not a matcher: it only ever REFUSES a rescue."""
+    if not isinstance(text, str):
+        return False
+    t = _OWN_PLACE.sub(" ", _OWN_GEAR.sub(" ", text.replace("\u2019", "'")))
+    words = [w.replace("'", "") for w in re.findall(r"[a-z0-9'@!#-]+", t.lower())]
+    return bool(words) and all(w in _OWN_LINK_WORDS for w in words)
 
 
 def match(text, trigger="cal"):

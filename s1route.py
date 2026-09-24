@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""JEVROUTE — a second opinion on routing, asked only where the ladder has already given up.
+"""S1ROUTE — a second opinion on routing, asked only where the ladder has already given up.
+
+(Named `jevroute` until 2026-09-23: it was built against TypeSafe's Jev, and what runs today is
+a frozen Qwen3.5-4B scored by SemIf on jlab. "System One" is the model class, not a vendor.)
 
 WHY. Every doer here claims a message with a regex, and the ladder's fallback is the language
 model. A message no regex claims therefore reaches the one component that can invent. That is
@@ -8,8 +11,8 @@ here" with no number behind it (sigreport.py records that), and 10 of 14 natural
 weather asks ("is it raining", "how cold is it") match no weather trigger at all. Widening the
 regexes is the fix that has broken something every round it was tried (README, session 126).
 
-Jev (TypeSafe AI, a "System One" model) answers one typed question -- which service should
-answer this? -- with a probability for every option. It does not write text and it computes
+A System One model (TypeSafe's Jev in the cloud, or the local scorer on jlab) answers one typed
+question -- which service should answer this? -- with a probability for every option. It does not write text and it computes
 nothing. So it can only ever send a message to a doer that already exists; the doer still owns
 the answer, and every number on air still comes from Python or the radio.
 
@@ -19,7 +22,9 @@ exact configuration, three calls per message):
     all 319, as if every message were eligible      ladder 245 -> 254   (+9, 0 broken)
     addressed, public channel  (the default)        ladder  23 ->  25   (+2, 0 broken, n=25)
     + DMs and Cal's channel    (S1_PRIVATE_OK)     ladder  47 ->  50   (+3, 0 broken, n=56)
-No message flipped between act and no-act across the three calls. Every fix is a link/signal
+No message flipped between act and no-act across the three calls. REVIEW 2026-09-24: the labels
+side with Jev on every disputed addressed message (relabelled, the all-319 row is +6/-3), and the
+default row is 7 fallthrough messages, 2 fixes -- a direction, not a rate. Every fix is a link/signal
 ask ("Cal, hows the link holding up?") the model used to answer with no number behind it.
 Small on purpose: an earlier hybrid that also routed greetings and un-addressed chatter scored
 far higher (293/319) and is NOT this module -- that widening is a separate decision (airtime,
@@ -43,9 +48,11 @@ THE RULES:
    answering more greetings is a policy change, not a routing fix.
 4. FAIL OPEN TO TODAY. Any error, timeout, 4xx/5xx, malformed body or unknown route returns a
    result with `route` None, and the caller does exactly what it did before this module existed.
-   S1_TIMEOUT_S is a WALL-CLOCK bound on the whole request, and a network failure backs off for
-   S1_BACKOFF_S so an outage costs one timeout, not one per message.
-5. THE MODEL IS PINNED. `jev-latest` moves on every release and the threshold was measured on
+   S1_TIMEOUT_S is a WALL-CLOCK bound on the whole request, and a network failure OR a malformed
+   answer backs off for S1_BACKOFF_S, so a broken scorer costs one timeout, not one per message.
+   A 4xx rejects one request and does not back off -- unless S1_REJECTS_MAX arrive in a row,
+   which is a scorer rejecting everything, not a message it cannot read.
+5. THE MODEL IS PINNED. (Cloud path. The local service names the model it ran in `model`.) `jev-latest` moves on every release and the threshold was measured on
    jev-1.13.0. Moving is a deliberate change with a re-run of the measurement, not an alias flip.
 6. THE KEY NEVER TRAVELS. It is read from S1_KEY_FILE at call time and appears in no return
    value, log line or trace. Only the route, its confidence and the model id are recorded.
@@ -142,8 +149,13 @@ DEFAULTS = {
     "S1_LOCAL_TIMEOUT_S": "30",
     # A local scorer that answers "too hot" is not broken, so it gets its own shorter window.
     "S1_BUSY_BACKOFF_S": "120",
+    # Consecutive 4xx rejections before a rejection counts as an outage. One unreadable message
+    # (the scorer 422s some emoji) must not silence the router; a scorer that answers EVERY
+    # request with a slow 4xx must not cost up to S1_LOCAL_TIMEOUT_S on every message either
+    # (review 2026-09-24: a 25 s 422 backed off 0 s, forever).
+    "S1_REJECTS_MAX": "3",
 }
-_state = {"backoff_until": 0.0}
+_state = {"backoff_until": 0.0, "rejects": 0}
 
 
 def _cfg(cfg, key):
@@ -155,15 +167,21 @@ def enabled(cfg):
 
 
 def backend(cfg):
-    b = str(_cfg(cfg, "S1_BACKEND")).lower()
-    return b if b in ("typesafe", "local") else "typesafe"
+    """typesafe | local | None. An unrecognised value is None and the router does not run.
+    It used to fall back to typesafe, and the config loader keeps an inline comment as part of
+    the value -- so `S1_BACKEND=local  # typesafe | local` silently sent message text to the
+    cloud (review 2026-09-24). A misconfigured backend fails CLOSED, never to the other one."""
+    b = str(_cfg(cfg, "S1_BACKEND")).strip().lower()
+    return b if b in ("typesafe", "local") else None
 
 
 def eligible(cfg, plan, private=False, now=None):
     """(ok, reason). The whole of rule 1 and rule 2 -- one place, so it cannot drift.
     `private` is decided by the caller from the packet: a DM, or Cal's own channel."""
     if not enabled(cfg):
-        return False, "jev_disabled"
+        return False, "s1_disabled"
+    if backend(cfg) is None:
+        return False, "bad_backend"
     if plan.get("capability") is not None or plan.get("mode") != "generate":
         return False, "claimed_by_ladder"
     if plan.get("unlocked"):
@@ -228,12 +246,28 @@ def _prob(v):
     return v
 
 
+def _backoff(cfg, key, now):
+    try:
+        back = float(_cfg(cfg, key))
+        if not math.isfinite(back):
+            raise ValueError
+    except ValueError:
+        back = float(DEFAULTS[key])
+    # Capped at a day: `S1_BACKOFF_S=1e18` is finite and would have kept the router off until
+    # the next restart with nothing on the page saying why.
+    _state["backoff_until"] = (time.time() if now is None else now) + min(86400.0, max(0.0, back))
+    _state["rejects"] = 0
+
+
 def classify(cfg, text, post=None, now=None):
     """{'route','conf','weather_now','other_station','model','ms','error'}; route None on ANY
     failure (rule 4). `post(url, body, headers, timeout)` is injectable so the eval never touches
     the network. A network-shaped failure starts the backoff window."""
     res = {"route": None, "conf": None, "weather_now": None, "other_station": None,
            "model": None, "ms": None, "error": None, "backend": backend(cfg)}
+    if res["backend"] is None:
+        res["error"] = "bad_backend"
+        return res
     local = res["backend"] == "local"
     key = ""
     if not local:
@@ -276,34 +310,43 @@ def classify(cfg, text, post=None, now=None):
         model = r.get("model")
         model = model if isinstance(model, str) and 0 < len(model) <= 40 else None
     except (ValueError, KeyError, TypeError, AttributeError, IndexError) as e:
+        # A malformed answer -- garbage JSON included, since JSONDecodeError is a ValueError --
+        # is a broken scorer, not a message it could not read: the scorer's own refusals come
+        # back as 4xx. It backs off like an outage. It did not, and a scorer answering every
+        # request with a slow malformed body cost up to the full timeout on every message.
         res["ms"] = round((time.time() - t0) * 1000)
         res["error"] = "bad_answer"
+        _backoff(cfg, "S1_BACKOFF_S", now)
         return res
-    except Exception as e:                     # network-shaped: timeout, HTTP, DNS, JSON decode
+    except Exception as e:                     # network-shaped: timeout, HTTP, DNS
         res["ms"] = round((time.time() - t0) * 1000)
         res["error"] = type(e).__name__[:40]
-        # A 4xx says THIS REQUEST was rejected, not that the scorer is down, so it must not
+        # A 4xx says THIS REQUEST was rejected, not that the scorer is down, so ONE must not
         # silence the router for the outage window. Found by running: the local scorer refuses
         # input whose GGUF and reference tokenizations disagree (some emoji) with a 422, and one
         # such message would otherwise have taken the router off the air for S1_BACKOFF_S.
+        # S1_REJECTS_MAX in a row is a scorer rejecting everything, and that does back off.
         # 429 is excluded: being rate-limited IS a reason to wait.
-        # 3xx is included: a redirect from the scorer is a rejected request, not an outage,
-        # and it must not silence the router either.
+        # 3xx is included: a redirect from the scorer is a rejected request, not an outage.
         code = getattr(e, "code", None)
         if isinstance(code, int) and 300 <= code < 500 and code != 429:
             res["error"] = f"http_{code}"
+            _state["rejects"] += 1
+            try:
+                most = int(_cfg(cfg, "S1_REJECTS_MAX"))
+            except ValueError:
+                most = int(DEFAULTS["S1_REJECTS_MAX"])
+            if _state["rejects"] >= min(100, max(1, most)):
+                _backoff(cfg, "S1_BACKOFF_S", now)
             return res
-        # A local scorer refusing because the CPU is hot is a healthy answer, not an outage, so
-        # it waits a shorter window than a network failure does.
-        busy = local and "HTTP Error 503" in str(e)
-        try:
-            back = float(_cfg(cfg, "S1_BUSY_BACKOFF_S" if busy else "S1_BACKOFF_S"))
-        except ValueError:
-            back = float(DEFAULTS["S1_BUSY_BACKOFF_S" if busy else "S1_BACKOFF_S"])
+        # A local scorer refusing because the CPU is hot (or because it is already scoring
+        # something else) is a healthy answer, not an outage: a shorter window.
+        busy = local and code == 503
         if busy:
             res["error"] = "busy"
-        _state["backoff_until"] = (time.time() if now is None else now) + max(0.0, back)
+        _backoff(cfg, "S1_BUSY_BACKOFF_S" if busy else "S1_BACKOFF_S", now)
         return res
+    _state["rejects"] = 0
     res["ms"] = round((time.time() - t0) * 1000)
     # Unrounded: decide() compares these against the floor, and rounding first let 0.7999 act
     # at a 0.8 floor. The trace rounds for display; the decision never sees a rounded value.
@@ -323,11 +366,16 @@ def decide(cfg, res):
             raise ValueError
     except ValueError:
         floor = float(DEFAULTS["S1_MIN_CONF"])
-    if (res.get("conf") or 0.0) < floor:
+    # Every comparison is written so that NaN, None or a non-number REFUSES. `x < floor` is
+    # False for NaN, so `if conf < floor: return None` let a NaN act (review 2026-09-24);
+    # classify's _prob is the first wall, this is the second.
+    def num(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
+    conf, wn, oth = num(res.get("conf")), num(res.get("weather_now")), num(res.get("other_station"))
+    if not (conf is not None and conf >= floor):
         return None
-    if res["route"] == "weather" and (res.get("weather_now") or 0.0) < floor:
+    if res["route"] == "weather" and not (wn is not None and wn >= floor):
         return None
-    if res["route"] == "sigreport" and (res.get("other_station") is None
-                                        or res["other_station"] >= OTHER_STATION_MAX):
+    if res["route"] == "sigreport" and not (oth is not None and oth < OTHER_STATION_MAX):
         return None
     return res["route"]

@@ -153,7 +153,9 @@ S1_KEY_FILE=~/.credentials/typesafe
 # Qwen3.5-4B scored by SemIf with one fitted temperature): measured to make the SAME rescues as
 # the cloud service and break nothing, at ~13 s instead of 0.25 s, with no message text leaving
 # the house. The local path sends NO key and uses its own measured prompt wording.
-S1_BACKEND=typesafe     # typesafe | local
+# typesafe | local. NO inline comment on these lines: the loader keeps it as part of the value,
+# and an unrecognised backend turns the router OFF (it used to fall back to the cloud).
+S1_BACKEND=typesafe
 # The scorer's TAILNET address (100.x). Do not use a MagicDNS hostname: on a host with Funnel
 # enabled it resolves to the public relay instead, and the router would leave the tailnet.
 S1_LOCAL_URL=http://127.0.0.1:8799/v1/systemone

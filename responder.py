@@ -310,6 +310,12 @@ def load_config():
             ln = ln.strip()
             if ln and not ln.startswith("#") and "=" in ln:
                 k, v = ln.split("=", 1)
+                # An inline comment is NOT part of the value. config.example writes them
+                # (`S1_TIMEOUT_S=2   # ...`), and a copied line used to become the value
+                # "2   # ..." -- numbers silently fell back to defaults and an unknown
+                # S1_BACKEND fell back to the cloud (review 2026-09-24). Whitespace before the
+                # hash is required, so a value may still contain a bare '#'.
+                v = re.split(r"\s+#", v, maxsplit=1)[0]
                 if k.strip() in cfg:
                     cfg[k.strip()] = v.strip()
     except Exception:
@@ -899,7 +905,7 @@ def run_claude(cfg, prompt, persona=None, cap=180):
             # account detail (usage limits, auth) that has no business on a public page.
             log(f"gen rc{out.returncode} detail: stderr={out.stderr.strip()[-300:]!r} "
                 f"stdout={out.stdout.strip()[-300:]!r}")
-            return None, f"gen_rc{out.returncode}:{out.stderr.strip()[:80]}"
+            return None, f"gen_rc{out.returncode}:"     # the code, never a tail: this is public
         reply = clean_reply(out.stdout, cap=cap)
         if not reply:
             return None, "gen_empty"
@@ -909,7 +915,10 @@ def run_claude(cfg, prompt, persona=None, cap=180):
     except subprocess.TimeoutExpired:
         return None, "gen_timeout"
     except Exception as e:
-        return None, f"gen_exc:{e!r}"[:100]
+        # The type only: an exception's repr carries paths and arguments, and gen_status is
+        # published. The detail goes to the local log.
+        log(f"gen exception detail: {e!r}"[:400])
+        return None, f"gen_exc:{type(e).__name__}"[:60]
 
 
 def enqueue(text, dest, channel):
@@ -1301,6 +1310,11 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False):
         # question semantically; this is the literal backstop.
         if not mark("names_no_other_node", not sigreport.names_other_node(rec.get("text", ""))):
             return False, "sigreport_names_other_node", None, ch, None, gates, None
+        # And the closed-vocabulary wall (review 2026-09-24): the model guard barely separates
+        # third-party asks from self asks on the live scorer (0.57 vs 0.53), and no list of what
+        # a third party looks like could be finished. Every word must be link-question vocabulary.
+        if not mark("own_link_only", sigreport.own_link_only(rec.get("text", ""))):
+            return False, "sigreport_not_own_link", None, ch, None, gates, None
     else:
         m = sigreport.match(rec.get("text", ""), trigger=cfg.get("TRIGGER_WORD", "cal"))
         if not mark("is_a_test", m is not None):
@@ -1380,7 +1394,7 @@ def send_s1_sigreport(st, rec, d, sig, new_off, enqueue_fn=None, record=None, sa
     d.update({"matched": True, "reason": s_reason, "reply": s_text, "dest": s_dest,
               "capability": "sigreport", "prompt_kind": "fixed", "gen_status": "fixed_sigreport",
               "sigreport": s_meta})
-    log(f"SIGREPORT(jev) {rec.get('from')} -> {s_dest}: {s_text!r}")
+    log(f"SIGREPORT(s1) {rec.get('from')} -> {s_dest}: {s_text!r}")
     record(d)
     st["inbox_offset"] = new_off
     save(st)
@@ -1404,7 +1418,7 @@ def plan_s1_rescue(cfg, st, rec, ours, plan, replan, classify=None):
     private = rec.get("to") not in ("^all", None) or (calch is not None
                                                      and rec.get("channel") == calch)
     ok, why = s1route.eligible(cfg, plan, private=private)
-    if why == "jev_disabled":
+    if why == "s1_disabled":
         return plan, None, None
     if not ok:
         return plan, None, {"asked": False, "reason": why}

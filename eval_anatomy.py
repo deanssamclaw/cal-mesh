@@ -131,6 +131,13 @@ ck("jev: the router model is recorded", spj["router_model"] == "jev-1.13.0", str
 ck("jev: a declined consult is NOT a routed reply",
    A.spec_for(dict(JEVSIG, s1_route=dict(JEVSIG["s1_route"], acted=None)))["router_model"] is None)
 ck("jev: a plain calc reply has no router", A.spec_for(CALC)["router_model"] is None)
+# Review 2026-09-24: the page said "off this machine" for the scorer in the house.
+ck("s1: a local scorer is recorded as local",
+   A.spec_for(dict(JEVSIG, s1_route=dict(JEVSIG["s1_route"], backend="local")))["router_local"] is True)
+_src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "anatomy.py")).read()
+ck("s1: the exposure line says where by router_local, not a fixed 'off this machine'",
+   "sp.router_local?" in _src and "off this machine)" not in _src)
+ck("s1: the cloud one is not", A.spec_for(dict(JEVSIG, s1_route=dict(JEVSIG["s1_route"], backend="typesafe")))["router_local"] is False)
 _src = open(A.__file__).read()
 ck("jev: the page says the message was shown to a decision model",
    "shown to a decision model" in _src and "a decision model routed it" in _src)

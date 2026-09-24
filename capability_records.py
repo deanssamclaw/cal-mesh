@@ -86,6 +86,7 @@ def read_config(path=CONFIG):
             if not ln or ln.startswith("#") or "=" not in ln:
                 continue
             k, v = ln.split("=", 1)
+            v = re.split(r"\s+#", v, maxsplit=1)[0]   # inline comment is not the value (same rule as responder.load_config)
             out[k.strip()] = v.strip()
     except Exception:
         pass

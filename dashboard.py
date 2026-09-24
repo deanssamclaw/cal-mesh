@@ -22,7 +22,7 @@ Serves:
 No third-party deps (stdlib only) so it's trivially exposable via Tailscale Funnel later,
 just like the rflab mesh dashboard. Binds localhost for now.
 """
-import os, json, http.server, socketserver, subprocess, threading, time
+import os, re, json, http.server, socketserver, subprocess, threading, time
 import console
 import capability_records
 import anatomy
@@ -117,6 +117,7 @@ def read_config():
             ln = ln.strip()
             if ln and not ln.startswith("#") and "=" in ln:
                 k, v = ln.split("=", 1)
+                v = re.split(r"\s+#", v, maxsplit=1)[0]   # inline comment is not the value (same rule as responder.load_config)
                 cfg[k.strip()] = v.strip()
     except Exception:
         pass
@@ -7076,7 +7077,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
       <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/level3-weather-intent-layer.md" target="_blank" rel="noopener noreferrer">Two of my own proposals, refuted with measurements ↗</a>
       <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/unknown-sender-tier.md" target="_blank" rel="noopener noreferrer">Answering strangers — "we hear you" ↗</a>
       <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/channel-trust-and-agency.md" target="_blank" rel="noopener noreferrer">Channel trust &amp; agency — how much Cal is allowed to be ↗</a>
-      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/jev-routing.md" target="_blank" rel="noopener noreferrer">A second opinion on routing — measured, built, not armed ↗</a>
+      <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/jev-routing.md" target="_blank" rel="noopener noreferrer">A second opinion on routing — measured, built, armed 2026-09-24 on the local scorer ↗</a>
       <br><a href="https://github.com/deanssamclaw/cal-mesh/blob/main/docs/proposals/local-system-one.md" target="_blank" rel="noopener noreferrer">Running that second opinion in the house instead — five open models measured ↗</a></div></details>
   </div>
   <div class="card" id="changelog"><h2>Changelog</h2>
@@ -7777,7 +7778,7 @@ function spineHtml(x,t){
           +((jr.answered_by&&jr.answered_by!==jr.acted&&!(jr.acted==='caps'&&jr.answered_by==='capabilities'))
             ?` &middot; answered by <b>${esc(jr.answered_by)}</b>`:''),
         `<span class="hint">no word rule matched this message. A decision model `
-        +`(<code>${esc(jr.model||'jev')}</code>, ${jloc?'on this machine &mdash; the message did not leave the house':'a service at TypeSafe AI'}) was asked one question &mdash; which of `
+        +`(<code>${esc(jr.model||'jev')}</code>, ${jloc?'on another computer in the house &mdash; the message did not leave the house':'a service at TypeSafe AI'}) was asked one question &mdash; which of `
         +`a fixed list of services should answer &mdash; and picked one. It writes nothing and `
         +`computes nothing; the reply below comes from that capability, with its own checks.</span>`);
     else

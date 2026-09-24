@@ -161,6 +161,8 @@ def spec_for(rec):
         "router_model": ((rec.get("s1_route") or {}).get("model") or "a decision model")
                         if isinstance(rec.get("s1_route"), dict) and rec["s1_route"].get("acted")
                         else None,
+        # WHERE it ran, so the page never says "off this machine" for a scorer in the house.
+        "router_local": (rec.get("s1_route") or {}).get("backend") == "local",
         "crossed": gen[0]["used"] if gen else [],
         "capability": cap,
         "verdict": rec.get("verdict") or ("replied" if reply else "no reply"),
@@ -409,7 +411,7 @@ function switchboard(g){
 function exposure(sp){
   if(!sp.model_ran&&sp.router_model)
     return '<div class="expo">No model wrote this reply. The sender&rsquo;s sanitized message <b>was</b> '+
-      'shown to a decision model (<code>'+esc(sp.router_model)+'</code>, off this machine) to choose which '+
+      'shown to a decision model (<code>'+esc(sp.router_model)+'</code>, '+(sp.router_local?'on another computer in the house &mdash; it did not leave the house':'a service at TypeSafe AI, off this network')+') to choose which '+
       'capability would answer; the only thing it returned was that choice.</div>';
   if(!sp.model_ran)
     return '<div class="expo">Nothing was shown to a language model. <b>No model ran for this '+
