@@ -439,16 +439,17 @@ def report(rec, max_chars=64, index=None, relay_name=None, place=None):
     signal, which is a number that invites a wrong conclusion -- barely better than an invented
     one, and worse in a way, because it looks like evidence.
     So the shape now says whose measurement it is:
-        direct    ->  Copy 16: direct, RSSI -35, SNR 6.0
-        relayed   ->  Copy 12: 2 hops via MDNO, last leg RSSI -63, SNR 5.8
-        unknown   ->  Copy: RSSI -63, SNR 5.8          (no hop count -> no claim either way)
+        direct    ->  #16 I hear you direct, RSSI -35, SNR 6.0
+        relayed   ->  #12 I hear you on 2 hops via MDNO, last leg RSSI -63, SNR 5.8
+        unknown   ->  I hear you, RSSI -63, SNR 5.8          (no hop count -> no claim either way)
+    (Until 2026-09-25 the head was "Copy:" / "Copy 12:"; the fields are unchanged.)
     `relay_name` is resolved by the CALLER, because this module does no I/O and because the
     resolution can be ambiguous: a relay is identified by ONE byte, so a name is passed only
     when exactly one known node matches. Unresolved simply drops the `via`.
 
     `place` (SIGREPORT_PLACE) names where CAL is, and when set it REPLACES the relay on air:
-        relayed   ->  Copy: 4 hops from Olathe, last leg RSSI -33, SNR 6.0
-        direct    ->  Copy: direct from Olathe, RSSI -32, SNR 6.2
+        relayed   ->  I hear you on 4 hops from Olathe, last leg RSSI -33, SNR 6.0
+        direct    ->  I hear you direct from Olathe, RSSI -32, SNR 6.2
     A relay's short name means nothing to a stranger across the metro; the town answers the
     question they asked -- where did this get heard. The relay is still resolved and kept in
     meta, because the trace on the page explains whose last leg the numbers describe.
@@ -498,23 +499,33 @@ def report(rec, max_chars=64, index=None, relay_name=None, place=None):
     parts += sig
     meta["parts"] = list(parts)
     # The index is echoed so a reply can be matched to its test when a sequence is in flight —
-    # `Test 12` is answered `Copy 12:`. Re-derived from digits here rather than passed through
+    # `Test 12` is answered `#12 I hear you ...`. Re-derived from digits here rather than passed through
     # as text: whatever the sender wrote, what goes on air is at most three of their digits.
     meta["index"] = None
     if index is not None:
         d = re.sub(r"\D", "", str(index))[:3]
         meta["index"] = d or None
-    head = f"Copy {meta['index']}: " if meta["index"] else "Copy: "
-    text = head + ", ".join(parts)
+    # "I hear you on 4 hops ..." (Dean, 2026-09-25; was "Copy: 4 hops ..."). meta["parts"] keep
+    # the bare fields, because the page's trace lists them without the spoken wrapper.
+    head = f"#{meta['index']} I hear you" if meta["index"] else "I hear you"
+    has_lead = bool(lead)
+
+    def say(ps):
+        if has_lead and ps and ps[0] == lead[0]:
+            first = ps[0] if hops == 0 else "on " + ps[0]
+            return head + " " + ", ".join([first] + ps[1:])
+        return head + ", " + ", ".join(ps)
+
+    text = say(parts)
     if len(text) > max_chars:
         # Drop from the RIGHT. With routing now leading, that sheds SNR first, then the signal
         # figure, and the hop count is the last thing to go — which is the correct priority,
         # because the hop count is the field that carries information. Never mid-field: a
         # truncated "RSSI -3" is a different and better-looking measurement than "RSSI -32",
         # and every wrong answer this codebase has aired took exactly that shape.
-        while len(parts) > 1 and len(head + ", ".join(parts)) > max_chars:
+        while len(parts) > 1 and len(say(parts)) > max_chars:
             parts.pop()
-        text = head + ", ".join(parts)
+        text = say(parts)
         meta["parts"] = list(parts)
         if len(text) > max_chars:
             meta["refused"] = "too_long"
