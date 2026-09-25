@@ -42,8 +42,9 @@ loginctl enable-linger "$USER"      # keep running without a login session
 
 **Config is re-read live** by the responder and dashboard; the bridge reads it at start (see
 [`docs/operations.md`](../docs/operations.md), *Config hot-reload*). A code change needs the
-responder and dashboard restarted. `./mesh status` looks for the reference install's launchd
-labels (`com.cal.mesh-*`); with other labels or on Linux, use `launchctl list | grep mesh` or
+responder and dashboard restarted. `./mesh status` and the dashboard's Bridge tile read the
+bridge's state from launchd (label `com.cal.mesh-bridge`) on macOS and from `systemd --user`
+(unit `cal-mesh-bridge`) elsewhere; with other names, use `launchctl list | grep mesh` or
 `systemctl --user status 'cal-mesh-*'`.
 
 The routing scorer is a separate service on its own box: [`../tools/system-one/`](../tools/system-one).

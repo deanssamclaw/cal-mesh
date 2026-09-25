@@ -22,7 +22,7 @@ Serves:
 No third-party deps (stdlib only) so it's trivially exposable via Tailscale Funnel later,
 just like the rflab mesh dashboard. Binds localhost for now.
 """
-import os, re, json, http.server, socketserver, subprocess, threading, time
+import os, re, sys, json, http.server, socketserver, subprocess, threading, time
 import console
 import capability_records
 import anatomy
@@ -128,18 +128,30 @@ _LD_CACHE = {"ts": 0.0, "val": None}
 
 
 def launchd_running():
+    """Bridge service state from the host's service manager: launchd on macOS, systemd --user
+    elsewhere. Anything unreadable is "unknown", never "stopped" -- a false stop is a claim."""
     import time
     if _LD_CACHE["val"] is not None and time.time() - _LD_CACHE["ts"] < 5:
         return _LD_CACHE["val"]
     try:
-        uid = os.getuid()
-        out = subprocess.run(["launchctl", "print", f"gui/{uid}/com.cal.mesh-bridge"],
-                             capture_output=True, text=True, timeout=5).stdout
-        state = "running" if "state = running" in out else "stopped"
-        pid = None
-        for ln in out.splitlines():
-            if "pid =" in ln:
-                pid = ln.split("=")[1].strip()
+        if sys.platform == "darwin":
+            uid = os.getuid()
+            out = subprocess.run(["launchctl", "print", f"gui/{uid}/com.cal.mesh-bridge"],
+                                 capture_output=True, text=True, timeout=5).stdout
+            state = "running" if "state = running" in out else "stopped"
+            pid = None
+            for ln in out.splitlines():
+                if "pid =" in ln:
+                    pid = ln.split("=")[1].strip()
+        else:
+            out = subprocess.run(["systemctl", "--user", "show", "cal-mesh-bridge",
+                                  "-p", "LoadState", "-p", "ActiveState", "-p", "MainPID"],
+                                 capture_output=True, text=True, timeout=5).stdout
+            props = dict(ln.split("=", 1) for ln in out.splitlines() if "=" in ln)
+            if props.get("LoadState") != "loaded":
+                raise RuntimeError("unit not loaded")
+            state = "running" if props.get("ActiveState") == "active" else "stopped"
+            pid = props.get("MainPID") if props.get("MainPID") not in (None, "", "0") else None
         val = {"state": state, "pid": pid}
     except Exception:
         val = {"state": "unknown", "pid": None}

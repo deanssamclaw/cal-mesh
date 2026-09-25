@@ -31,7 +31,11 @@ case "$cmd" in
     touch "$INBOX"; tail -n 0 -f "$INBOX" | python3 "$BASE/_fmt.py"
     ;;
   status)
-    echo "== launchd =="; launchctl print "gui/$(id -u)/com.cal.mesh-bridge" 2>/dev/null | grep -E 'state =|pid =' || echo "  not loaded"
+    if [ "$(uname)" = Darwin ]; then
+      echo "== launchd =="; launchctl print "gui/$(id -u)/com.cal.mesh-bridge" 2>/dev/null | grep -E 'state =|pid =' || echo "  not loaded"
+    else
+      echo "== systemd =="; systemctl --user show cal-mesh-bridge -p LoadState -p ActiveState -p MainPID 2>/dev/null | sed 's/^/  /' || echo "  not loaded"
+    fi
     echo "== transport =="; grep -E '^(TRANSPORT|PORT|HOST)=' "$BASE/config"
     echo "== port owner =="; P=$(grep -E '^PORT=' "$BASE/config"|cut -d= -f2); lsof "$P" 2>/dev/null | tail -n +1 || echo "  (nothing on $P)"
     echo "== last log =="; tail -n 4 "$LOG" 2>/dev/null || echo "  (no log)"
