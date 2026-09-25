@@ -107,7 +107,8 @@ RECORDS = (
         "answers": "Arithmetic, unit conversion, RF wavelength and antenna cut lengths, "
                    "bolt torque, and concrete/lumber quantities.",
         "trigger": "A message whose text parses as one of those questions. No keyword list.",
-        "who": "allow-listed senders (it runs after sender_allowed)",
+        "who": "allow-listed senders, and any node that addresses Cal when STRANGER_DOERS_ENABLED "
+               "is on (no model in its path, so it is safe to serve anyone)",
         "out_of_scope": [
             {"limit": "SAE bolt grades 2, 5 and 8 only — any other grade is refused, not "
                       "interpolated.", "where": "calc.py:bolt_torque_ftlb"},
@@ -124,7 +125,8 @@ RECORDS = (
         "model_runs": False,
         "answers": "Sunrise, sunset, twilight and moon phase for the node's own location.",
         "trigger": "A message asking for one of those times.",
-        "who": "allow-listed senders (it runs after sender_allowed)",
+        "who": "allow-listed senders, and any node that addresses Cal when STRANGER_DOERS_ENABLED "
+               "is on (no model in its path, so it is safe to serve anyone)",
         "out_of_scope": [
             {"limit": "One location only — the node's own. It will not compute times for a "
                       "place you name, and no coordinate is published with the answer.",
@@ -191,8 +193,8 @@ RECORDS = (
                    "of the ladder: a mutation test with a maximally greedy matcher still let "
                    "all four real capabilities win, so PLACEMENT is the guarantee and the "
                    "pattern is only defence in depth.",
-        "who": "allow-listed senders — it sits below sender_allowed, so a stranger asking "
-               "what Cal does still gets silence.",
+        "who": "allow-listed senders, and any node that addresses Cal when STRANGER_DOERS_ENABLED "
+               "is on -- composed for a stranger from what a stranger can actually get.",
         "out_of_scope": [
             {"limit": "It cannot describe a capability that is not armed, because it reads the "
                       "flags rather than a description of them. Arming a doer adds a row; "
@@ -392,6 +394,70 @@ RECORDS = (
         ],
         "oracle_key": None,
     },
+    {
+        "flag": "STRANGER_DOERS_ENABLED", "name": "answers for anyone", "kind": "path",
+        "module": "responder.py", "model_runs": False,
+        "answers": "Nothing by itself. It lets a node that is not on the allow-list get the "
+                   "offline, deterministic answers -- calc, sun/moon, radio and mesh terms, the "
+                   "capability list -- when it addresses Cal by name or by DM.",
+        "trigger": "An off-list message that names Cal or is a DM to him, which one of those "
+                   "capabilities answers with a fixed reply.",
+        "who": "any node",
+        "out_of_scope": [
+            {"limit": "No model, no weather fetch and no router, ever, for a node that is not on "
+                      "the allow-list. Anything those would have answered gets silence.",
+             "where": "responder.py:STRANGER_CAPS"},
+            {"limit": "One answer per node per five minutes and a daily ceiling across all nodes: "
+                      "node ids can be faked, so the ceiling is the real control.",
+             "where": "responder.py:plan_stranger"},
+            {"limit": "It never answers into a busy or unknown channel, and never a sky question "
+                      "about somewhere else.", "where": "responder.py:plan_stranger"},
+        ],
+        "oracle_key": None,
+    },
+    {
+        "flag": "KB_ENABLED", "name": "radio and mesh terms", "kind": "doer",
+        "module": "kb.py", "model_runs": False,
+        "answers": "A one-line definition of a radio or mesh term -- tropo, POTA, 73, SNR, hop "
+                   "limit, SKYWARN and about fifty more -- returned word for word from a table "
+                   "where every entry cites the page it came from (Meshtastic docs, ARRL, eCFR, NWS).",
+        "trigger": "A definition question about exactly one listed term: \"what's X\", \"what does "
+                   "X mean\", \"define X\".",
+        "who": "allow-listed senders, and any node that addresses Cal when STRANGER_DOERS_ENABLED "
+               "is on (no model in its path).",
+        "out_of_scope": [
+            {"limit": "No model ever writes a definition. A term not in the table is not answered "
+                      "from it.", "where": "kb.py:match"},
+            {"limit": "It never answers a live question: \"is tropo happening\", \"is there a "
+                      "tornado warning\" are not definitions.", "where": "kb.py:_FRAMES"},
+            {"limit": "It never answers about Cal or the asker: \"what's your QTH\", \"what's my "
+                      "callsign\".", "where": "kb.py:_PERSONAL"},
+            {"limit": "Ordinary words that are also radio terms (router, net, channel, ham, races) "
+                      "count only in their radio form: \"router role\", \"radio net\", \"RACES\".",
+             "where": "data/radio_kb.json"},
+        ],
+        "oracle_key": None,
+    },
+    {
+        "flag": "PRESENCE_ENABLED", "name": "presence", "kind": "probe",
+        "module": "presence.py", "model_runs": False,
+        "answers": "Nothing: it is Cal saying good morning, good afternoon or good evening to "
+                   "the channel, or asking for a radio check, the way any station does now and "
+                   "then. The operator's own phrases, from config.",
+        "trigger": "A timer, inside morning, afternoon and evening windows, by chance, and only "
+                   "when every rule below agrees.",
+        "who": "the public channel",
+        "out_of_scope": [
+            {"limit": "It never advertises. It does not say what Cal can do or invite anyone to "
+                      "ask him things.", "where": "presence.py:DEFAULTS"},
+            {"limit": "At most a few times a week, never within 36 hours of the last one, never "
+                      "the same phrase twice in a row.", "where": "presence.py:plan"},
+            {"limit": "Never into a conversation (text heard in the last 15 minutes) and never "
+                      "into a busy or unknown channel.", "where": "presence.py:plan"},
+            {"limit": "Silent whenever RESPONDER_ENABLED is off.", "where": "presence.py:plan"},
+        ],
+        "oracle_key": None,
+    },
 )
 
 # Permanent refusals that belong to the node rather than to any one capability.
@@ -403,9 +469,11 @@ STANDING_REFUSALS = (
      "where": "console.py:DARK_SIGNALS"},
     {"limit": "The model's reasoning is never shown. The page publishes the machinery that "
               "chose a reply, not the model's account of itself.", "where": "dashboard.py"},
-    {"limit": "Cal answers questions from three nodes. Anyone may read this page; almost "
-              "nobody may make Cal speak, and most logged decisions are refusals to.",
-     "where": "config:ALLOW_FROM"},
+    {"limit": "Only allow-listed nodes ever reach a language model, the weather fetch or the "
+              "router. Anyone else who addresses Cal can get only the offline, deterministic "
+              "answers (calc, sun/moon, the capability list), a signal report and a greeting, "
+              "each under a daily budget.",
+     "where": "responder.py:STRANGER_CAPS"},
 )
 
 

@@ -87,6 +87,7 @@ _MENU = (
     # resilient-first: what works with no network comes first, which is the point of the node
     ("CALC_ENABLED", "math, units, RF"),
     ("SUNMOON_ENABLED", "sun and twilight times"),
+    ("KB_ENABLED", "radio and mesh terms"),
     ("WEATHER_ENABLED", "current weather"),
     ("SIGREPORT_ENABLED", "signal reports on a test or a contact report"),
     # Armed, and deliberately NOT advertised. The ack is something Cal does TO a greeting, not

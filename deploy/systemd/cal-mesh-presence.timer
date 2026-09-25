@@ -1,0 +1,10 @@
+[Unit]
+Description=cal-mesh presence schedule
+
+[Timer]
+OnUnitActiveSec=30min
+OnBootSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

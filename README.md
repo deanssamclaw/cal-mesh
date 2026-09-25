@@ -10,13 +10,15 @@ Illustrative data with placeholder node IDs; the replies are in Cal's real forma
 
 Cal is a station on a LoRa mesh that answers questions over the air: a **field reference that
 still answers when nothing else can**. It runs on a laptop and a LilyGO T-Deck, and apart from
-the radio bridge it is Python's standard library only. Six capabilities answer from code or from
-the radio (signal reports, sun and moon, maths and RF, weather, a capability list, a greeting).
+the radio bridge it is Python's standard library only. Seven capabilities answer from code, the
+radio or a vetted table (signal reports, sun and moon, maths and RF, radio and mesh terms,
+weather, a capability list, a greeting). Anyone who names Cal can get the offline ones.
 A language model answers only what none of them claim, and words the weather report around
 numbers that were fetched; every number on air comes from code or the radio. When no rule
 claims a message, a small open model on a second laptop can route it to the right capability in
 ~13 s, with TypeSafe's Jev as a cloud backup at ~$0.00003 a decision. Every capability ships
-switched off until 35 eval suites and an independent adversarial review pass.
+switched off until 38 eval suites and an independent adversarial review pass. Now and then it
+says good morning or asks for a radio check, like any other station.
 
 **What it won't do is as much of the design as what it will.** Each capability has an explicit
 point where it says "I can't verify that" rather than guessing.
@@ -31,6 +33,9 @@ point where it says "I can't verify that" rather than guessing.
 >
 > **cal 5 mi in km**
 > 5 mi = 8.0467 km &nbsp;&nbsp;*— calc*
+>
+> **cal what's tropo?**
+> Tropo (tropospheric ducting) is propagation that can occur when warm air overruns cold air: a temperature inversion. &nbsp;&nbsp;*— radio terms: from a vetted table, source ARRL's glossary*
 >
 > **cal when is sunset**
 > Sunset 7:14 PM &nbsp;&nbsp;*— sun/moon: works with no internet at all*
@@ -83,20 +88,26 @@ touches the radio, and `dashboard.py` publishes every decision along the way.
 - **`sigreport.py`, `sunmoon.py`, `calc.py`, `weather.py`, `capabilities.py`** — the capabilities.
 - **`dashboard.py`** — the public page and the per-reply decision trace (stdlib HTTP server).
 - **`config`** — every switch, re-read live. Start from `config.example`.
-- **`evals/`** — 35 suites; `./run-evals.sh` decides whether anything ships.
+- **`kb.py`** + **`data/radio_kb.json`** — radio and mesh definitions, each with its source.
+- **`presence.py`** — the occasional greeting or radio check.
+- **`evals/`** — 38 suites; `./run-evals.sh` decides whether anything ships.
 
 ## What Cal answers
 
-| Capability | Where the answer comes from | State |
+| Capability | Where the answer comes from | Who can ask |
 |---|---|---|
-| Signal report ("range test", "you copy?") | the radio's own measurements | armed; runs first |
-| Sun / moon / twilight | computed in Python; works offline | armed |
-| Arithmetic, units, RF formulas | computed in Python | armed |
-| Current weather | fetched from NWS; model narrates the fact only | armed |
-| "What can you do" | the live config flags | armed |
-| Greeting ack (strangers) | a fixed table, once a day | armed |
-| Second-opinion routing | picks one of the above; writes nothing | armed 2026-09-24 |
-| Anything else addressed to Cal | a language model, no tools, no private context | armed |
+| Signal report ("range test", "you copy?") | the radio's own measurements | anyone; runs first |
+| Sun / moon / twilight | computed in Python; works offline | anyone who names Cal |
+| Arithmetic, units, RF formulas | computed in Python | anyone who names Cal |
+| Radio and mesh terms ("what's tropo?") | a vetted table; every entry cites its source | anyone who names Cal |
+| "What can you do" | the live config flags | anyone who names Cal |
+| Greeting ack | a fixed table, once a day | strangers |
+| Current weather | fetched from NWS; model narrates the fact only | allow-listed nodes |
+| Second-opinion routing | picks one of the above; writes nothing | allow-listed nodes |
+| Anything else addressed to Cal | a language model, no tools, no private context | allow-listed nodes |
+
+A model, a fetch or the router is only ever reached by an allow-listed node. For everyone else,
+Cal answers from code or the table, or not at all.
 
 What each one refuses, and why two were designed and then killed: [`docs/capabilities.md`](docs/capabilities.md).
 The live list, with every limit, is on the dashboard's capabilities page.

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.example.mesh-presence</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>__HOME__/cal-mesh/presence.py</string>
+    <string>--send</string>
+  </array>
+  <key>WorkingDirectory</key><string>__HOME__/cal-mesh</string>
+  <!-- Every 30 minutes. Most runs send nothing: presence.py decides, under its own caps. -->
+  <key>StartInterval</key><integer>1800</integer>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>__HOME__/cal-mesh/presence.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/cal-mesh/presence.log</string>
+</dict>
+</plist>

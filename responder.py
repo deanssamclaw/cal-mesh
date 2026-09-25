@@ -56,6 +56,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import weather                    # Level 3 Stage 1 capability (harness-fetched, injected)
 import calc                       # Level 3 COMPUTE doer (Python owns every digit)
 import sunmoon                    # COMPUTE doer: closed-form astronomy, offline-resilient
+import kb                         # KNOWLEDGE doer: vetted, sourced definitions, verbatim
 import capabilities               # FIXED doer: what is armed, composed from the flags
 import dm_memory
 import sigreport                  # per-identity DM memory on the pinned unlock tier (default OFF)
@@ -126,6 +127,8 @@ DEFAULTS = {
     # WEATHER_POINT as its observer location and reports TIMES ONLY — a coordinate is an input
     # here, never something the reply carries.
     "SUNMOON_ENABLED": "false",
+    "KB_ENABLED": "false",           # radio/mesh definitions from data/radio_kb.json (kb.py)
+    "KB_MAX_CHARS": "120",
     "SUNMOON_TZ": "America/Chicago",   # replies are wall-clock for someone under the same sky
     "SUNMOON_MAX_CHARS": "120",
     # --- greeting acknowledgement for OFF-LIST senders (default OFF) ---
@@ -147,6 +150,12 @@ DEFAULTS = {
     # successfully make that work." Open to OFF-LIST senders by design, like the greeting ack:
     # a range test is a request addressed to whoever can hear it, and the allow list exists to
     # gate GENERATED prose, which this path never produces.
+    # STRANGERS (2026-09-24, Dean: "Cal is for the mesh"). An off-list node that addresses Cal
+    # gets the OFFLINE, DETERMINISTIC capabilities -- calc, sun/moon, the capability list -- and
+    # nothing else: no model, no fetch, no router. Off by default; also under RESPONDER_ENABLED.
+    "STRANGER_DOERS_ENABLED": "false",
+    "STRANGER_SENDER_COOLDOWN_S": "300",   # one answer per node per 5 min
+    "STRANGER_MAX_PER_DAY": "24",          # the real amplification control: ids are spoofable
     "SIGREPORT_ENABLED": "false",
     # NOT one per node per day. A real range test is somebody walking: the live log has one
     # node sending four in ten minutes, 22 dB apart end to end, and a daily cooldown would
@@ -808,6 +817,19 @@ def plan_response(cfg, sender_short, raw_text, get=None, unlocked=False, dm_cont
         elif sm_match["via"] and out.get("fixed_kind") == "calc":
             return out                      # the calc rescue already produced the answer
 
+    # KNOWLEDGE (kb.py): "what's tropo?" answered VERBATIM from a vetted, sourced table. Below
+    # calc and sun/moon, which own numbers and sky times; above weather, so "what is a tornado
+    # watch" gets a definition and not a reading. A miss is None and changes nothing below.
+    if cfg.get("KB_ENABLED", "false").lower() == "true":
+        kb_reply, kb_meta = kb.answer(raw_text, max_chars=_int_cfg(cfg, "KB_MAX_CHARS", DEFAULTS["KB_MAX_CHARS"]))
+        out["kb_meta"] = kb_meta if kb_meta.get("matched") else None
+        if kb_reply:
+            out["capability"] = "kb"
+            out["mode"] = "fixed"
+            out["fixed_kind"] = "kb"
+            out["fixed_reply"] = kb_reply
+            return out
+
     fact = None
     # intent/location on the RAW text: a trailing '?' (needed for weak-keyword intent) and a
     # whitelisted place name must survive; sanitize would strip them. Nothing from raw_text
@@ -1410,6 +1432,107 @@ def commit_greeting(st, sender, ts=None):
         del d[k]
 
 
+# The only capabilities a stranger can reach. Each answers from Python alone, works with no
+# internet, and has no model anywhere in its path. Weather is NOT here: its reply is narrated by a
+# model. Nor is the router: it runs a model. Widening this tuple is a decision, not a refactor.
+STRANGER_CAPS = ("calc", "sunmoon", "kb", "capabilities")
+
+
+def plan_stranger(cfg, st, rec, ours, ts=None, plan_fn=None):
+    """(should, reason, dest, ch, text, gates, capability) for an OFF-LIST sender.
+
+    Pure, like plan_sigreport: decides, mutates nothing. The ladder runs on a COPY of the config
+    with every path that could reach a model or the network switched off, so what comes back can
+    only be a fixed reply from calc, sun/moon or the capability list -- and the capability list
+    is then composed from that same copy, so it never offers a stranger what he cannot have.
+    Anything else -- a model answer, a clarifying question, a refusal from another doer -- is
+    silence, and the greeting ack gets its turn."""
+    ts = time.time() if ts is None else ts
+    ch = rec.get("channel", 0)
+    sender = rec.get("from")
+    text = rec.get("text", "")
+    gates = []
+
+    def mark(name, ok):
+        gates.append({"gate": name, "pass": bool(ok)})
+        return ok
+
+    def no(reason):
+        return False, reason, None, ch, None, gates, None
+    if not mark("responder_enabled", str(cfg.get("RESPONDER_ENABLED", "false")).lower() == "true"):
+        return no("disabled")
+    if not mark("stranger_enabled", str(cfg.get("STRANGER_DOERS_ENABLED", "false")).lower() == "true"):
+        return no("stranger_disabled")
+    if not mark("not_self", sender != ours):
+        return no("self")
+    if not mark("not_a_reaction", rec.get("reaction") in (None, False)):
+        return no("stranger_is_reaction")
+    if not isinstance(text, str) or not text.strip():
+        mark("addressed", False)
+        return no("stranger_empty")
+    to = rec.get("to")
+    is_dm = to == ours
+    trig = (cfg.get("TRIGGER_WORD") or "").strip()
+    named = bool(trig) and re.search(r"\b" + re.escape(trig) + r"\b", text, re.I) is not None
+    # Addressed means said to Cal: his name, or a DM. No conversation window and no channel rule
+    # for strangers -- a stranger on Cal's own PSK channel is not a case to design for.
+    if not mark("addressed", is_dm or (named and to in ("^all", None))):
+        return no("stranger_not_addressed")
+    safe = dict(cfg)
+    safe.update({"WEATHER_ENABLED": "false", "S1_ROUTE_ENABLED": "false",
+                 "CLARIFY_FOLLOWUP_ENABLED": "false"})
+    plan = (plan_fn or plan_response)(safe, sender, text)
+    cap = plan.get("capability")
+    reply = plan.get("fixed_reply")
+    if not mark("offline_capability", plan.get("mode") == "fixed" and cap in STRANGER_CAPS
+                and isinstance(reply, str) and bool(reply.strip())
+                and not plan.get("clarify_pending") and not plan.get("flagged")):
+        return no("stranger_no_offline_answer")
+    # Sun and moon are computed for THIS station's sky. "Sunrise in Paris" would get ours, so a
+    # sky question that names somewhere else is not answered for a stranger (review 2026-09-24).
+    if not mark("here_only", not (cap == "sunmoon" and re.search(r"\b(?:in|at|for|over)\s+[A-Z]", text))):
+        return no("stranger_sunmoon_elsewhere")
+    try:
+        ch = int(ch)
+    except (TypeError, ValueError):
+        mark("channel_valid", False)
+        return no("stranger_bad_channel")
+    busy, util, why = channel_busy(cfg, ts=ts)
+    if not mark("channel_quiet", not busy):
+        return no("stranger_channel_" + why)
+    last = (st.get("stranger_per_sender") or {}).get(sender, 0)
+    if not mark("sender_cooldown", ts - last >= _int_cfg(cfg, "STRANGER_SENDER_COOLDOWN_S",
+                                                         DEFAULTS["STRANGER_SENDER_COOLDOWN_S"])):
+        return no("stranger_sender_cooldown")
+    day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+    used = (st.get("stranger_day") or {}).get(day, 0)
+    if not mark("daily_budget", used < _int_cfg(cfg, "STRANGER_MAX_PER_DAY",
+                                                DEFAULTS["STRANGER_MAX_PER_DAY"])):
+        return no("stranger_budget_spent")
+    # The answer goes back where the question came from: a public question gets a public answer
+    # (it is useful to everyone listening), a DM gets a DM.
+    dest = sender if is_dm else "^all"
+    # Through the same cleaner as every other reply, so a stranger gets exactly the bytes an
+    # allow-listed sender would.
+    return True, "stranger_" + cap, dest, ch, clean_reply(reply.strip(), cap=180), gates, cap
+
+
+def commit_stranger(st, sender, ts=None):
+    """Spend the budget. Separate from plan_stranger so a send that fails costs nothing."""
+    ts = time.time() if ts is None else ts
+    st.setdefault("stranger_per_sender", {})[sender] = ts
+    day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+    d = st.setdefault("stranger_day", {})
+    d[day] = d.get(day, 0) + 1
+    for k in [k for k in d if k < day]:
+        del d[k]
+    # Bound the cooldown map: a spoofer minting ids must not grow the state file without limit.
+    per = st["stranger_per_sender"]
+    if len(per) > 500:
+        for k in sorted(per, key=per.get)[:len(per) - 500]:
+            del per[k]
+
+
 def send_s1_sigreport(st, rec, d, sig, new_off, enqueue_fn=None, record=None, save=None):
     """The main loop's send for a Jev-routed signal report, pulled out so the eval can drive it.
     Queues the text, SPENDS the budget, records the decision under the packet's own trace and
@@ -1749,9 +1872,26 @@ def main():
                                 d["gen_ms"] = gen_ms
                                 log(f"gen failed for {rec.get('from')}: {why} ({gen_ms}ms)")
                         elif reason == "sender_not_allowed":
-                            # Off-list sender. The ladder is right to refuse a GENERATED
-                            # reply; a bare greeting still gets a fixed acknowledgement so
-                            # silence doesn't read as a snub. No model, no fetch, no prose.
+                            # Off-list sender. First the offline capabilities, if the message
+                            # was said to Cal (plan_stranger); then the greeting ack. Neither
+                            # has a model or a fetch anywhere in its path.
+                            x_ok, x_reason, x_dest, x_ch, x_text, x_gates, x_cap = plan_stranger(
+                                cfg, st, rec, ours)
+                            if any(g["gate"] == "stranger_enabled" and g["pass"] for g in x_gates):
+                                d["stranger_gates"] = x_gates
+                            if x_ok:
+                                enqueue(x_text, x_dest, x_ch)
+                                commit_stranger(st, rec.get("from"))
+                                save_state(st)
+                                d.update({"matched": True, "reason": x_reason,
+                                          "reply": x_text, "dest": x_dest,
+                                          "capability": x_cap, "prompt_kind": "fixed",
+                                          "gen_status": "fixed_" + x_cap})
+                                log(f"STRANGER {rec.get('from')} -> {x_dest} ({x_cap}): {x_text!r}")
+                                record_decision(d)
+                                st["inbox_offset"] = new_off
+                                save_state(st)
+                                continue
                             g_ok, g_reason, g_dest, g_ch, g_text, g_gates = plan_greeting(
                                 cfg, st, rec, ours)
                             d["greeting_gates"] = g_gates

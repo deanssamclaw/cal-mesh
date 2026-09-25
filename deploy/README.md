@@ -1,6 +1,6 @@
 # Running cal-mesh as services
 
-Six processes. Three run all the time, three on a schedule. **Only the bridge touches the radio.**
+Seven processes. Three run all the time, four on a schedule. **Only the bridge touches the radio.**
 
 | Process | Script | Runs | Needs |
 |---|---|---|---|
@@ -10,6 +10,7 @@ Six processes. Three run all the time, three on a schedule. **Only the bridge to
 | learn | `learn.py --quiet` | daily 06:15 | stdlib |
 | drafts | `drafts.py --limit 40` | daily 06:30 | stdlib |
 | tracer | `tracer.py --enqueue` | every 2 h | stdlib |
+| presence | `presence.py --send` | every 30 min (it decides; most runs send nothing) | stdlib |
 
 ## macOS (launchd) — what the reference install runs
 
@@ -27,7 +28,7 @@ launchctl kickstart -k gui/$(id -u)/com.example.mesh-responder   # restart one a
 
 ## Linux (systemd --user)
 
-`systemd/` holds the same six as user units (three services, three service+timer pairs), all
+`systemd/` holds the same seven as user units (three services, four service+timer pairs), all
 pointing at `~/cal-mesh/.venv`:
 
 ```bash
@@ -35,7 +36,7 @@ python3 -m venv ~/cal-mesh/.venv && ~/cal-mesh/.venv/bin/pip install -r ~/cal-me
 mkdir -p ~/.config/systemd/user && cp ~/cal-mesh/deploy/systemd/* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now cal-mesh-bridge cal-mesh-responder cal-mesh-dashboard
-systemctl --user enable --now cal-mesh-learn.timer cal-mesh-drafts.timer cal-mesh-tracer.timer
+systemctl --user enable --now cal-mesh-learn.timer cal-mesh-drafts.timer cal-mesh-tracer.timer cal-mesh-presence.timer
 loginctl enable-linger "$USER"      # keep running without a login session
 ```
 
