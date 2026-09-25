@@ -18,7 +18,9 @@ goes dark together. Direction and specs live in `docs/proposals/`.
 explicit edge where it says *"I can't verify that"* rather than guessing, and each one ships
 switched off until an offline eval and an independent adversarial review say otherwise.
 
-Three independent layers, each its own always-on launchd agent:
+Three independent layers, each its own always-on service (the reference install runs them as
+`systemd --user` units on an always-on Linux box with the radio on its USB; macOS launchd works too —
+see [`deploy/`](../deploy)):
 
 ```
    RADIO (Cal HT, USB/WiFi)
@@ -40,16 +42,18 @@ Three independent layers, each its own always-on launchd agent:
 touches hardware — it reads `inbox.jsonl` and writes `outbox/`, so its cognition can
 crash/restart without ever dropping packet capture. The dashboard only observes.
 
-## Layers / launchd agents
-| Agent | File | Role |
+## Layers / services
+| Service (systemd unit · launchd label) | File | Role |
 |-------|------|------|
-| `com.cal.mesh-bridge`    | `bridge.py`    | Owns Cal HT (serial or TCP). Capture → `inbox.jsonl`; send ← `outbox/`. Emits `status.json`, `sent.jsonl`, `nodes.json`. |
-| `com.cal.mesh-responder` | `responder.py` | Autonomous Cal. Gates inbound → generates a terse reply via headless `claude` → `outbox/`. Logs every verdict to `decisions.jsonl`. |
-| `com.cal.mesh-dashboard` | `dashboard.py` | Web view of every lever, plus one write: `POST /api/grade`. No deps (stdlib). Funnel-exposed. |
-| `com.cal.mesh-learn`     | `learn.py`     | Daily 06:15. Distils `decisions.jsonl` into a ranked ledger of what Cal could not answer, and audits that ledger against its own classifier. Reads only; proposes, never arms. |
-| `com.cal.mesh-drafts`    | `drafts.py`    | Daily 06:30. Runs Cal's own ladder over every message that was not his, stores what he would have said, and transmits nothing. |
+| `cal-mesh-bridge` · `com.cal.mesh-bridge`       | `bridge.py`    | Owns Cal HT (serial or TCP). Capture → `inbox.jsonl`; send ← `outbox/`. Emits `status.json`, `sent.jsonl`, `nodes.json`. |
+| `cal-mesh-responder` · `com.cal.mesh-responder` | `responder.py` | Autonomous Cal. Gates inbound → generates a terse reply via headless `claude` → `outbox/`. Logs every verdict to `decisions.jsonl`. |
+| `cal-mesh-dashboard` · `com.cal.mesh-dashboard` | `dashboard.py` | Web view of every lever, plus one write: `POST /api/grade`. No deps (stdlib). Funnel-exposed. |
+| `cal-mesh-learn` · `com.cal.mesh-learn`         | `learn.py`     | Daily 06:15. Distils `decisions.jsonl` into a ranked ledger of what Cal could not answer, and audits that ledger against its own classifier. Reads only; proposes, never arms. |
+| `cal-mesh-drafts` · `com.cal.mesh-drafts`       | `drafts.py`    | Daily 06:30. Runs Cal's own ladder over every message that was not his, stores what he would have said, and transmits nothing. |
+| `cal-mesh-tracer` · `com.cal.mesh-tracer`       | `tracer.py`    | Every 2 h. Queues traceroutes for the bridge. |
+| `cal-mesh-presence` · `com.cal.mesh-presence`   | `presence.py`  | Every 30 min; sends at most one presence line a day. |
 
-Restart any: `launchctl kickstart -k gui/$(id -u)/com.cal.mesh-<name>`
+Restart any: `systemctl --user restart cal-mesh-<name>` (Linux) · `launchctl kickstart -k gui/$(id -u)/com.cal.mesh-<name>` (macOS)
 
 ## Files
 - `config` — all knobs (transport + responder). Read live every loop.
@@ -117,6 +121,6 @@ Conservative by design; widen deliberately as trust grows.
 
 ## Facts
 - Node: Cal HT `!xxxxxxxx` · fw 2.7.26.54e0d8d (**BaseUI / non-tft build — serves the WiFi API**) · US / LONG_FAST · ch0 public.
-- Serial: `/dev/cu.usbmodemXXXXXXXXXXXX` (MAC-derived, stable). WiFi: `Meshtastic.local` (<your-LAN-IP> as of 2026-08-08).
+- Serial: `/dev/serial/by-id/usb-Espressif_…-if00` on Linux, `/dev/cu.usbmodemXXXXXXXXXXXX` on macOS (both stable). A configured port that is absent makes the bridge wait for it; it does not auto-detect another radio. WiFi: `Meshtastic.local` (<your-LAN-IP> as of 2026-08-08).
 - Generation: subscription `claude -p` (no API key on this box), `--system-prompt` override + `--permission-mode plan --strict-mcp-config` → no bootstrap, tools cannot execute, no MCP servers load. (NOTE: `--allowed-tools ""` does NOT disable tools — fails open. Verified 2026-08-08.)
 - ALLOW_FROM is advisory only (node IDs are spoofable) — real controls are the kill switch + tool lockdown, not the allow-list.
