@@ -35,6 +35,7 @@ BASE      = os.path.expanduser("~/cal-mesh")
 INBOX     = os.path.join(BASE, "inbox.jsonl")
 OUTBOX    = os.path.join(BASE, "outbox")
 STATUS    = os.path.join(BASE, "status.json")
+SENT_LOG  = os.path.join(BASE, "sent.jsonl")
 NODES     = os.path.join(BASE, "nodes.json")
 CONFIG    = os.path.join(BASE, "config")
 STATE     = os.path.join(BASE, "responder-state.json")
@@ -1318,7 +1319,25 @@ def resolve_relay(relay_byte):
     return sigreport.clean_name(hits[0])
 
 
-def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False):
+def own_packet_ids(path=None):
+    """Packet ids of everything Cal has transmitted, from the bridge's sent log. None when the
+    log cannot be read -- unknown, not empty, so the reply gate below fails closed."""
+    ids = set()
+    try:
+        with open(path or SENT_LOG, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    pid = json.loads(line).get("packet_id")
+                except (ValueError, AttributeError):
+                    continue
+                if isinstance(pid, int) and not isinstance(pid, bool):
+                    ids.add(pid)
+    except OSError:
+        return None
+    return ids
+
+
+def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None):
     """Decide whether a range/signal test gets a measured signal report.
 
     Same contract as plan_greeting: pure, returns (should, reason, dest, ch, text, gates),
@@ -1353,6 +1372,15 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False):
     # False refuses, so a hand-edited "reaction": "true" fails the safe way.
     if not mark("not_a_reaction", rec.get("reaction") in (None, False)):
         return False, "sigreport_is_reaction", None, ch, None, gates, None
+    # A REPLY TO SOMEONE ELSE'S MESSAGE IS THEIR EXCHANGE (2026-09-25). "Got you downtown KC at
+    # 3 hops." was a reply to another node's "Test", and Cal answered it with his own numbers --
+    # twice in one day. The firmware says who a message answers, so this is read, not guessed:
+    # a reply is Cal's to answer only when it replies to a packet Cal sent. `own_ids` comes from
+    # the caller (this function does no I/O); None means the sent log was unreadable, and an
+    # unknown owner is not permission. A message that replies to nothing is unaffected.
+    rt = rec.get("reply_to")
+    if rt and not mark("reply_not_to_other_station", own_ids is not None and rt in own_ids):
+        return False, "sigreport_reply_to_other_station", None, ch, None, gates, None
     # `forced` is s1route's rescue of an ADDRESSED message the shape rule missing ("Cal, hows the
     # link holding up?"). It replaces this one gate and no other: measurements, the quiet channel,
     # the per-sender cooldown and the daily budget below are still checked, and the trace names
@@ -1605,7 +1633,7 @@ def plan_s1_rescue(cfg, st, rec, ours, plan, replan, classify=None, fallback_cla
         trace["declined"] = "doer_declined"
         return plan, None, trace
     if act == "sigreport":
-        sig = plan_sigreport(cfg, st, rec, ours, forced=True)
+        sig = plan_sigreport(cfg, st, rec, ours, forced=True, own_ids=own_packet_ids())
         trace["sigreport_gates"] = sig[5]
         if sig[0]:
             trace["acted"] = "sigreport"
@@ -1707,7 +1735,8 @@ def main():
                         # and collides with calc, weather, sun/moon, capabilities and the
                         # greeting ack zero times. Re-run that replay before widening it.
                         (s_ok, s_reason, s_dest, s_ch, s_text,
-                         s_gates, s_meta) = plan_sigreport(cfg, st, rec, ours)
+                         s_gates, s_meta) = plan_sigreport(cfg, st, rec, ours,
+                                                           own_ids=own_packet_ids())
                         # Recorded only when the doer is ON (its own flag passed): the kill
                         # switch now runs first, so "first gate passed" no longer means that.
                         if any(g["gate"] == "sigreport_enabled" and g["pass"] for g in (s_gates or [])):
