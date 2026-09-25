@@ -450,8 +450,8 @@ RECORDS = (
         "out_of_scope": [
             {"limit": "It never advertises. It does not say what Cal can do or invite anyone to "
                       "ask him things.", "where": "presence.py:DEFAULTS"},
-            {"limit": "At most a few times a week, never within 36 hours of the last one, never "
-                      "the same phrase twice in a row.", "where": "presence.py:plan"},
+            {"limit": "At most once a calendar day, under a weekly cap and a minimum gap, and "
+                      "never the same phrase twice in a row.", "where": "presence.py:plan"},
             {"limit": "Never into a conversation (text heard in the last 15 minutes) and never "
                       "into a busy or unknown channel.", "where": "presence.py:plan"},
             {"limit": "Silent whenever RESPONDER_ENABLED is off.", "where": "presence.py:plan"},

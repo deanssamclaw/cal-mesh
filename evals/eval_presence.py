@@ -71,6 +71,11 @@ def suite():
     ck("the weekly cap holds", run(history=three)[1] == "weekly_cap")
     ck("a send older than a week no longer counts",
        run(history=[{"ts": NOW - 8 * DAY, "key": "a"}] + three[1:])[1] == "send")
+    loose = cfg(PRESENCE_MIN_GAP_H="0", PRESENCE_MAX_PER_WEEK="20")
+    ck("one per calendar day, even when the gap and weekly cap allow more",
+       run(loose, history=[{"ts": NOW - 60, "key": "x"}])[1] == "daily_cap")
+    ck("yesterday's send does not use today's slot",
+       run(loose, history=[{"ts": NOW - 30 * 3600, "key": "x"}])[1] == "send")
     ck("the chance roll can say not now", run(cfg(PRESENCE_CHANCE="0.08"), rng=NEVER)[1] == "not_this_time")
     ck("the default chance is small (occasional, not scheduled)", float(P.DEFAULTS["PRESENCE_CHANCE"]) <= 0.2)
 
@@ -105,7 +110,8 @@ def suite():
         now = _dt(2026, 9, 24, 13, 30, tzinfo=_tz.utc).timestamp()      # 08:30 Central
         def iso(t):
             return _dt.fromtimestamp(t, _tz.utc).isoformat()
-        def setup(status_age=30, util=5.0, inbox=True, heard_ago=7200, state=None, extra=""):
+        def setup(status_age=30, util=5.0, inbox=True, heard_ago=7200, state=None, extra="", at=None):
+            at = now if at is None else at
             for f in ("presence-state.json", "inbox.jsonl", "status.json"):
                 try:
                     os.unlink(os.path.join(base, f))
@@ -115,11 +121,11 @@ def suite():
             open(os.path.join(base, "config"), "w").write(
                 "RESPONDER_ENABLED=true\nPRESENCE_ENABLED=true\nPRESENCE_CHANCE=1\n" + extra)
             if status_age is not None:
-                _j.dump({"ts": iso(now - status_age), "metrics": {"chUtil": util}},
+                _j.dump({"ts": iso(at - status_age), "metrics": {"chUtil": util}},
                         open(os.path.join(base, "status.json"), "w"))
             if inbox:
                 open(os.path.join(base, "inbox.jsonl"), "w").write(_j.dumps(
-                    {"ts": iso(now - heard_ago), "channel": 0, "text": "hi", "reaction": False}) + "\n")
+                    {"ts": iso(at - heard_ago), "channel": 0, "text": "hi", "reaction": False}) + "\n")
             if state is not None:
                 open(os.path.join(base, "presence-state.json"), "w").write(state)
         def sent():
@@ -150,9 +156,14 @@ def suite():
             with contextlib.redirect_stdout(quiet):
                 setup(**kw); P.main(["--send"], base=base, now=now)
             ck(f"silent with {name}", sent() == [], str(sent()))
+        early = _dt(2026, 9, 24, 7, 30, tzinfo=_tz.utc).timestamp()
         with contextlib.redirect_stdout(quiet):
-            setup(); P.main(["--send"], base=base, now=_dt(2026, 9, 24, 7, 30, tzinfo=_tz.utc).timestamp())
+            setup(at=early); P.main(["--send"], base=base, now=early)
         ck("07:30 UTC is 02:30 Central: silent (the operator's clock, not the host's)", sent() == [])
+        # ...and the same fixture DOES send inside the window, so the silence above is the clock's.
+        with contextlib.redirect_stdout(quiet):
+            setup(at=early + 6 * 3600); P.main(["--send"], base=base, now=early + 6 * 3600)
+        ck("the same fixture at 08:30 Central sends (control)", len(sent()) == 1, str(sent()))
     finally:
         _sh.rmtree(base, ignore_errors=True)
 
@@ -174,6 +185,7 @@ if "--self-test" in sys.argv:
                        "    if wkey is None:\n        wkey = \"PRESENCE_CHECK\""),
         "no min gap": ('return None, "min_gap"', 'pass'),
         "no weekly cap": ('return None, "weekly_cap"', 'pass'),
+        "no daily cap": ('return None, "daily_cap"', 'pass'),
         "talks into a conversation": ('return None, "channel_in_conversation"', 'pass'),
         "busy or unknown channel transmits": ('return None, "channel_busy_or_unknown"', 'pass'),
         "dry run transmits": ('if "--send" not in argv:', 'if False:'),
