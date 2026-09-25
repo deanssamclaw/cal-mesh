@@ -184,8 +184,19 @@ SIGREPORT_MAX_PER_DAY=20
 SIGREPORT_MAX_CHARS=64
 SIGREPORT_MAX_CH_UTIL=25
 SIGREPORT_STATUS_MAX_AGE_S=600
+# RADIO AND MESH TERMS: "what's tropo?" answered verbatim from data/radio_kb.json, where every
+# entry cites its source page. Definition questions about exactly one listed term, nothing else.
+KB_ENABLED=false
+KB_MAX_CHARS=120
 # "What can you do": composed from the live flags.
 CAPS_ENABLED=false
+# STRANGERS: an off-list node that addresses Cal (his name, or a DM) gets calc, sun/moon and the
+# capability list -- the offline answers with no model in their path -- and nothing else. Needs
+# RESPONDER_ENABLED and each capability's own flag. The daily budget is the real control:
+# node ids are spoofable, so the per-node cooldown is only good manners.
+STRANGER_DOERS_ENABLED=false
+STRANGER_SENDER_COOLDOWN_S=300
+STRANGER_MAX_PER_DAY=24
 # A follow-up question the model asked may be answered by the same node within the TTL.
 CLARIFY_FOLLOWUP_ENABLED=false
 CLARIFY_TTL_S=180
@@ -197,3 +208,25 @@ WEATHER_MAX_OBS_AGE_S=5400
 DM_MEMORY_ENABLED=false
 DM_MEMORY_MAX_TURNS=8
 DM_MEMORY_MAX_CHARS=1200
+
+# --- PRESENCE: the occasional greeting or radio check on the channel (presence.py) ---
+# Run by a timer every 30 min (deploy/). Off by default; also silent when RESPONDER_ENABLED is
+# off. Rare by construction: a chance roll inside morning (07-10), afternoon (12-16) and evening
+# (18-21) windows, a weekly cap, a minimum gap, never twice the same phrase, never into a
+# conversation or a busy channel. The phrases are yours; keep them short. A place name here goes
+# on air, so put it in your config only if you want it said.
+PRESENCE_ENABLED=false
+PRESENCE_MAX_PER_WEEK=3
+PRESENCE_MIN_GAP_H=36
+PRESENCE_CHANCE=0.08
+PRESENCE_QUIET_S=900
+PRESENCE_MAX_CH_UTIL=25
+PRESENCE_CHANNEL=0
+PRESENCE_MORNING=Morning Mesh
+PRESENCE_AFTERNOON=Afternoon Mesh
+PRESENCE_EVENING=Evening Mesh
+PRESENCE_CHECK=Radio check. Anyone out there?
+# The windows are on this clock, not the host's. Unparseable = silent.
+PRESENCE_TZ=America/Chicago
+# A radio status older than this means the bridge may be down: wait.
+PRESENCE_STATUS_MAX_AGE_S=600

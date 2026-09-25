@@ -1,0 +1,731 @@
+{
+ "about": "Radio and mesh terms Cal can define. Every answer is returned verbatim; each has an authoritative source and the quote from that page that supports it. A term not here is not answered from this pack.",
+ "entries": [
+  {
+   "key": "meshtastic",
+   "aliases": [
+    "meshtastic"
+   ],
+   "answer": "Meshtastic is a project that turns cheap LoRa radios into an off-grid, long-range text mesh.",
+   "source": "https://meshtastic.org/docs/introduction/",
+   "quote": "Meshtastic® is a project that enables you to use inexpensive LoRa [...] radios as a long range off-grid communication platform",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "lora",
+   "aliases": [
+    "lora",
+    "lo-ra",
+    "long range radio"
+   ],
+   "answer": "LoRa is a low-power, long-range radio technology. Meshtastic uses it to talk without cell, Wi-Fi or internet.",
+   "source": "https://meshtastic.org/docs/terms/",
+   "quote": "LoRa A low-power, long-range wireless communication technology used by Meshtastic devices to enable communication over distances of several kilometers without the need for cellular, Wi-Fi, or other traditional network infrastructures.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "node",
+   "aliases": [
+    "mesh node",
+    "meshtastic node",
+    "node"
+   ],
+   "answer": "On Meshtastic, a node is one radio on the mesh: it sends, receives and relays messages to extend coverage.",
+   "source": "https://meshtastic.org/docs/terms/",
+   "quote": "A unit within the Meshtastic network that can send, receive, and relay messages, helping to form and extend the mesh network's coverage.",
+   "verified_on": "2026-09-24",
+   "note": "Generic word (Node.js, network node). Answer is scoped 'On Meshtastic'. Require definitional frame."
+  },
+  {
+   "key": "hop",
+   "aliases": [
+    "hop",
+    "hops"
+   ],
+   "answer": "A hop is one relay. Each node that rebroadcasts a message uses up one hop from its hop limit.",
+   "source": "https://meshtastic.org/docs/overview/mesh-algo/",
+   "quote": "If any mesh node sees a packet with a HopLimit other than zero, it will decrement that HopLimit and attempt to rebroadcast on behalf of the original sending node.",
+   "verified_on": "2026-09-24",
+   "note": "'hops' also = beer ingredient / hip-hop. Low risk on a mesh channel; require definitional frame. Aliases like '3 hops' must NOT fire on reports like 'Got you at 3 hops' (no question frame)."
+  },
+  {
+   "key": "hop_limit",
+   "aliases": [
+    "hop limit",
+    "max hops",
+    "hop_limit",
+    "maximum hops"
+   ],
+   "answer": "Hop limit is the max number of relays a message gets on Meshtastic. Default is 3, max is 7.",
+   "source": "https://meshtastic.org/docs/configuration/radio/lora/",
+   "quote": "Maximum number of hops. This can't be greater than 7. Default is 3 which should be fine for most applications.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "managed_flooding",
+   "aliases": [
+    "managed flooding",
+    "flood routing"
+   ],
+   "answer": "Meshtastic floods: nodes rebroadcast what they hear, but skip it if another node already rebroadcast it.",
+   "source": "https://meshtastic.org/docs/overview/mesh-algo/",
+   "quote": "most of our protocol is built around flooding, meaning that every node rebroadcasts a packet it receives, up till a certain hop limit. However, an important difference in Meshtastic is that before rebroadcasting, a node listens a short while to see if another node has already rebroadcasted the packet. If so, it will not rebroadcast.",
+   "verified_on": "2026-09-24",
+   "note": "Volatile: firmware 2.6+ adds next-hop routing for DMs. Re-verify each firmware cycle."
+  },
+  {
+   "key": "long_fast",
+   "aliases": [
+    "long_fast",
+    "long fast",
+    "longfast",
+    "long range fast",
+    "modem preset"
+   ],
+   "answer": "LONG_FAST is Meshtastic's default modem preset: a set bandwidth, spread factor and coding rate for speed and range.",
+   "source": "https://meshtastic.org/docs/configuration/radio/lora/",
+   "quote": "Default is unset which equates to LONG_FAST. Presets are pre-defined modem settings (Bandwidth, Spread Factor, and Coding Rate) which influence both message speed and range.",
+   "verified_on": "2026-09-24",
+   "note": "Volatile (defaults change between firmware). The SF11/250 kHz/1.07 kbps row is on /docs/overview/radio-settings/ if a numeric entry is wanted. Re-verify each release."
+  },
+  {
+   "key": "us_frequency",
+   "aliases": [
+    "meshtastic frequency",
+    "us frequency",
+    "915 mhz",
+    "us band",
+    "902-928"
+   ],
+   "answer": "In the US, Meshtastic's LoRa band is 902-928 MHz, often called 915 MHz.",
+   "source": "https://meshtastic.org/docs/terms/",
+   "quote": "Sometimes identified by the lower and upper bounds of the range (e.g. 902-928MHz), sometimes identified by a center frequency within the range (e.g. 915MHz), and sometimes only by the region they apply to (e.g. US).",
+   "verified_on": "2026-09-24",
+   "note": "Bare '915' collides with calc (a number); require a frequency/band word or definitional frame. Invariant 2: public band facts only, never Cal's own channel or frequency slot."
+  },
+  {
+   "key": "ism_band",
+   "aliases": [
+    "ism",
+    "ism band",
+    "915 ism"
+   ],
+   "answer": "The FCC designates 915 MHz, plus or minus 13 MHz, as an ISM frequency band.",
+   "source": "https://www.ecfr.gov/current/title-47/part-18/section-18.301",
+   "quote": "The following frequency bands, in accordance with § 2.106 of the rules, are designated for use by ISM equipment: [...] 915 MHz ± 13.0 MHz",
+   "verified_on": "2026-09-24",
+   "note": "The 'industrial, scientific and medical' expansion is 47 CFR 18.107 (fetched: 'Industrial, scientific, and medical (ISM) equipment.'), not 18.301. Note: LoRa itself operates under Part 15 (15.247, 902-928 MHz), not as ISM equipment; do not say 'LoRa is ISM equipment'."
+  },
+  {
+   "key": "channel",
+   "aliases": [
+    "meshtastic channel",
+    "primary channel",
+    "secondary channel"
+   ],
+   "answer": "On Meshtastic, a channel is one of 8 slots, each with its own name and encryption key; one is primary.",
+   "source": "https://meshtastic.org/docs/terms/",
+   "quote": "One of 8 configurable channels in the firmware, each supporting a separate name and encryption, with one set as primary and the rest secondary.",
+   "verified_on": "2026-09-24",
+   "note": "Glossary lists TWO meanings (config slot vs frequency slot). Answer gives the config-slot sense only; 'channel' alone is highly generic (TV, YouTube). Require 'meshtastic channel' or definitional frame."
+  },
+  {
+   "key": "snr",
+   "aliases": [
+    "snr",
+    "signal to noise",
+    "signal-to-noise",
+    "signal to noise ratio"
+   ],
+   "answer": "SNR is signal-to-noise ratio: signal level compared with background noise. Higher SNR means a clearer signal.",
+   "source": "https://meshtastic.org/docs/terms/",
+   "quote": "A measure used in communications to quantify the level of a desired signal to the level of background noise. In Meshtastic and other wireless systems, a higher SNR indicates a clearer signal",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "rssi",
+   "aliases": [
+    "rssi",
+    "received signal strength"
+   ],
+   "answer": "RSSI is received signal strength, the raw power heard. Closer to zero is stronger. Clients rate links by SNR.",
+   "source": "https://meshtastic.org/docs/terms/",
+   "quote": "The raw power level of a received signal, where a value closer to zero is stronger. Clients rate signal quality from SNR rather than RSSI.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "channel_utilization",
+   "aliases": [
+    "channel utilization",
+    "chutil",
+    "ch util",
+    "channel util",
+    "channel utilisation"
+   ],
+   "answer": "On Meshtastic, channel utilization is the percentage of airtime consumed on the channel.",
+   "source": "https://meshtastic.org/docs/software/android/user/node-metrics/",
+   "quote": "Channel Utilization Percentage of airtime consumed",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "airtime",
+   "aliases": [
+    "airtime",
+    "air util",
+    "air util tx",
+    "airutiltx",
+    "air time"
+   ],
+   "answer": "On Meshtastic, airtime is the transmission time used by your own node.",
+   "source": "https://meshtastic.org/docs/software/android/user/node-metrics/",
+   "quote": "Airtime Transmission time used by this node",
+   "verified_on": "2026-09-24",
+   "note": "Collides with cell-phone 'airtime'. Scoped 'On Meshtastic'."
+  },
+  {
+   "key": "role_client",
+   "aliases": [
+    "client role"
+   ],
+   "answer": "CLIENT is Meshtastic's general-use messaging role. It rebroadcasts packets when no other node has.",
+   "source": "https://meshtastic.org/docs/configuration/radio/device/",
+   "quote": "App connected or stand alone messaging device. Rebroadcasts packets when no other node has done so.",
+   "verified_on": "2026-09-24",
+   "note": "'client' is generic (app client, customer). Require 'client role' or meshtastic context."
+  },
+  {
+   "key": "role_router",
+   "aliases": [
+    "router role",
+    "meshtastic router",
+    "router node"
+   ],
+   "answer": "On Meshtastic, a ROUTER is an infrastructure node that always rebroadcasts packets once. Shows in node list.",
+   "source": "https://meshtastic.org/docs/configuration/radio/device/",
+   "quote": "Infrastructure node for extending network coverage by always rebroadcasting packets once. Visible in Nodes list.",
+   "verified_on": "2026-09-24",
+   "note": "HIGH: 'router' = home Wi-Fi router to most people. Answer is scoped 'On Meshtastic'. Traffic used it in the Meshtastic sense twice ('the 435 & Metcalf router')."
+  },
+  {
+   "key": "role_repeater_mt",
+   "aliases": [
+    "meshtastic repeater",
+    "repeater role"
+   ],
+   "answer": "Meshtastic's REPEATER role relayed packets without appearing in the node list. Deprecated in firmware 2.7.11.",
+   "source": "https://meshtastic.org/docs/configuration/radio/device/",
+   "quote": "Infrastructure node for extending network coverage by always rebroadcasting packets once with minimal overhead. Not visible in Nodes list. [...] This role has been deprecated as of firmware version 2.7.11",
+   "verified_on": "2026-09-24",
+   "note": "Collides with ham 'repeater' (see key 'repeater'). Bare 'repeater' should go to the ham entry; this one only on 'meshtastic repeater'/'repeater role'."
+  },
+  {
+   "key": "mqtt",
+   "aliases": [
+    "mqtt",
+    "meshtastic mqtt"
+   ],
+   "answer": "In Meshtastic, MQTT links a node to the internet and can join separate meshes together.",
+   "source": "https://meshtastic.org/docs/terms/",
+   "quote": "In Meshtastic, MQTT is used to connect a node to the internet, and can be used to connect multiple meshes to each other.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "store_and_forward",
+   "aliases": [
+    "store and forward",
+    "store & forward",
+    "s&f",
+    "store-and-forward"
+   ],
+   "answer": "Store & Forward lets a node that was out of range ask a server node to resend the text messages it missed.",
+   "source": "https://meshtastic.org/docs/configuration/module/store-and-forward-module/",
+   "quote": "Using this module, a client device can ask a special Store & Forward Server to resend text messages after the client has been temporarily not in [...] range of the mesh.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "telemetry",
+   "aliases": [
+    "telemetry",
+    "device metrics",
+    "environment metrics"
+   ],
+   "answer": "Meshtastic telemetry is data sent over the mesh: device metrics like battery and voltage, plus environment sensors.",
+   "source": "https://meshtastic.org/docs/configuration/module/telemetry/",
+   "quote": "The Telemetry Module provides four types of data over the mesh: Device metrics (Battery Level, Voltage, Channel Utilization and Airtime) from your Meshtastic device, Environment Metrics",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "traceroute",
+   "aliases": [
+    "traceroute",
+    "trace route",
+    "meshtastic traceroute"
+   ],
+   "answer": "Meshtastic traceroute shows which nodes a message hopped through, with SNR per link.",
+   "source": "https://meshtastic.org/docs/configuration/module/traceroute/",
+   "quote": "Meshtastic does not keep track of the nodes a message used to hop to the destination. However, from firmware 2.0.8 on, there is a Traceroute Module that can show you this. [...] the route back to the origin is recorded, along with the Signal-to-Noise Ratio [...] It costs more airtime than a text message.",
+   "verified_on": "2026-09-24",
+   "note": "Collides with IP traceroute. Scoped 'Meshtastic'."
+  },
+  {
+   "key": "nodeinfo",
+   "aliases": [
+    "nodeinfo",
+    "node info"
+   ],
+   "answer": "NodeInfo is the periodic Meshtastic broadcast carrying a node's long and short name.",
+   "source": "https://meshtastic.org/docs/configuration/radio/device/",
+   "quote": "This is the number of seconds between NodeInfo message (containing i.a. long and short name) broadcasts from the device.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "short_name",
+   "aliases": [
+    "short name",
+    "shortname",
+    "long name"
+   ],
+   "answer": "A Meshtastic short name is a node's brief ID, auto-generated by default. The long name is its full name.",
+   "source": "https://meshtastic.org/docs/configuration/radio/user/",
+   "quote": "Long Name A personalized name for your device. [...] A personalized short identifier for your device. Auto-generated by default.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "line_of_sight",
+   "aliases": [
+    "line of sight",
+    "line-of-sight",
+    "LOS"
+   ],
+   "answer": "Line of sight is VHF and UHF propagation in a straight line directly from one station to another.",
+   "source": "https://www.arrl.org/ham-radio-glossary",
+   "quote": "Line-of-sight propagation -- The term used to describe VHF and UHF propagation in a straight line directly from one station to another.",
+   "verified_on": "2026-09-24",
+   "note": "'LOS' alias is ambiguous (Los Angeles, 'los'); require definitional frame and uppercase or 'line of sight'."
+  },
+  {
+   "key": "fresnel_zone",
+   "aliases": [
+    "fresnel",
+    "fresnel zone"
+   ],
+   "answer": "The Fresnel zone is a football-shaped space between antennas. Obstructions in it weaken the signal.",
+   "source": "https://meshtastic.org/docs/hardware/antennas/antenna-testing/",
+   "quote": "Fresnel Zone - A football shape between antennas that must be clear of obstructions or else the signal is attenuated.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "meshtastic_ham",
+   "aliases": [
+    "ham mode",
+    "licensed mode",
+    "meshtastic ham"
+   ],
+   "answer": "Meshtastic needs no license. In licensed ham mode you ID by callsign and may not encrypt.",
+   "source": "https://meshtastic.org/docs/faq/",
+   "quote": "Meshtastic can be used by both unlicensed people and licensed ham operators. [...] On amateur radio bands, encryption is illegal. FCC Part 97.113.A.4 [...] Your call sign will be publicly transmitted at least once every 10 minutes at minimum.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "meshcore",
+   "aliases": [
+    "meshcore",
+    "mesh core"
+   ],
+   "answer": "MeshCore is a separate LoRa mesh project, a lightweight C++ library for multi-hop packet routing.",
+   "source": "https://github.com/meshcore-dev/MeshCore",
+   "quote": "MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios.",
+   "verified_on": "2026-09-24",
+   "note": "Roadmap flags MeshCore as too new for recall; this is a stable self-description only. Source is the project's own README (fetched raw from GitHub). Volatile project — re-verify monthly."
+  },
+  {
+   "key": "reticulum",
+   "aliases": [
+    "reticulum",
+    "rns"
+   ],
+   "answer": "Reticulum is a cryptography-based networking stack for building local and wide-area networks on common hardware.",
+   "source": "https://reticulum.network/",
+   "quote": "Reticulum is the cryptography-based networking stack for building local and wide-area networks with readily available hardware.",
+   "verified_on": "2026-09-24",
+   "note": "'RNS' alias is short; require definitional frame."
+  },
+  {
+   "key": "73",
+   "aliases": [
+    "73",
+    "73s"
+   ],
+   "answer": "In ham radio, 73 means 'best regards.' It's said near the end of a contact.",
+   "source": "https://www.arrl.org/ham-radio-glossary",
+   "quote": "73 -- Ham lingo for \"best regards.\" Used on both phone and CW toward the end of a contact.",
+   "verified_on": "2026-09-24",
+   "note": "HIGH: bare '73' is a number; calc runs first and 'what's 73' must not be answered as a number OR as this. Match only 'what does 73 mean' / '73 mean' / 'what is 73 in ham radio'."
+  },
+  {
+   "key": "cq",
+   "aliases": [
+    "cq",
+    "calling cq",
+    "cq cq"
+   ],
+   "answer": "CQ means 'calling any station': a general call inviting anyone to answer.",
+   "source": "https://www.arrl.org/ham-radio-glossary",
+   "quote": "CQ -- \"Calling any station\": the general call when requesting a conversation with anyone.",
+   "verified_on": "2026-09-24",
+   "note": "Two letters; also a magazine (CQ). Require definitional frame."
+  },
+  {
+   "key": "qsl",
+   "aliases": [
+    "qsl",
+    "qsl card"
+   ],
+   "answer": "QSL means acknowledgment of receipt. A QSL card is a postcard confirming a contact between two hams.",
+   "source": "https://www.arrl.org/ham-radio-glossary",
+   "quote": "QSL (acknowledgment of receipt). [...] QSL card -- A postcard that serves as a confirmation of communication between two hams.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "qth",
+   "aliases": [
+    "qth"
+   ],
+   "answer": "QTH is ham shorthand for location. 'My QTH is...' means my location is.",
+   "source": "https://www.arrl.org/files/file/Get%20on%20the%20Air/Comm%20w%20Other%20Hams-Q%20Signals.pdf",
+   "quote": "QTH My location is _________. What is your location?",
+   "verified_on": "2026-09-24",
+   "note": "Answering is fine; Cal must never answer 'what's your QTH' with its own location (that is a different intent, not this entry). Matcher: 'what is QTH' yes, 'what's your QTH' no."
+  },
+  {
+   "key": "qrp",
+   "aliases": [
+    "qrp"
+   ],
+   "answer": "QRP means low-power operating. As a Q signal it asks or tells a station to decrease power.",
+   "source": "https://www.arrl.org/qrp-low-power-operating",
+   "quote": "QRP -- \"Shall I decrease power?\" \"Decrease power.\"",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "q_signals",
+   "aliases": [
+    "q signal",
+    "q signals",
+    "q code",
+    "q codes"
+   ],
+   "answer": "Q signals are three-letter codes starting with Q, like QTH (location) and QSL (receipt), used to save time.",
+   "source": "https://www.arrl.org/ham-radio-glossary",
+   "quote": "Q signals -- Three-letter symbols beginning with Q. Used on CW to save time and to improve communication. Some examples are QRS (send slower), QTH (location), QSO (ham conversation) and QSL (acknowledgment of receipt).",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "ham_radio",
+   "aliases": [
+    "ham radio",
+    "amateur radio"
+   ],
+   "answer": "Ham radio is amateur radio: a hobby and service for talking across town or worldwide without internet or cell phones.",
+   "source": "https://www.arrl.org/what-is-ham-radio",
+   "quote": "Amateur Radio (ham radio) is a popular hobby and service that brings people, electronics and communication together. People use ham radio to talk across town, around the world, or even into space, all without the Internet or cell phones.",
+   "verified_on": "2026-09-24",
+   "note": "Bare 'ham' = meat; require 'ham radio' or definitional frame on 'ham' alone."
+  },
+  {
+   "key": "license_classes",
+   "aliases": [
+    "license class",
+    "license classes",
+    "general license",
+    "amateur extra",
+    "extra class",
+    "ham license"
+   ],
+   "answer": "US ham licenses come in three classes: Technician, General and Extra. They're good for 10 years.",
+   "source": "https://www.arrl.org/getting-licensed",
+   "quote": "US licenses are good for 10 years before renewal and anyone may hold one except a representative of a foreign government. In the US there are three license classes—Technician, General and Extra.",
+   "verified_on": "2026-09-24",
+   "note": "'general' and 'technician' are common words; match only as 'general license/class', 'technician license/class'. 'ticket' = license is in ARRL glossary ('Ticket--A common name for an Amateur Radio license.')."
+  },
+  {
+   "key": "callsign",
+   "aliases": [
+    "callsign",
+    "call sign"
+   ],
+   "answer": "A callsign is a ham station's assigned ID. FCC rules require sending it every 10 minutes and at the end.",
+   "source": "https://www.ecfr.gov/current/title-47/part-97/section-97.119",
+   "quote": "Each amateur station, except a space station or telecommand station, must transmit its assigned call sign on its transmitting channel at the end of each communication, and at least every 10 minutes during a communication",
+   "verified_on": "2026-09-24",
+   "note": "Never answer 'what's Cal's callsign' or look up a person's callsign from this entry — different intent."
+  },
+  {
+   "key": "simplex",
+   "aliases": [
+    "simplex"
+   ],
+   "answer": "Simplex means receiving and transmitting on the same frequency.",
+   "source": "https://www.arrl.org/ham-radio-glossary",
+   "quote": "Simplex operation -- Receiving and transmitting on the same frequency.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "repeater",
+   "aliases": [
+    "repeater",
+    "ham repeater"
+   ],
+   "answer": "In ham radio, a repeater is a station that retransmits other stations' signals on a different frequency.",
+   "source": "https://www.ecfr.gov/current/title-47/part-97/section-97.3",
+   "quote": "Repeater. An amateur station that simultaneously retransmits the transmission of another amateur station on a different channel or channels.",
+   "verified_on": "2026-09-24",
+   "note": "Collides with Meshtastic REPEATER role (deprecated) and GMRS repeaters. Answer scoped 'In ham radio'."
+  },
+  {
+   "key": "net",
+   "aliases": [
+    "radio net",
+    "ham net"
+   ],
+   "answer": "In ham radio, a net is an on-air gathering at a set frequency, date and time. Stations check in.",
+   "source": "http://arrl.org/files/file/On%20the%20Air%20Email/OTA%20Nets.pdf",
+   "quote": "In the ham radio universe, a net (a shortened form of the word “network”) is an on-the-air gathering that usually convenes at a specific frequency and at a specific date and time. [...] and then asks for check-ins to join the net.",
+   "verified_on": "2026-09-24",
+   "note": "HIGH: 'net' = internet / net income / fishing net. Match only 'radio net', 'ham net', or 'what is a net' with no finance/internet words. Note: ARRL glossary's 'Network' entry is packet radio, NOT this meaning."
+  },
+  {
+   "key": "ares",
+   "aliases": [
+    "ares",
+    "amateur radio emergency service"
+   ],
+   "answer": "ARES is the Amateur Radio Emergency Service: licensed hams registered to provide communications in disasters.",
+   "source": "https://www.arrl.org/ares",
+   "quote": "The Amateur Radio Emergency Service (ARES) consists of licensed amateurs who have voluntarily registered their qualifications and equipment, with their local ARES leadership, for communications duty in the public service when disaster strikes.",
+   "verified_on": "2026-09-24",
+   "note": "'Ares' is also the Greek god. Low risk; require definitional frame."
+  },
+  {
+   "key": "races",
+   "aliases": [
+    "RACES",
+    "radio amateur civil emergency service"
+   ],
+   "answer": "RACES is the Radio Amateur Civil Emergency Service: hams providing civil defense communications in emergencies.",
+   "source": "https://www.ecfr.gov/current/title-47/part-97/section-97.3",
+   "quote": "RACES (radio amateur civil emergency service). A radio service using amateur stations for civil defense communications during periods of local, regional or national civil emergencies.",
+   "verified_on": "2026-09-24",
+   "note": "HIGH: 'races' is an everyday plural (car races). Match ONLY uppercase 'RACES' or the expansion."
+  },
+  {
+   "key": "tropo",
+   "aliases": [
+    "tropo",
+    "tropospheric ducting",
+    "ducting",
+    "tropo ducting",
+    "tropospheric"
+   ],
+   "answer": "Tropo (tropospheric ducting) is propagation that can occur when warm air overruns cold air: a temperature inversion.",
+   "source": "https://www.arrl.org/ham-radio-glossary",
+   "quote": "Tropospheric ducting -- A type of VHF propagation that can occur when warm air overruns cold air (a temperature inversion).",
+   "verified_on": "2026-09-24",
+   "note": "Asked live on the mesh 2026-09-06 (answered by a human, Cal not addressed). Must NEVER become 'is tropo happening now' — that is a live/fetch question."
+  },
+  {
+   "key": "phonetic_alphabet",
+   "aliases": [
+    "phonetic alphabet",
+    "nato alphabet",
+    "nato phonetic"
+   ],
+   "answer": "The phonetic alphabet uses standard words for letters on voice, like Kilo Alfa Six for KA6.",
+   "source": "https://www.arrl.org/ham-radio-glossary",
+   "quote": "Phonetic alphabet -- Standard words used on voice modes to make it easier to understand letters of the alphabet, such as those in call signs. The call sign KA6LMN stated phonetically is Kilo Alfa Six Lima Mike November.",
+   "verified_on": "2026-09-24",
+   "note": "The per-letter table is a separate closed KB ('Radio ops' candidate); this entry only defines the term. Do not answer 'what is M in phonetic' from here."
+  },
+  {
+   "key": "cw",
+   "aliases": [
+    "cw",
+    "morse code",
+    "continuous wave"
+   ],
+   "answer": "CW is Morse code sent by keying a radio signal on and off.",
+   "source": "https://www.arrl.org/ham-radio-glossary",
+   "quote": "CW (Morse code) -- A communications mode transmitted by on/off keying of a radio-frequency signal. Another name for international Morse code.",
+   "verified_on": "2026-09-24",
+   "note": "'CW' has other meanings (content warning, a TV network). Require definitional frame."
+  },
+  {
+   "key": "pota",
+   "aliases": [
+    "pota",
+    "parks on the air"
+   ],
+   "answer": "POTA is Parks on the Air: hams operate portable from parks. Activators transmit from parks; hunters contact them.",
+   "source": "https://parksontheair.com/",
+   "quote": "Welcome to the Parks on the Air ® (POTA) site for international portable amateur radio operations that promote emergency awareness and communications from national/federal and state/provincial level parks. [...] explores the process of activating a park unit and hunting those activations.",
+   "verified_on": "2026-09-24",
+   "note": "Used twice in live traffic. Activator/hunter terms are only implied by 'activating'/'hunting' on the homepage; POTA 'about' and docs pages returned 403 to both fetchers."
+  },
+  {
+   "key": "sota",
+   "aliases": [
+    "sota",
+    "summits on the air"
+   ],
+   "answer": "SOTA is Summits on the Air: hams operate from designated summits, or contact those who do.",
+   "source": "https://www.arrl.org/radio-operating-from-summits",
+   "quote": "The basic idea of SOTA is to operate from a designated list of summits or to work other radio operators when they activate summits.",
+   "verified_on": "2026-09-24",
+   "note": "Official sota.org.uk is a JS app and returned no text to curl; ARRL page used."
+  },
+  {
+   "key": "ft8",
+   "aliases": [
+    "ft8",
+    "ft-8"
+   ],
+   "answer": "FT8 is a digital ham mode by K1JT and K9AN. Each transmit or receive cycle lasts about 15 seconds.",
+   "source": "https://www.arrl.org/news/ft8-mode-is-latest-bright-shiny-object-in-amateur-radio-digital-world",
+   "quote": "The new mode is named after its developers, Steven Franke, K9AN, and Joe Taylor, K1JT. [...] Unlike JT65 or JT9, transmit and receive cycles in FT8 each last about 15 seconds.",
+   "verified_on": "2026-09-24",
+   "note": "Used once in live traffic."
+  },
+  {
+   "key": "grid_square",
+   "aliases": [
+    "grid square",
+    "maidenhead",
+    "maidenhead grid",
+    "grid locator"
+   ],
+   "answer": "A grid square is a Maidenhead locator like FN31: 1 deg lat by 2 deg long, about 70 x 100 miles in the US.",
+   "source": "https://www.arrl.org/grid-squares",
+   "quote": "a grid square measures 1° latitude by 2° longitude and measures approximately 70 × 100 miles in the continental US. A grid square is indicated by two letters (the field) and two numbers (the square), as in FN31",
+   "verified_on": "2026-09-24",
+   "note": "COLLISION: calc already owns grid DECODE ('grid EM28' -> lat/lon). This entry answers only 'what is a grid square'. Bare 'grid'/'locator' removed-worthy (power grid); keep 'grid square', 'maidenhead'."
+  },
+  {
+   "key": "dbm",
+   "aliases": [
+    "dbm"
+   ],
+   "answer": "dBm is power in decibels relative to one milliwatt. Zero dBm equals one milliwatt.",
+   "source": "https://www.arrl.org/files/file/Instructor%20resources/Decibel.pdf",
+   "quote": "Zero dBm equals one milliwatt",
+   "verified_on": "2026-09-24",
+   "note": "Numeric dBm<->W conversion is calc's job (armed RF pack); this entry only defines the unit."
+  },
+  {
+   "key": "dbi",
+   "aliases": [
+    "dbi",
+    "antenna gain",
+    "dbd"
+   ],
+   "answer": "dBi is antenna gain vs an ideal isotropic antenna. 0 dBd (a dipole) = 2.15 dBi.",
+   "source": "https://www.arrl.org/files/file/Instructor%20resources/Decibel.pdf",
+   "quote": "dB(isotropic) – the forward gain of an antenna compared with the hypothetical isotropic antenna [...] 0 dBd = 2.15 dBi",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "eirp",
+   "aliases": [
+    "eirp",
+    "equivalent isotropically radiated power"
+   ],
+   "answer": "EIRP is transmitter power into the antenna times the antenna's gain vs an isotropic antenna.",
+   "source": "https://www.ecfr.gov/current/title-47/part-97/section-97.3",
+   "quote": "EIRP (equivalent isotropically radiated power). The product of the power supplied to the antenna and the antenna gain in a given direction relative to an isotropic antenna",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "gmrs",
+   "aliases": [
+    "gmrs",
+    "general mobile radio service"
+   ],
+   "answer": "GMRS is an FCC-licensed two-way radio service, mostly voice, for individual licensees and their families.",
+   "source": "https://www.ecfr.gov/current/title-47/part-95/section-95.1703",
+   "quote": "General Mobile Radio Service (GMRS). A mobile two-way voice communication service, with limited data applications, for facilitating activities of individual licensees and their family members",
+   "verified_on": "2026-09-24",
+   "note": "Frequencies (462/467 MHz, 47 CFR 95.1763) and license rule (95.1705) were fetched but are separate sections; not stated here."
+  },
+  {
+   "key": "skywarn",
+   "aliases": [
+    "skywarn",
+    "storm spotter",
+    "weather spotter"
+   ],
+   "answer": "SKYWARN is the National Weather Service's volunteer program of trained severe weather spotters.",
+   "source": "https://www.weather.gov/skywarn/",
+   "quote": "the National Weather Service (NWS) established SKYWARN® with partner organizations. SKYWARN® is a volunteer program with between 350,000 and 400,000 trained severe weather spotters.",
+   "verified_on": "2026-09-24",
+   "note": ""
+  },
+  {
+   "key": "noaa_weather_radio",
+   "aliases": [
+    "noaa weather radio",
+    "nwr",
+    "weather radio"
+   ],
+   "answer": "NOAA Weather Radio is a nationwide network broadcasting NWS warnings and forecasts 24 hours a day on VHF.",
+   "source": "https://www.weather.gov/nwr/",
+   "quote": "NOAA Weather Radio All Hazards (NWR) is a nationwide network of radio stations broadcasting continuous weather information directly from the nearest National Weather Service office. NWR broadcasts official Weather Service warnings, watches, forecasts and other hazard information 24 hours a day, 7 days a week. [...] Broadcasts are found in the VHF public service band",
+   "verified_on": "2026-09-24",
+   "note": "Never state a local NWR frequency from memory — that is a table/fetch item."
+  },
+  {
+   "key": "watch",
+   "aliases": [
+    "weather watch",
+    "severe thunderstorm watch",
+    "tornado watch",
+    "watch vs warning"
+   ],
+   "answer": "An NWS watch means hazardous weather is possible. A warning means it is occurring, imminent or likely.",
+   "source": "https://www.weather.gov/sjt/WatchWarningAdvisoryExplained",
+   "quote": "A watch means that hazardous weather is possible. [...] A warning is issued when a hazardous weather or hydrologic event is occurring, imminent or likely.",
+   "verified_on": "2026-09-24",
+   "note": "Two NWS WATCH/WARNING alerts appeared in live traffic. 'watch' = wristwatch; require weather context. Must never be read as 'is there a watch now' (live NOAA alert = fetch tier)."
+  },
+  {
+   "key": "warning",
+   "aliases": [
+    "weather warning",
+    "severe thunderstorm warning",
+    "tornado warning"
+   ],
+   "answer": "An NWS warning means hazardous weather is occurring, imminent or likely. People in its path need to take action.",
+   "source": "https://www.weather.gov/sjt/WatchWarningAdvisoryExplained",
+   "quote": "A warning is issued when a hazardous weather or hydrologic event is occurring, imminent or likely. [...] People in the path of the storm need to take protective action.",
+   "verified_on": "2026-09-24",
+   "note": "Same live/static trap as 'watch'. Borderline life-safety wording; review with the emergency tier's gate in mind."
+  }
+ ]
+}

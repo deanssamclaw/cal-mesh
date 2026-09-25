@@ -357,7 +357,7 @@ def correlate(inbox, sent, decisions):
                          # same shape, same reason: the responder writes these on every DM
                          # and the page dropped them, so a DM's trace could show the ladder
                          # that failed and never the tier that actually governed it.
-                         "dm_unlock_gates", "dm_longer_gates",
+                         "dm_unlock_gates", "dm_longer_gates", "stranger_gates",
                          "sunmoon_match", "sunmoon", "sigreport",
                          # authenticated-DM path: so the trace can say the model also got the
                          # injected context + remembered thread, not just the message.
