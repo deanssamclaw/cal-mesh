@@ -177,6 +177,8 @@ DEFAULTS = {
     # state FAILS CLOSED — a stale or missing status file means no report.
     "SIGREPORT_MAX_CH_UTIL": "25",
     "SIGREPORT_STATUS_MAX_AGE_S": "600",
+    # Where Cal is, named on air in place of the relay ("4 hops from Olathe"). Blank = relay.
+    "SIGREPORT_PLACE": "",
     # --- P1 content unlock on an authenticated DM (channel-trust-and-agency.md §4). ---
     # CONTENT only: longer, context-aware replies to Dean. Tools stay locked exactly as on the
     # public channel — P2 never rides on mesh auth alone. Forge-tolerant by construction: the
@@ -1386,7 +1388,8 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False):
     text, meta = sigreport.report(rec, max_chars=_int_cfg(cfg, "SIGREPORT_MAX_CHARS",
                                                          DEFAULTS["SIGREPORT_MAX_CHARS"]),
                                   index=m.get("index"),
-                                  relay_name=resolve_relay(rec.get("relay_byte")))
+                                  relay_name=resolve_relay(rec.get("relay_byte")),
+                                  place=cfg.get("SIGREPORT_PLACE", DEFAULTS["SIGREPORT_PLACE"]))
     if not mark("has_measurements", text is not None):
         return False, "sigreport_" + (meta.get("refused") or "nothing_measured"), None, ch, None, gates, None
     busy, util, why = channel_busy(cfg, ts=ts)

@@ -437,7 +437,8 @@ def cal_reply(cfg, rec, our, dry=False):
                 max_chars=_int_cfg(cfg, "SIGREPORT_MAX_CHARS",
                                    _r.DEFAULTS["SIGREPORT_MAX_CHARS"]),
                 trigger=trig,
-                relay_name=_r.resolve_relay(pkt.get("relay_byte")))
+                relay_name=_r.resolve_relay(pkt.get("relay_byte")),
+                place=cfg.get("SIGREPORT_PLACE", _r.DEFAULTS["SIGREPORT_PLACE"]))
             if sr:
                 return sr, "ok", "sigreport"
 

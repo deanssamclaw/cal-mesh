@@ -433,6 +433,29 @@ expect(plan(r=rec(text="Test 12", relay_byte=198))[4]
    f"{plan(r=rec(text='Test 12', relay_byte=198))[4]!r}")
 expect("via" not in plan(r=rec(text="Test 12", relay_byte=7))[4],
    "an unplaceable relay byte is never guessed at")
+
+# SIGREPORT_PLACE names where CAL is, in place of the relay, on the path that transmits. Dean
+# asked for it 2026-09-25: a relay's short name means nothing to a stranger; the town does.
+_PL = {"SIGREPORT_PLACE": "Olathe"}
+expect(responder.DEFAULTS["SIGREPORT_PLACE"] == "", "no place by default -- the relay is named")
+expect(plan(cfg=_PL, r=rec(text="Test 12", relay_byte=198))[4]
+   == "Copy 12: 2 hops from Olathe, last leg RSSI -32, SNR 6.0",
+   f"the place replaces the relay on air: {plan(cfg=_PL, r=rec(text='Test 12', relay_byte=198))[4]!r}")
+expect(plan(cfg=_PL, r=rec(text="Test 12", relay_byte=198))[6].get("relay_name") == "MDNO",
+   "the relay is still resolved into meta for the page's trace")
+expect(plan(cfg=_PL, r=rec(text="Test 12", relay_byte=7))[4]
+   == "Copy 12: 2 hops from Olathe, last leg RSSI -32, SNR 6.0", "place does not need a relay")
+expect(plan(cfg=_PL, r=rec(text="Test 12", hops=0))[4]
+   == "Copy 12: direct from Olathe, RSSI -32, SNR 6.0", "direct names the place too")
+# Dean's own example, byte for byte.
+expect(sigreport.report(rec(hops=4, rssi=-33, snr=6.0), relay_name="MTD", place="Olathe")[0]
+   == "Copy: 4 hops from Olathe, last leg RSSI -33, SNR 6.0", "Dean's example shape")
+# REJECT, DON'T REPAIR: a place that is not plainly a place falls back to the relay.
+for _bad in ("Olathe<b>", "x" * 25, "Olathe, KS 66061", "   ", None, 42):
+    expect("from" not in (sigreport.report(rec(hops=2), relay_name="MDNO", place=_bad)[0] or ""),
+       f"a bad place is dropped, not repaired: {_bad!r}")
+expect(sigreport.report(rec(hops=2), relay_name="MDNO", place="Olathe<b>")[0]
+   == "Copy: 2 hops via MDNO, last leg RSSI -32, SNR 6.0", "a rejected place falls back to the relay")
 expect(responder.resolve_relay(None) is None, "no relay byte, no name")
 # SOMEONE ELSE'S TEXT ON OUR AIR. A short name is chosen by a third party, so it is
 # whitelisted rather than escaped, and bounded to the four characters the protocol allows.

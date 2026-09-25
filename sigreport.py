@@ -409,7 +409,22 @@ def clean_name(name):
     return n
 
 
-def report(rec, max_chars=64, index=None, relay_name=None):
+# Cal's own place, as the operator typed it into config. Operator text rather than a third
+# party's, but it still goes on a public channel, so the same rule holds: reject, don't repair.
+_PLACE_OK = re.compile(r"[^A-Za-z .'\-]")
+
+
+def clean_place(place):
+    """SIGREPORT_PLACE if it is a plain place name of at most 24 characters, else None."""
+    if not isinstance(place, str):
+        return None
+    p = place.strip()
+    if not p or len(p) > 24 or _PLACE_OK.search(p):
+        return None
+    return p
+
+
+def report(rec, max_chars=64, index=None, relay_name=None, place=None):
     """Build the reply, or (None, meta) when there is nothing measured to report.
 
     Field-by-field degradation: a malformed snr costs the snr and nothing else. Only the
@@ -430,6 +445,13 @@ def report(rec, max_chars=64, index=None, relay_name=None):
     `relay_name` is resolved by the CALLER, because this module does no I/O and because the
     resolution can be ambiguous: a relay is identified by ONE byte, so a name is passed only
     when exactly one known node matches. Unresolved simply drops the `via`.
+
+    `place` (SIGREPORT_PLACE) names where CAL is, and when set it REPLACES the relay on air:
+        relayed   ->  Copy: 4 hops from Olathe, last leg RSSI -33, SNR 6.0
+        direct    ->  Copy: direct from Olathe, RSSI -32, SNR 6.2
+    A relay's short name means nothing to a stranger across the metro; the town answers the
+    question they asked -- where did this get heard. The relay is still resolved and kept in
+    meta, because the trace on the page explains whose last leg the numbers describe.
     """
     meta = {"snr": None, "rssi": None, "hops": None, "parts": [], "refused": None}
     snr = _num(rec.get("snr"))
@@ -451,11 +473,14 @@ def report(rec, max_chars=64, index=None, relay_name=None):
     # flattest number and dropped the most informative one.
     rname = clean_name(relay_name)
     meta["relay_name"] = rname
+    where = clean_place(place)
+    meta["place"] = where
     lead, sig_label = [], "RSSI"
     if hops == 0:
-        lead.append("direct")
+        lead.append("direct" + (f" from {where}" if where else ""))
     elif hops is not None:
-        lead.append(f"{hops} hop" + ("s" if hops != 1 else "") + (f" via {rname}" if rname else ""))
+        tail = f" from {where}" if where else (f" via {rname}" if rname else "")
+        lead.append(f"{hops} hop" + ("s" if hops != 1 else "") + tail)
         # The qualifier is the whole point of this shape: at more than zero hops these numbers
         # belong to the relay, not to the sender.
         sig_label = "last leg RSSI"
@@ -497,12 +522,12 @@ def report(rec, max_chars=64, index=None, relay_name=None):
     return text, meta
 
 
-def try_answer(text, rec, max_chars=64, trigger="cal", relay_name=None):
+def try_answer(text, rec, max_chars=64, trigger="cal", relay_name=None, place=None):
     """match + report in one call. Returns (reply|None, meta)."""
     m = match(text, trigger=trigger)
     if not m:
         return None, {"matched": False}
     reply, meta = report(rec, max_chars=max_chars, index=m.get("index"),
-                         relay_name=relay_name)
+                         relay_name=relay_name, place=place)
     meta.update({"matched": True, "via": m["via"]})
     return reply, meta
