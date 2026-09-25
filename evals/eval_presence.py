@@ -92,6 +92,18 @@ def suite():
     got = run(cfg(PRESENCE_MORNING="Morning from the operator's phrase"))[0]
     ck("the operator's phrase is what goes out", got and got["text"] == "Morning from the operator's phrase")
     ck("an empty phrase is never sent", run(cfg(PRESENCE_MORNING=""))[1] == "bad_phrase")
+    # PRESENCE_TEST joins the rotation only when the operator sets it.
+    ck("PRESENCE_TEST is blank by default", P.DEFAULTS["PRESENCE_TEST"] == "")
+    ck("a blank PRESENCE_TEST is never picked",
+       all((run(rng=lambda _v=[0.0, x / 10]: _v.pop(0))[0] or {}).get("key") != "PRESENCE_TEST"
+           for x in range(10)))
+    _tc = cfg(PRESENCE_TEST="Cal testing from Somewhere")
+    _picked = {(run(_tc, rng=lambda _v=[0.0, x / 10]: _v.pop(0))[0] or {}).get("text") for x in range(10)}
+    ck("a set PRESENCE_TEST can go out verbatim", "Cal testing from Somewhere" in _picked, repr(_picked))
+    _lt = [{"ts": NOW - 5 * DAY, "key": "PRESENCE_TEST"}]
+    ck("PRESENCE_TEST is never sent twice in a row",
+       all((run(_tc, history=_lt, rng=lambda _v=[0.0, x / 10]: _v.pop(0))[0] or {}).get("key")
+           != "PRESENCE_TEST" for x in range(10)))
     ck("an over-long phrase is never sent", run(cfg(PRESENCE_MORNING="x" * 80))[1] == "bad_phrase")
     src = open(os.path.join(HERE, "presence.py")).read()
     defaults_block = src[src.index("DEFAULTS = {"):src.index("}", src.index("DEFAULTS = {"))]

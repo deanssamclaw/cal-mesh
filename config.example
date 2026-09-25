@@ -229,6 +229,8 @@ PRESENCE_MORNING=Morning Mesh
 PRESENCE_AFTERNOON=Afternoon Mesh
 PRESENCE_EVENING=Evening Mesh
 PRESENCE_CHECK=Radio check. Anyone out there?
+# Optional third phrase for any window, e.g. a test call naming your town. Blank = not used.
+PRESENCE_TEST=
 # The windows are on this clock, not the host's. Unparseable = silent.
 PRESENCE_TZ=America/Chicago
 # A radio status older than this means the bridge may be down: wait.
