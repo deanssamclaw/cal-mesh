@@ -661,8 +661,10 @@ def connect(cfg):
         return meshtastic.tcp_interface.TCPInterface(hostname=host)
     port = cfg.get("PORT") or None
     if port and not os.path.exists(port):
-        log(f"configured serial port {port} absent; auto-detecting")
-        port = None
+        # Wait for THIS radio; never fall back to auto-detect. On a host with a second
+        # Meshtastic device on USB, auto-detect can open the wrong radio and transmit as it.
+        # The reconnect loop retries with backoff. Leave PORT empty to auto-detect on purpose.
+        raise FileNotFoundError(f"configured serial port {port} absent")
     log(f"connecting serial {port or '(auto)'}")
     return meshtastic.serial_interface.SerialInterface(devPath=port)
 

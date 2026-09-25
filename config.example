@@ -6,7 +6,7 @@
 
 # --- USB (most reliable while the node is plugged into this machine) ---
 TRANSPORT=serial
-PORT=/dev/cu.usbmodemXXXXXXXXXXXX   # macOS. Linux: /dev/ttyACM0 or /dev/ttyUSB0 (user in `dialout`)
+PORT=/dev/cu.usbmodemXXXXXXXXXXXX   # macOS. Linux: /dev/serial/by-id/usb-... (stable across replugs; user in `dialout`). Set but absent = the bridge waits for it; empty = auto-detect
 
 # --- WiFi (survives unplugging; node runs untethered on the LAN) ---
 # Set TRANSPORT=tcp to use this. HOST is the node's mDNS name (survives DHCP changes).
