@@ -1,0 +1,9 @@
+[Unit]
+Description=cal-mesh presence (one run; started by cal-mesh-presence.timer)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/cal-mesh
+ExecStart=%h/cal-mesh/.venv/bin/python %h/cal-mesh/presence.py --send
+StandardOutput=append:%h/cal-mesh/presence.log
+StandardError=append:%h/cal-mesh/presence.log
