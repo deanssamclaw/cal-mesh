@@ -38,6 +38,7 @@ from datetime import datetime
 DEFAULTS = {
     "PRESENCE_ENABLED": "false",
     "PRESENCE_MAX_PER_WEEK": "3",
+    "PRESENCE_MAX_PER_DAY": "1",       # per calendar day on the operator's clock
     "PRESENCE_MIN_GAP_H": "36",
     "PRESENCE_CHANCE": "0.08",
     "PRESENCE_QUIET_S": "900",
@@ -79,6 +80,14 @@ def local_hour_now(cfg, now):
         return None
 
 
+def _local_date(cfg, ts):
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.fromtimestamp(ts, ZoneInfo(str(cfg.get("PRESENCE_TZ", DEFAULTS["PRESENCE_TZ"])))).date()
+    except Exception:
+        return None
+
+
 def window(local_hour):
     """The greeting key for this hour, or None outside every window."""
     for lo, hi, key in WINDOWS:
@@ -116,6 +125,11 @@ def plan(cfg, history, heard_ts, ch_util, now=None, local_hour=None, rng=random.
         return None, "min_gap"
     if sum(1 for h in sends if now - h["ts"] < 7 * 86400) >= _num(cfg, "PRESENCE_MAX_PER_WEEK"):
         return None, "weekly_cap"
+    today = _local_date(cfg, now)
+    if today is None:
+        return None, "bad_timezone"
+    if sum(1 for h in sends if _local_date(cfg, h["ts"]) == today) >= _num(cfg, "PRESENCE_MAX_PER_DAY"):
+        return None, "daily_cap"
     if heard_ts is UNKNOWN:
         return None, "channel_unknown"
     if heard_ts is not None and now - heard_ts < _num(cfg, "PRESENCE_QUIET_S"):
