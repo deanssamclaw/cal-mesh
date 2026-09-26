@@ -431,13 +431,18 @@ def cal_reply(cfg, rec, our, dry=False):
             and rec.get("from") != our
             and rec.get("reaction") in (None, False)):
         pkt = packet_for(rec)
-        if pkt is not None and pkt.get("reaction") in (None, False):
+        # The responder's reply gate, replayed: a reply to another station's message is theirs.
+        _rt = pkt.get("reply_to") if pkt is not None else None
+        _own = _r.own_packet_ids(os.path.join(BASE, "sent.jsonl")) if _rt else None
+        if (pkt is not None and pkt.get("reaction") in (None, False)
+                and (not _rt or (_own is not None and _rt in _own))):
             sr, _m = _sig.try_answer(
                 text, pkt,
                 max_chars=_int_cfg(cfg, "SIGREPORT_MAX_CHARS",
                                    _r.DEFAULTS["SIGREPORT_MAX_CHARS"]),
                 trigger=trig,
-                relay_name=_r.resolve_relay(pkt.get("relay_byte")))
+                relay_name=_r.resolve_relay(pkt.get("relay_byte")),
+                place=cfg.get("SIGREPORT_PLACE", _r.DEFAULTS["SIGREPORT_PLACE"]))
             if sr:
                 return sr, "ok", "sigreport"
 

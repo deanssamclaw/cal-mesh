@@ -111,6 +111,10 @@ ALLOWED_SHAPES = {
     # disk; they fire now because the trigger strip stopped being anchored to position 0.
     "hey cal, this is a test",
     "hey cal - this is a test",
+    # ADJUDICATED 2026-09-25 (Dean). The same sentence with no punctuation after "cal" and a
+    # full stop at the end: MTDN's DM at 06:56 CT, the cutover test, answered "Copy: direct,
+    # RSSI -32, SNR 6.2" 0.5 s later over serial. A DM to Cal saying it is a test is a test.
+    "hey cal this is a test.",
     # A bare test, with and without the punctuation a person actually types. Covered by the
     # call this module was built on -- "any kind of range test or signal test deserves a
     # response" (2026-08-22) -- and a stranger sending `Test` on a mesh is running one. What
@@ -203,16 +207,16 @@ for t, idx in (("Test 12", "12"), ("test 1", "1"), ("Range test 3", "3"), ("chec
     expect(m and m.get("index") == idx, f"index of {t!r} should be {idx!r}, got {m and m.get('index')}")
 expect(sigreport.match("test")["index"] is None, "an unnumbered test carries no index")
 # The counter is echoed so a reply can be matched to its test mid-sequence.
-expect(sigreport.try_answer("Test 12", rec())[0] == "Copy 12: 2 hops, last leg RSSI -32, SNR 6.0",
+expect(sigreport.try_answer("Test 12", rec())[0] == "#12 I hear you on 2 hops, last leg RSSI -32, SNR 6.0",
    f"index must be echoed: {sigreport.try_answer('Test 12', rec())[0]!r}")
-expect(sigreport.try_answer("Test test", rec())[0].startswith("Copy: "),
+expect(sigreport.try_answer("Test test", rec())[0].startswith("I hear you"),
    "no index means no number in the head")
 # NOTHING BUT DIGITS EVER REACHES THE AIR. The index is re-derived from the capture rather
 # than passed through, so even a hand-built call cannot inject text into a broadcast reply.
-expect(sigreport.report(rec(), index="12<script>")[0].startswith("Copy 12:"),
+expect(sigreport.report(rec(), index="12<script>")[0].startswith("#12 I hear you"),
    "index is re-derived from digits, never echoed as text")
-expect(sigreport.report(rec(), index="abc")[0].startswith("Copy: "), "a digitless index is dropped")
-expect(sigreport.report(rec(), index="999999")[0].startswith("Copy 999:"), "index bounded to 3 digits")
+expect(sigreport.report(rec(), index="abc")[0].startswith("I hear you"), "a digitless index is dropped")
+expect(sigreport.report(rec(), index="999999")[0].startswith("#999 I hear you"), "index bounded to 3 digits")
 # The bound is real: four digits is not a test index.
 expect(sigreport.match("test 1234") is None, "a four-digit tail is not a test index")
 
@@ -304,17 +308,17 @@ for _bad in (123, b"cal test", True, ["cal test"], 3.5, {"a": 1}):
 # signal into Cal, not the sender's, and reported bare it reads as the sender's. That misread
 # was made by this module's own author against real 28-mile traffic before it was fixed.
 txt, meta = sigreport.report(rec())
-expect(txt == "Copy: 2 hops, last leg RSSI -32, SNR 6.0", f"nominal report wrong: {txt!r}")
+expect(txt == "I hear you on 2 hops, last leg RSSI -32, SNR 6.0", f"nominal report wrong: {txt!r}")
 expect(sigreport.report(rec(hops=2), relay_name="MDNO")[0]
-   == "Copy: 2 hops via MDNO, last leg RSSI -32, SNR 6.0", "a resolved relay is named")
-expect(sigreport.report(rec(hops=0))[0] == "Copy: direct, RSSI -35, SNR 6.0".replace("-35", "-32"),
+   == "I hear you on 2 hops via MDNO, last leg RSSI -32, SNR 6.0", "a resolved relay is named")
+expect(sigreport.report(rec(hops=0))[0] == "I hear you direct, RSSI -35, SNR 6.0".replace("-35", "-32"),
    f"direct must claim the sender's own signal: {sigreport.report(rec(hops=0))[0]!r}")
 expect("last leg" not in sigreport.report(rec(hops=0))[0],
    "a direct packet IS the sender's signal — no last-leg qualifier")
 expect("last leg" in sigreport.report(rec(hops=1))[0], "one hop is still a relayed measurement")
-expect(sigreport.report(rec(hops=1))[0].startswith("Copy: 1 hop,"), "one hop must be singular")
+expect(sigreport.report(rec(hops=1))[0].startswith("I hear you on 1 hop,"), "one hop must be singular")
 # ROUTING LEADS. It is the field that moved across a 28-mile walk while SNR moved 1.25 dB.
-expect(sigreport.report(rec())[0].split(": ")[1].startswith("2 hops"), "hop count leads")
+expect(sigreport.report(rec())[0].startswith("I hear you on 2 hops"), "hop count leads")
 # A relay is one byte, so an unresolved name must simply vanish, never become a guess.
 expect("via" not in sigreport.report(rec(hops=2), relay_name=None)[0], "unresolved relay is unnamed")
 
@@ -326,12 +330,12 @@ expect("direct" not in t_nohop and "hop" not in t_nohop,
 # An unknown hop count means we cannot say whose signal it is, so the reply makes NO claim
 # either way — neither "direct" nor "last leg".
 expect("last leg" not in t_nohop, f"unknown routing must not claim a leg: {t_nohop!r}")
-expect(t_nohop == "Copy: RSSI -32, SNR 6.0", f"neutral shape wrong: {t_nohop!r}")
+expect(t_nohop == "I hear you, RSSI -32, SNR 6.0", f"neutral shape wrong: {t_nohop!r}")
 
 # Field-by-field degradation. A bad field costs that field and nothing else.
-expect(sigreport.report(rec(snr=None))[0] == "Copy: 2 hops, last leg RSSI -32",
+expect(sigreport.report(rec(snr=None))[0] == "I hear you on 2 hops, last leg RSSI -32",
    f"missing snr costs only snr: {sigreport.report(rec(snr=None))[0]!r}")
-expect(sigreport.report(rec(rssi=None))[0] == "Copy: 2 hops, SNR 6.0",
+expect(sigreport.report(rec(rssi=None))[0] == "I hear you on 2 hops, SNR 6.0",
    f"missing rssi costs only rssi: {sigreport.report(rec(rssi=None))[0]!r}")
 
 # JSON true converts to 1.0 and would ship as a plausible SNR. This exact shape aired once
@@ -356,7 +360,7 @@ short, smeta = sigreport.report(rec(), max_chars=22)
 # The EXACT value, not a property. "len <= 22 and no dangling -3" is satisfied by returning
 # None, so a mutation that truncates the string and then refuses the over-long result passed
 # a property test while destroying the behaviour. Naming the answer is what makes it fail.
-expect(short == "Copy: 2 hops", f"truncation must shed whole fields from the right: {short!r}")
+expect(short == "I hear you on 2 hops", f"truncation must shed whole fields from the right: {short!r}")
 expect(smeta["parts"] == ["2 hops"], f"meta must record what actually shipped: {smeta['parts']}")
 # The hop count is now the LAST thing to go, because it is the field carrying information.
 expect("hops" in short, "routing survives truncation; the flat number does not")
@@ -378,10 +382,11 @@ responder = _load("responder")
 CFG_ON = {"RESPONDER_ENABLED": "true", "SIGREPORT_ENABLED": "true", "TRIGGER_WORD": "cal"}
 
 
-def plan(cfg=None, r=None, st=None, ts=None):
+def plan(cfg=None, r=None, st=None, ts=None, own_ids=None, forced=False):
     return responder.plan_sigreport(dict(CFG_ON, **(cfg or {})), st if st is not None else {},
                                     r if r is not None else rec(text="Range test"),
-                                    "!cccccccc", ts=ts or time.time())
+                                    "!cccccccc", ts=ts or time.time(), own_ids=own_ids,
+                                    forced=forced)
 
 
 # DEFAULT OFF is the house gate, and it is asserted rather than assumed.
@@ -414,7 +419,7 @@ QUIET = {"metrics": {"chUtil": 5.0}}
 with_status(QUIET)
 ok = plan()
 expect(ok[0] is True and ok[1] == "sigreport", f"a clean range test should be answered: {ok[1]}")
-expect(ok[4] == "Copy: 2 hops, last leg RSSI -32, SNR 6.0", f"gate returned {ok[4]!r}")
+expect(ok[4] == "I hear you on 2 hops, last leg RSSI -32, SNR 6.0", f"gate returned {ok[4]!r}")
 expect(ok[2] == "^all", "a broadcast test is answered on the broadcast")
 expect(plan(r=rec(text="Range test", to="!aaaaaaaa"))[2] == "!aaaaaaaa", "a DM test gets a DM")
 
@@ -422,17 +427,66 @@ expect(plan(r=rec(text="Range test", to="!aaaaaaaa"))[2] == "!aaaaaaaa", "a DM t
 # report() separately; try_answer() joins them. On 2026-08-23 the index echo was written and
 # green through try_answer while the transmitting path silently dropped it, because nothing
 # graded the two-call path. These four lines are that gap closed.
-expect(plan(r=rec(text="Test 12"))[4] == "Copy 12: 2 hops, last leg RSSI -32, SNR 6.0",
+expect(plan(r=rec(text="Test 12"))[4] == "#12 I hear you on 2 hops, last leg RSSI -32, SNR 6.0",
    f"the transmitting path must echo the index: {plan(r=rec(text='Test 12'))[4]!r}")
-expect(plan(r=rec(text="Test test"))[4] == "Copy: 2 hops, last leg RSSI -32, SNR 6.0",
+expect(plan(r=rec(text="Test test"))[4] == "I hear you on 2 hops, last leg RSSI -32, SNR 6.0",
    "no index means no number in the head, on the transmitting path too")
 # The RELAY NAME reaches the air only through the resolver, and only unambiguously.
 expect(plan(r=rec(text="Test 12", relay_byte=198))[4]
-   == "Copy 12: 2 hops via MDNO, last leg RSSI -32, SNR 6.0",
+   == "#12 I hear you on 2 hops via MDNO, last leg RSSI -32, SNR 6.0",
    f"a resolvable relay is named on the transmitting path: "
    f"{plan(r=rec(text='Test 12', relay_byte=198))[4]!r}")
 expect("via" not in plan(r=rec(text="Test 12", relay_byte=7))[4],
    "an unplaceable relay byte is never guessed at")
+
+# A REPLY TO ANOTHER STATION'S MESSAGE IS THEIRS (2026-09-25). Both live cases from that day:
+# "Got you downtown KC at 3 hops." and "Got you 6 hops from Overland Park!" replied to another
+# node's "Test", and Cal answered each with his own numbers.
+_OURS = {111, 222}
+for _t in ("Got you downtown KC at 3 hops.", "Got you 6 hops from Overland Park!"):
+    _g = plan(r=rec(text=_t, reply_to=999), own_ids=_OURS)
+    expect(_g[0] is False and _g[1] == "sigreport_reply_to_other_station",
+           f"a reply to another station's test is not Cal's: {_t!r} -> {_g[1]}")
+    _g = plan(r=rec(text=_t, reply_to=222), own_ids=_OURS)
+    expect(_g[0] is True, f"a reply to CAL's own packet is answered: {_t!r} -> {_g[1]}")
+    expect(plan(r=rec(text=_t), own_ids=_OURS)[0] is True, f"no reply id: unaffected: {_t!r}")
+_g = plan(r=rec(text="Got you!", reply_to=222), own_ids=None)
+expect(_g[0] is False and _g[1] == "sigreport_reply_to_other_station",
+       "an unreadable sent log is not permission: a reply fails closed")
+expect(plan(r=rec(text="Range test"), own_ids=None)[0] is True,
+       "an unreadable sent log does not silence a plain test")
+_g = plan(r=rec(text="Cal, hows the link holding up?", reply_to=999), own_ids=_OURS, forced=True)
+expect(_g[1] == "sigreport_reply_to_other_station", f"the s1route rescue is gated too: {_g[1]}")
+# own_packet_ids reads the real shape of sent.jsonl, and an absent file is None, not empty.
+_sp = os.path.join(HERE, ".eval_sent.jsonl")
+with open(_sp, "w", encoding="utf-8") as _f:
+    _f.write('{"packet_id": 212639848}\n{"packet_id": true}\nnot json\n{"text": "x"}\n')
+expect(responder.own_packet_ids(_sp) == {212639848}, f"own ids: {responder.own_packet_ids(_sp)}")
+os.unlink(_sp)
+expect(responder.own_packet_ids(_sp) is None, "a missing sent log is unknown, not empty")
+
+# SIGREPORT_PLACE names where CAL is, in place of the relay, on the path that transmits. Dean
+# asked for it 2026-09-25: a relay's short name means nothing to a stranger; the town does.
+_PL = {"SIGREPORT_PLACE": "Olathe"}
+expect(responder.DEFAULTS["SIGREPORT_PLACE"] == "", "no place by default -- the relay is named")
+expect(plan(cfg=_PL, r=rec(text="Test 12", relay_byte=198))[4]
+   == "#12 I hear you on 2 hops from Olathe, last leg RSSI -32, SNR 6.0",
+   f"the place replaces the relay on air: {plan(cfg=_PL, r=rec(text='Test 12', relay_byte=198))[4]!r}")
+expect(plan(cfg=_PL, r=rec(text="Test 12", relay_byte=198))[6].get("relay_name") == "MDNO",
+   "the relay is still resolved into meta for the page's trace")
+expect(plan(cfg=_PL, r=rec(text="Test 12", relay_byte=7))[4]
+   == "#12 I hear you on 2 hops from Olathe, last leg RSSI -32, SNR 6.0", "place does not need a relay")
+expect(plan(cfg=_PL, r=rec(text="Test 12", hops=0))[4]
+   == "#12 I hear you direct from Olathe, RSSI -32, SNR 6.0", "direct names the place too")
+# Dean's own example, byte for byte.
+expect(sigreport.report(rec(hops=4, rssi=-33, snr=6.0), relay_name="MTD", place="Olathe")[0]
+   == "I hear you on 4 hops from Olathe, last leg RSSI -33, SNR 6.0", "Dean's example shape")
+# REJECT, DON'T REPAIR: a place that is not plainly a place falls back to the relay.
+for _bad in ("Olathe<b>", "x" * 25, "Olathe, KS 66061", "   ", None, 42):
+    expect("from" not in (sigreport.report(rec(hops=2), relay_name="MDNO", place=_bad)[0] or ""),
+       f"a bad place is dropped, not repaired: {_bad!r}")
+expect(sigreport.report(rec(hops=2), relay_name="MDNO", place="Olathe<b>")[0]
+   == "I hear you on 2 hops via MDNO, last leg RSSI -32, SNR 6.0", "a rejected place falls back to the relay")
 expect(responder.resolve_relay(None) is None, "no relay byte, no name")
 # SOMEONE ELSE'S TEXT ON OUR AIR. A short name is chosen by a third party, so it is
 # whitelisted rather than escaped, and bounded to the four characters the protocol allows.
@@ -536,7 +590,7 @@ if "--self-test" in sys.argv:
         ("no-measurement case answers anyway",
          'if not sig:', 'if False:'),
         ("truncation cuts mid-field",
-         'while len(parts) > 1 and len(head + ", ".join(parts)) > max_chars:\n'
+         'while len(parts) > 1 and len(say(parts)) > max_chars:\n'
          '            parts.pop()',
          'text = text[:max_chars]'),
         ("trigger widened to anything containing test",
@@ -573,6 +627,9 @@ if "--self-test" in sys.argv:
          'if False:\n        return ""'),
     ]
     import tempfile
+    # CONTROL: the unmutated module through the same checks. It must NOT be caught; if it is,
+    # some check is true for everything and every "CAUGHT" below means nothing.
+    MUTATIONS = [("CONTROL (unmutated)", "", "")] + MUTATIONS
     for name, orig, mut in MUTATIONS:
         if orig not in src:
             print(f"  ?? {name}: anchor not found — this control is stale")
@@ -591,8 +648,11 @@ if "--self-test" in sys.argv:
             print(f"  ok {name}: CAUGHT (module threw: {e!r})")
             continue
         caught = False
+        # Exact current outputs. Until 2026-09-25 three of these named a shape retired weeks
+        # earlier, so they were true for every mutant AND the unmutated module: they could
+        # not fail. The control run below proves the unmutated module is not "caught".
         try:
-            if mmod.report(rec())[0] != "Copy: SNR 6.0, RSSI -32, 2 hops":
+            if mmod.report(rec())[0] != "I hear you on 2 hops, last leg RSSI -32, SNR 6.0":
                 caught = True
             if "hop" in (mmod.report({"snr": 6.0, "rssi": -32})[0] or ""):
                 caught = True
@@ -604,7 +664,7 @@ if "--self-test" in sys.argv:
                 caught = True
             if mmod.report({"hops": 3})[0] is not None:
                 caught = True
-            if mmod.report(rec(), max_chars=22)[0] != "Copy: SNR 6.0":
+            if mmod.report(rec(), max_chars=22)[0] != "I hear you on 2 hops":
                 caught = True
             if any(mmod.match(t) for t in ("the range test we ran yesterday failed",
                                            "I failed my drivers test", "protest",
@@ -614,9 +674,9 @@ if "--self-test" in sys.argv:
             mi = mmod.match("Test 12")
             if not mi or mi.get("index") != "12":
                 caught = True
-            if mmod.try_answer("Test 12", rec())[0] != "Copy 12: SNR 6.0, RSSI -32, 2 hops":
+            if mmod.try_answer("Test 12", rec())[0] != "#12 I hear you on 2 hops, last leg RSSI -32, SNR 6.0":
                 caught = True
-            if not mmod.report(rec(), index="12<script>")[0].startswith("Copy 12:"):
+            if not mmod.report(rec(), index="12<script>")[0].startswith("#12 I hear you"):
                 caught = True
             if "last leg" not in (mmod.report(rec(hops=2))[0] or ""):
                 caught = True
@@ -624,8 +684,25 @@ if "--self-test" in sys.argv:
                 caught = True
             if mmod.clean_name("MD<script>") is not None:
                 caught = True
+            # The 2026-09-05 rules. Until 2026-09-25 nothing here exercised them, and they read
+            # CAUGHT only because the three dead checks above flagged everything.
+            if mmod.match("Hey Cal, this is a test") is None:          # greeting before trigger
+                caught = True
+            if any(mmod.match(t) is not None for t in ("got the test", "my test", "the test")):
+                caught = True                                           # talking ABOUT a test
+            if any(mmod.match(t) is not None for t in ("the test 12", "my test 3")):
+                caught = True                                           # index vs referential
+            if any(mmod.match(t) is not None for t in ("weather test", "sunset check")):
+                caught = True                                           # another doer's word
+            if any(mmod.match(t) is not None for t in (123, b"cal test", ["cal test"])):
+                caught = True                                           # non-string input
         except Exception:                                      # noqa: BLE001
             caught = True
+        if name.startswith("CONTROL"):
+            print(f"  {'XX' if caught else 'ok'} {name}: {'FLAGGED' if caught else 'passes clean'}")
+            if caught:
+                failures.append("CONTROL FLAGGED: a self-test check cannot fail")
+            continue
         print(f"  {'ok' if caught else 'XX'} {name}: {'CAUGHT' if caught else 'SURVIVED'}")
         if not caught:
             failures.append(f"MUTATION SURVIVED: {name}")

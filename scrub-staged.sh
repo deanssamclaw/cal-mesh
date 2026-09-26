@@ -32,7 +32,7 @@ fi
 # protected nothing. Read from the public URL, the copy the internet actually sees -- not
 # localhost. If it cannot be reached, that set is EMPTY and the old rule applies (fail closed).
 # What this still blocks: an id nothing public carries yet, e.g. a DM partner's.
-PUBLIC_STATE_URL="https://mbp.taildc8b12.ts.net/cal-mesh/api/state"
+PUBLIC_STATE_URL="https://rflab.taildc8b12.ts.net/cal-mesh/api/state"   # rflab since 2026-09-25
 CAND=$(git diff --cached | grep -oE '![0-9a-f]{8}' | sort -u \
       | grep -vE '^!(aaaaaaaa|bbbbbbbb|cccccccc|deadbeef|xxxxxxxx)$' || true)
 SERVED=""

@@ -11,6 +11,7 @@ WHAT IT SAYS. Only the operator's own phrases, from config, one of:
     PRESENCE_AFTERNOON  12:00-16:00 local
     PRESENCE_EVENING    18:00-21:00 local
     PRESENCE_CHECK      any of those windows
+    PRESENCE_TEST       any of those windows, only if set (blank by default = not in rotation)
 The code's defaults carry no place name: where the station is belongs to the operator's config,
 not to a public repo.
 
@@ -48,6 +49,9 @@ DEFAULTS = {
     "PRESENCE_AFTERNOON": "Afternoon Mesh",
     "PRESENCE_EVENING": "Evening Mesh",
     "PRESENCE_CHECK": "Radio check. Anyone out there?",
+    # A third phrase for any window, e.g. "Cal testing from <town>" (Dean, 2026-09-25). Blank
+    # leaves it out of the rotation entirely rather than failing the run as bad_phrase.
+    "PRESENCE_TEST": "",
     # The windows are the OPERATOR's clock, not the host's: a box on UTC would say good morning
     # at 2 a.m. Central (review 2026-09-24). Unparseable fails closed.
     "PRESENCE_TZ": "America/Chicago",
@@ -142,7 +146,8 @@ def plan(cfg, history, heard_ts, ch_util, now=None, local_hour=None, rng=random.
     if rng() >= _num(cfg, "PRESENCE_CHANCE"):
         return None, "not_this_time"
     last_key = sends[-1].get("key") if sends else None
-    choices = [k for k in (wkey, "PRESENCE_CHECK") if k != last_key]
+    optional = ["PRESENCE_TEST"] if str(cfg.get("PRESENCE_TEST", "")).strip() else []
+    choices = [k for k in [wkey, "PRESENCE_CHECK"] + optional if k != last_key]
     key = choices[int(rng() * len(choices)) % len(choices)] if choices else wkey
     text = str(cfg.get(key, DEFAULTS[key])).strip()
     if not text or len(text) > MAX_CHARS:

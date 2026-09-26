@@ -511,8 +511,11 @@ ck("a row with no recorded arm is counted, not called drift",
 # A REAL banked row, because sigreport replays from the PACKET: a synthetic fixture has no
 # packet in inbox.jsonl, so the arm correctly declines and the check would pass vacuously on a
 # module that detects nothing. Same reason this file already grades sigreport on real records.
+# Not a REPLY: since 2026-09-25 a reply to another station's message is theirs, and the
+# "Got you in ..." rows this used to pick were exactly that.
 _real = next((x for x in drafts._load_rows()
-              if x.get("via") == "sigreport" and (x.get("text") or "").startswith("Got you in")),
+              if x.get("via") == "sigreport" and (x.get("text") or "").startswith("Got you")
+              and not (drafts.packet_for(x) or {}).get("reply_to")),
              None)
 _rows2 = [dict(_real, via="model")] if _real else []
 _r2 = drafts.audit(_cfg, rows=_rows2, our="!me")
