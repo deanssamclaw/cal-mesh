@@ -642,15 +642,33 @@ if _t:
     # 8, so `len <= cap` passed on a build with the cap removed -- measured: that mutation
     # SURVIVED. Force the branch with a limit the data exceeds, and assert it keeps the NEAREST
     # rather than the first N by time, or a busy minute shows only its oldest corner.
-    _wide = _dash.draft_context(_t.get("ts"), _t.get("from"), _t.get("text"), limit=99)
-    if len(_wide) >= 2:
-        _one = _dash.draft_context(_t.get("ts"), _t.get("from"), _t.get("text"), limit=1)
-        _nearest = min(abs(x["d"]) for x in _wide)
-        ck("the cap actually truncates", len(_one) == 1)
-        ck("the cap keeps the nearest neighbour",
-           _one and abs(_one[0]["d"]) == _nearest)
-    else:
-        ck("the cap actually truncates", False, "fixture has too few neighbours")
+    # SYNTHETIC, NOT LIVE. This was built from the real "Aye" row and FAILED on 2026-10-14 with
+    # no code change: draft_context() reads only the last 400 inbox lines, and "Aye" had aged
+    # past them (line 263 of 812). A fixture the station's own traffic can age out tests the
+    # calendar. The page shows the newest 40 drafts, which the tail still covers.
+    _cap_dir = tempfile.mkdtemp(prefix="evaldrafts-cap-")
+    _t0 = "2026-09-05T16:12:22+00:00"
+    def _at(s):
+        from datetime import datetime, timedelta
+        return (datetime.fromisoformat(_t0) + timedelta(seconds=s)).isoformat()
+    with open(os.path.join(_cap_dir, "inbox.jsonl"), "w") as fh:
+        for s, who, txt in ((0, "!target", "Aye"), (-150, "!a", "far before"),
+                            (-20, "!b", "near before"), (45, "!c", "after"),
+                            (400, "!d", "outside the window")):
+            fh.write(json.dumps({"ts": _at(s), "from": who, "text": txt}) + "\n")
+    with open(os.path.join(_cap_dir, "sent.jsonl"), "w") as fh:
+        fh.write(json.dumps({"ts": _at(10), "text": "Cal reply"}) + "\n")
+    _saved_dash_base = _dash.BASE
+    _dash.BASE = _cap_dir
+    try:
+        _wide = _dash.draft_context(_t0, "!target", "Aye", limit=99)
+        _two = _dash.draft_context(_t0, "!target", "Aye", limit=2)
+    finally:
+        _dash.BASE = _saved_dash_base
+    ck("the cap fixture has more neighbours than the cap", len(_wide) == 4, f"got {len(_wide)}")
+    ck("the cap actually truncates", len(_two) == 2, f"got {len(_two)}")
+    ck("the cap keeps the nearest neighbours", [x["d"] for x in _two] == [-20, 10],
+       f"got {[x['d'] for x in _two]}")
     ck("neighbours read oldest first", [x["d"] for x in _c] == sorted(x["d"] for x in _c))
     # THE TARGET MUST NOT BE ITS OWN CONTEXT. A draft row's ts is when the draft was recorded,
     # not when the packet landed (measured 0.62 s apart), so a d == 0 test never matched and
