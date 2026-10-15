@@ -643,9 +643,9 @@ if _t:
     # SURVIVED. Force the branch with a limit the data exceeds, and assert it keeps the NEAREST
     # rather than the first N by time, or a busy minute shows only its oldest corner.
     # SYNTHETIC, NOT LIVE. This was built from the real "Aye" row and FAILED on 2026-10-14 with
-    # no code change: draft_context() reads only the last 400 inbox lines, and "Aye" had aged
-    # past them (line 263 of 812). A fixture the station's own traffic can age out tests the
-    # calendar. The page shows the newest 40 drafts, which the tail still covers.
+    # no code change: draft_context() then read only the last 400 inbox lines, and "Aye" had
+    # aged past them (line 263 of 812). A fixture the station's own traffic can change tests
+    # the calendar.
     _cap_dir = tempfile.mkdtemp(prefix="evaldrafts-cap-")
     _t0 = "2026-09-05T16:12:22+00:00"
     def _at(s):
@@ -669,6 +669,22 @@ if _t:
     ck("the cap actually truncates", len(_two) == 2, f"got {len(_two)}")
     ck("the cap keeps the nearest neighbours", [x["d"] for x in _two] == [-20, 10],
        f"got {[x['d'] for x in _two]}")
+
+    # AN OLD ROW KEEPS ITS CONTEXT. The 400-line tail emptied the window of every draft older
+    # than the last 400 inbox messages (409 of 794 on 2026-10-14). 500 later messages here.
+    with open(os.path.join(_cap_dir, "inbox.jsonl"), "a") as fh:
+        for i in range(500):
+            fh.write(json.dumps({"ts": _at(3600 + i * 60), "from": "!z", "text": f"later {i}"})
+                     + "\n")
+    _dash.BASE = _cap_dir
+    try:
+        _old = _dash.draft_context(_t0, "!target", "Aye", limit=99)
+        _shared = _dash.draft_context(_t0, "!target", "Aye", limit=99,
+                                      logs=_dash.context_logs())
+    finally:
+        _dash.BASE = _saved_dash_base
+    ck("a row 500 messages back still has its context", len(_old) == 4, f"got {len(_old)}")
+    ck("logs passed in give the same window as logs read", _shared == _old)
     ck("neighbours read oldest first", [x["d"] for x in _c] == sorted(x["d"] for x in _c))
     # THE TARGET MUST NOT BE ITS OWN CONTEXT. A draft row's ts is when the draft was recorded,
     # not when the packet landed (measured 0.62 s apart), so a d == 0 test never matched and

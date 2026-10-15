@@ -22,7 +22,7 @@ Serves:
 No third-party deps (stdlib only) so it's trivially exposable via Tailscale Funnel later,
 just like the rflab mesh dashboard. Binds localhost for now.
 """
-import os, re, sys, json, http.server, socketserver, subprocess, threading, time
+import bisect, os, re, sys, json, http.server, socketserver, subprocess, threading, time
 import console
 import capability_records
 import anatomy
@@ -552,6 +552,7 @@ def build_drafts(limit=40):
     except Exception:
         grades = {}
     rows.sort(key=lambda r: r.get("ts") or "", reverse=True)
+    logs = context_logs()     # read once per build, not once per row
     out = []
     for r in rows[:limit]:
         # draft_id IS PUBLISHED, and has to be: without it the page can render a grade but has
@@ -566,7 +567,8 @@ def build_drafts(limit=40):
                     "doers": r.get("doers") or [], "faithful": r.get("faithful"),
                     "sent_reply": r.get("sent_reply"),
                     # Evidence for the grader, never input to the draft. See draft_context().
-                    "context": draft_context(r.get("ts"), r.get("from"), r.get("text")),
+                    "context": draft_context(r.get("ts"), r.get("from"), r.get("text"),
+                                             logs=logs),
                     "grade": grades.get(r.get("draft_id"))})
     return {"total": len(rows), "rows": out}
 
@@ -575,8 +577,39 @@ CONTEXT_WINDOW_S = 180          # Dean's call, 2026-09-12, and the traffic agree
 CONTEXT_MAX = 8                 # p90 is 5 neighbours and the busiest minute on record is 10.
 
 
+def context_logs():
+    """Every inbox and sent row as (kind, epoch, row), whole files, oldest first.
+
+    WHOLE FILES, NOT tail_jsonl. The 400-line tail this used to read dropped the context of
+    every draft older than the last 400 inbox messages -- 409 of 794 drafts on 2026-10-14 --
+    and the newest 40 shown on the page would have followed as traffic grew. Read once per
+    build_drafts() call, which is cached 60 s.
+    """
+    out = []
+    for kind, path in (("rx", os.path.join(BASE, "inbox.jsonl")),
+                       ("tx", os.path.join(BASE, "sent.jsonl"))):
+        try:
+            fh = open(path, encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        with fh:
+            for ln in fh:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    m = json.loads(ln)
+                except ValueError:
+                    continue          # a torn last line must not empty the window
+                t = _epoch(m.get("ts")) if isinstance(m, dict) else None
+                if t is not None:
+                    out.append((kind, t, m))
+    out.sort(key=lambda x: x[1])
+    return out
+
+
 def draft_context(target_ts, target_from=None, target_text=None,
-                  window_s=CONTEXT_WINDOW_S, limit=CONTEXT_MAX):
+                  window_s=CONTEXT_WINDOW_S, limit=CONTEXT_MAX, logs=None):
     """The traffic around a drafted message, so a grader can see what it was answering.
 
     WHY THIS EXISTS. A draft was published with only the message it replied to, and a third of
@@ -602,26 +635,26 @@ def draft_context(target_ts, target_from=None, target_text=None,
     t0 = _epoch(target_ts)
     if t0 is None:
         return []
+    if logs is None:
+        logs = context_logs()
     out = []
-    for kind, path in (("rx", os.path.join(BASE, "inbox.jsonl")),
-                       ("tx", os.path.join(BASE, "sent.jsonl"))):
-        for m in tail_jsonl(path, 400):
-            t = _epoch(m.get("ts"))
-            if t is None:
-                continue
-            d = t - t0
-            # EXCLUDE THE TARGET BY IDENTITY, NOT BY d == 0. A draft row's `ts` is when the
-            # draft was recorded, not when the packet landed -- measured 0.62 s apart on a real
-            # row -- so a timestamp test never matches and every message was listed as its own
-            # context. Match sender and text within a couple of seconds instead.
-            if (kind == "rx" and abs(d) <= 2
-                    and (m.get("from") or "") == (target_from or "")
-                    and (m.get("text") or "") == (target_text or "")):
-                continue
-            if abs(d) <= window_s:
-                out.append({"d": int(d), "kind": kind,
-                            "who": "Cal" if kind == "tx" else (m.get("from") or "?"),
-                            "text": (m.get("text") or "")[:160]})
+    lo = bisect.bisect_left(logs, t0 - window_s, key=lambda x: x[1])
+    for kind, t, m in logs[lo:]:
+        if t > t0 + window_s:
+            break
+        d = t - t0
+        # EXCLUDE THE TARGET BY IDENTITY, NOT BY d == 0. A draft row's `ts` is when the
+        # draft was recorded, not when the packet landed -- measured 0.62 s apart on a real
+        # row -- so a timestamp test never matches and every message was listed as its own
+        # context. Match sender and text within a couple of seconds instead.
+        if (kind == "rx" and abs(d) <= 2
+                and (m.get("from") or "") == (target_from or "")
+                and (m.get("text") or "") == (target_text or "")):
+            continue
+        if abs(d) <= window_s:
+            out.append({"d": int(d), "kind": kind,
+                        "who": "Cal" if kind == "tx" else (m.get("from") or "?"),
+                        "text": (m.get("text") or "")[:160]})
     out.sort(key=lambda x: x["d"])
     # Keep the ones NEAREST the message when a burst overflows the cap, not the first N by
     # time -- a busy minute would otherwise show only its oldest corner.
