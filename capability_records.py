@@ -287,6 +287,25 @@ RECORDS = (
         "oracle_key": None,
     },
     {
+        "flag": "CHECKIN_REPLY_ENABLED", "name": "radio check reply", "kind": "doer",
+        "module": "responder.py", "model_runs": False,
+        "answers": "The same signal report as above, sent to someone who answered Cal's own "
+                   "radio check (Copy in Olathe), added 2026-10-17.",
+        "trigger": "A reply whose firmware reply_to is one of Cal's presence broadcasts. Who it "
+                   "answers is read from the packet, never guessed from the words.",
+        "who": "anyone",
+        "out_of_scope": [
+            {"limit": "Only an acknowledgement: ten words or fewer, no question mark or "
+                      "arithmetic, no other node and no other capability's word. Anything that "
+                      "reads as asking stays silent.", "where": "sigreport.py:checkin_ack"},
+            {"limit": "Once per sender per day, and every signal-report rule still applies.",
+             "where": "responder.py:plan_sigreport"},
+            {"limit": "A reply to anything else Cal sent is not a check-in.",
+             "where": "responder.py:presence_packet_ids"},
+        ],
+        "oracle_key": None,
+    },
+    {
         "flag": "GREETING_ENABLED", "name": "greeting ack", "kind": "doer",
         "module": "responder.py", "model_runs": False,
         "answers": "Mirrors a bare greeting back, in register and never with the same words.",

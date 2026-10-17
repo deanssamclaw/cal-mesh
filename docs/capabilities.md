@@ -12,6 +12,7 @@ the answer path** — that is the whole safety story. Taxonomy and specs in `doc
 | Arithmetic / units / RF pack | compute | **no — Python owns every digit** | **ARMED** |
 | Sun / moon / twilight | compute | **no — Python formats the whole reply** | **ARMED** — works offline |
 | Signal report (range/signal test) | measured | **no — every number is the radio's own** | **ARMED** — runs *first*, see below |
+| Reply to Cal's radio check | measured | **no — the same signal report** | **ARMED** 2026-10-17 |
 | Capability list ("what can you do") | flags | no — composed from the live config flags | **ARMED** |
 | Greeting ack (off-list senders) | fixed table | no | **ARMED** |
 | Second-opinion routing (s1route) | picks a doer on the fallthrough | **no — it writes nothing; the doer answers** | **ARMED** 2026-09-24 (local scorer; Jev as backup) — see below |
@@ -105,6 +106,24 @@ So the shape rules are about who is being addressed, not about which words mean 
 Being *named* is not being *asked* — the referential rule applies whether or not Cal is addressed,
 because `Cal aced the test` is a sentence about Cal. That exemption was in the first draft and an
 adversarial review refuted it in one line.
+
+### Replies to Cal's radio check (2026-10-17)
+
+Cal's presence job asks "Radio check here in Olathe. Anyone out there". In three weeks it got
+one answer, "Copy in Olathe" (2026-10-07), and Cal said nothing: it is not a test and not a
+contact report, so the shape rule refused it. Someone answering a radio check is running the
+test with Cal, and the reciprocal report is the answer.
+
+**Who it answers is read, not guessed.** The gate is the firmware's `reply_to` against the packet
+ids of Cal's own *presence* sends in `sent.jsonl` (`presence_packet_ids`). Wording alone would
+have been wrong: the other "Got you in Olathe" replies in the log answer a *different* station's
+radio check. A reply to anything else Cal sent (a signal report, a greeting) is not a check-in.
+
+It replaces only the shape gate, the way the routed path does. On top of that: the words must be
+an acknowledgement (`sigreport.checkin_ack`: ten words or fewer, no `?` or arithmetic, no other
+node, no other doer's word), and one per sender per day (`CHECKIN_SENDER_COOLDOWN_S`). Every
+other sigreport gate still applies. Flag `CHECKIN_REPLY_ENABLED`, default off, **armed
+2026-10-17**. Replayed over the whole inbox it changes exactly one decision, that 10-07 reply.
 
 ### Contact reports (2026-09-12)
 

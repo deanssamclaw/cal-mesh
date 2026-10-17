@@ -97,6 +97,7 @@ touches the radio, and `dashboard.py` publishes every decision along the way.
 | Capability | Where the answer comes from | Who can ask |
 |---|---|---|
 | Signal report ("range test", "you copy?") | the radio's own measurements | anyone; runs first |
+| Reply to Cal's radio check ("Copy in Olathe") | the same signal report | anyone who replies to it |
 | Sun / moon / twilight | computed in Python; works offline | anyone who names Cal |
 | Arithmetic, units, RF formulas | computed in Python | anyone who names Cal |
 | Radio and mesh terms ("what's tropo?") | a vetted table; every entry cites its source | anyone who names Cal |
