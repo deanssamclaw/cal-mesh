@@ -180,6 +180,10 @@ DEFAULTS = {
     "SIGREPORT_STATUS_MAX_AGE_S": "600",
     # Where Cal is, named on air in place of the relay ("4 hops from Olathe"). Blank = relay.
     "SIGREPORT_PLACE": "",
+    # Signal report for a reply to Cal's own radio check (presence broadcast). Keyed on the
+    # firmware's reply_to, never the words. Off by default; also under SIGREPORT_ENABLED.
+    "CHECKIN_REPLY_ENABLED": "false",
+    "CHECKIN_SENDER_COOLDOWN_S": "86400",   # one per node per day: the check goes out daily at most
     # --- P1 content unlock on an authenticated DM (channel-trust-and-agency.md §4). ---
     # CONTENT only: longer, context-aware replies to Dean. Tools stay locked exactly as on the
     # public channel — P2 never rides on mesh auth alone. Forge-tolerant by construction: the
@@ -1337,7 +1341,26 @@ def own_packet_ids(path=None):
     return ids
 
 
-def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None):
+def presence_packet_ids(path=None):
+    """Packet ids of Cal's presence broadcasts (the radio check). None when the sent log cannot
+    be read, so the check-in gate fails closed exactly like own_packet_ids."""
+    ids = set()
+    try:
+        with open(path or SENT_LOG, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    j = json.loads(line)
+                except ValueError:
+                    continue
+                pid = j.get("packet_id") if isinstance(j, dict) else None
+                if j.get("source") == "presence" and isinstance(pid, int) and not isinstance(pid, bool):
+                    ids.add(pid)
+    except OSError:
+        return None
+    return ids
+
+
+def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None, presence_ids=None):
     """Decide whether a range/signal test gets a measured signal report.
 
     Same contract as plan_greeting: pure, returns (should, reason, dest, ch, text, gates),
@@ -1385,6 +1408,7 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None):
     # link holding up?"). It replaces this one gate and no other: measurements, the quiet channel,
     # the per-sender cooldown and the daily budget below are still checked, and the trace names
     # which of the two decided it.
+    checkin = False
     if forced:
         m = {"index": None}
         mark("is_a_test_routed", True)
@@ -1401,7 +1425,23 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None):
             return False, "sigreport_not_own_link", None, ch, None, gates, None
     else:
         m = sigreport.match(rec.get("text", ""), trigger=cfg.get("TRIGGER_WORD", "cal"))
-        if not mark("is_a_test", m is not None):
+        # A REPLY TO CAL'S OWN RADIO CHECK (2026-10-17) replaces the shape gate, the way `forced`
+        # does: "Copy in Olathe" answered the presence broadcast and was refused as not a test.
+        # Its own flag, presence ids only (a reply to a signal report or a greeting is not a
+        # check-in), the words must read as an acknowledgement, and one per sender per cooldown.
+        # Every gate below still applies. The trace names which of the two decided it.
+        checkin = bool(m is None and rt and presence_ids is not None and rt in presence_ids
+                   and str(cfg.get("CHECKIN_REPLY_ENABLED", "false")).lower() == "true")
+        if checkin:
+            mark("replies_to_radio_check", True)
+            if not mark("checkin_is_ack", sigreport.checkin_ack(rec.get("text", ""))):
+                return False, "checkin_not_ack", None, ch, None, gates, None
+            lastc = (st.get("checkin_per_sender") or {}).get(sender, 0)
+            if not mark("checkin_cooldown", ts - lastc >= _int_cfg(cfg, "CHECKIN_SENDER_COOLDOWN_S",
+                                                                   DEFAULTS["CHECKIN_SENDER_COOLDOWN_S"])):
+                return False, "checkin_sender_cooldown", None, ch, None, gates, None
+            m = {"index": None}
+        elif not mark("is_a_test", m is not None):
             return False, "not_a_test", None, ch, None, gates, None
     # THE REPORT IS BUILT BEFORE THE BUDGET IS CHECKED, and that order matters: a record with
     # no measurements must cost nothing. Spending a daily slot to discover there was nothing
@@ -1435,16 +1475,20 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None):
     # The report goes back where the test was sent. A test on the open channel is a public
     # question and its answer is useful to everyone listening; a DM test gets a DM.
     dest = sender if rec.get("to") not in ("^all", None) else "^all"
+    if checkin:
+        meta["checkin"] = True
     # meta rides out as a 7th element so the public trace can say what was MEASURED rather than
     # describing a mechanism. Appended, never inserted: the first six positions are pinned by
     # eval_sigreport and by the call site.
     return True, "sigreport", dest, ch, text, gates, meta
 
 
-def commit_sigreport(st, sender, ts=None):
+def commit_sigreport(st, sender, ts=None, checkin=False):
     """Spend the budget. Separate from plan_sigreport so a send that fails costs nothing."""
     ts = time.time() if ts is None else ts
     st.setdefault("sig_per_sender", {})[sender] = ts
+    if checkin:     # bounded by node count, like sig_per_sender
+        st.setdefault("checkin_per_sender", {})[sender] = ts
     day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
     st.setdefault("sig_day", {})[day] = (st.get("sig_day") or {}).get(day, 0) + 1
     # Keep the day map from growing without bound; the cooldown map is bounded by node count.
@@ -1736,14 +1780,16 @@ def main():
                         # greeting ack zero times. Re-run that replay before widening it.
                         (s_ok, s_reason, s_dest, s_ch, s_text,
                          s_gates, s_meta) = plan_sigreport(cfg, st, rec, ours,
-                                                           own_ids=own_packet_ids())
+                                                           own_ids=own_packet_ids(),
+                                                           presence_ids=presence_packet_ids())
                         # Recorded only when the doer is ON (its own flag passed): the kill
                         # switch now runs first, so "first gate passed" no longer means that.
                         if any(g["gate"] == "sigreport_enabled" and g["pass"] for g in (s_gates or [])):
                             d["sigreport_gates"] = s_gates
                         if s_ok:
                             enqueue(s_text, s_dest, s_ch)
-                            commit_sigreport(st, rec.get("from"))
+                            commit_sigreport(st, rec.get("from"),
+                                             checkin=bool((s_meta or {}).get("checkin")))
                             save_state(st)
                             d.update({"matched": True, "reason": s_reason, "reply": s_text,
                                       "dest": s_dest, "capability": "sigreport",
