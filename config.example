@@ -186,6 +186,9 @@ SIGREPORT_MAX_CH_UTIL=25
 SIGREPORT_STATUS_MAX_AGE_S=600
 # Your town, named on air instead of the relay: "Copy: 4 hops from <place>, ...". Blank = relay.
 SIGREPORT_PLACE=
+# Signal report for a reply to Cal's own radio check (reply_to = a presence packet id).
+CHECKIN_REPLY_ENABLED=false
+CHECKIN_SENDER_COOLDOWN_S=86400
 # RADIO AND MESH TERMS: "what's tropo?" answered verbatim from data/radio_kb.json, where every
 # entry cites its source page. Definition questions about exactly one listed term, nothing else.
 KB_ENABLED=false
