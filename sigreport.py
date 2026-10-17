@@ -151,14 +151,47 @@ def _is_contact_report(s):
     # nothing here. This is defence in depth on a closed list, not a second matcher claiming
     # to know what weather wants -- the reimplementation rule is about the DECIDING matcher,
     # and this one only ever refuses.
+    return not _claims_other_doer(s)
+
+
+def _claims_other_doer(s):
+    """True if any word, inflected or not, belongs to another doer."""
     for w in s.split():
         w = w.strip(".,!?;:").lower()
         if w in _OTHER_DOER:
-            return False
+            return True
         for suf in ("ing", "ed", "s", "y"):
             if w.endswith(suf) and w[: -len(suf)] in _OTHER_DOER:
-                return False
-    return True
+                return True
+    return False
+
+
+# ---------------------------------------------------------------------------------------
+# CHECK-IN REPLIES (added 2026-10-17). Cal's presence job asks "Radio check here in Olathe.
+# Anyone out there" and the only answer it got in three weeks ("Copy in Olathe", 2026-10-07)
+# went unanswered: it is not a test and not a contact report, so `match` refused it. A reply to
+# Cal's own radio check is the sender running the test with Cal; the reciprocal report is the
+# answer. WHO it replies to is the firmware's `reply_to`, checked by the responder against the
+# presence job's own packet ids -- never guessed from the words. This function only decides that
+# the words are an acknowledgement and not a question that belongs to somebody else, so it only
+# ever REFUSES. A refusal costs one unanswered "copy"; a miss would answer a question with a
+# signal report, so anything that looks like asking refuses.
+_CHECKIN_MAX_WORDS = 10
+_CHECKIN_ASKS = re.compile(r"[?+*/=^%]")
+
+
+def checkin_ack(text):
+    """True if a reply to Cal's radio check reads as an acknowledgement. Pure text, no I/O."""
+    if not isinstance(text, str):
+        return False
+    s = " ".join(text.split())
+    if not s or len(s.split()) > _CHECKIN_MAX_WORDS:
+        return False
+    if _CHECKIN_ASKS.search(s):
+        return False
+    if names_other_node(s):
+        return False
+    return not _claims_other_doer(s)
 
 
 # Punctuation people actually type around a call sign. Used on BOTH sides of the trigger.

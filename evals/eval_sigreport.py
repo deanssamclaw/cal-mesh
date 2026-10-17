@@ -382,11 +382,11 @@ responder = _load("responder")
 CFG_ON = {"RESPONDER_ENABLED": "true", "SIGREPORT_ENABLED": "true", "TRIGGER_WORD": "cal"}
 
 
-def plan(cfg=None, r=None, st=None, ts=None, own_ids=None, forced=False):
+def plan(cfg=None, r=None, st=None, ts=None, own_ids=None, forced=False, presence_ids=None):
     return responder.plan_sigreport(dict(CFG_ON, **(cfg or {})), st if st is not None else {},
                                     r if r is not None else rec(text="Range test"),
                                     "!cccccccc", ts=ts or time.time(), own_ids=own_ids,
-                                    forced=forced)
+                                    forced=forced, presence_ids=presence_ids)
 
 
 # DEFAULT OFF is the house gate, and it is asserted rather than assumed.
@@ -570,6 +570,57 @@ expect(COOL <= 33, f"cooldown {COOL}s would swallow the 33 s gap observed in the
 st2 = {"sig_day": {time.strftime("%Y-%m-%d", time.gmtime(now_ts)): 20}}
 expect(plan(st=st2, ts=now_ts)[1] == "sigreport_budget_spent", "daily cap holds")
 
+# CHECK-IN REPLIES (2026-10-17): a reply to Cal's own radio check gets the reciprocal report.
+# Real traffic: "Copy in Olathe" replied to the presence broadcast on 2026-10-07 and was refused
+# as not a test. Ownership is reply_to against PRESENCE ids, never the words.
+CK = {"CHECKIN_REPLY_ENABLED": "true"}
+PRES = 4242
+
+
+def ck(text, cfg=CK, st=None, ts=None, presence_ids=frozenset({PRES}), reply_to=PRES):
+    return plan(cfg=cfg, r=rec(text=text, reply_to=reply_to), st=st, ts=ts,
+                own_ids={PRES, 777}, presence_ids=presence_ids)
+
+
+expect(responder.DEFAULTS["CHECKIN_REPLY_ENABLED"] == "false", "CHECKIN_REPLY_ENABLED defaults off")
+for _t in ("Copy in Olathe", "I'm seeing you", "Loud and clear", "Copy"):
+    g = ck(_t)
+    expect(g[0] is True and (g[6] or {}).get("checkin") is True, f"check-in reply answered: {_t!r} -> {g[1]}")
+    expect("replies_to_radio_check" in [x["gate"] for x in g[5]], f"trace names the check-in gate: {_t!r}")
+expect(ck("Copy in Olathe", cfg={})[1] == "not_a_test", "flag off: a check-in reply is not answered")
+expect(ck("Copy in Olathe", presence_ids=frozenset())[1] == "not_a_test",
+       "a reply to a NON-presence packet of Cal's is not a check-in")
+expect(ck("Copy in Olathe", presence_ids=None)[1] == "not_a_test", "unreadable sent log fails closed")
+expect(ck("Copy in Olathe", reply_to=None)[1] == "not_a_test", "no reply_to: not a check-in")
+expect(ck("Copy in Olathe", reply_to=999)[1] == "sigreport_reply_to_other_station",
+       "a reply to another station is still refused")
+for _t, _why in (("Copy. Weather there?", "a question"), ("Copy, where are you?", "a bare question"), ("Cal what is 2+2", "arithmetic"),
+                 ("I see you 5580", "names a node"), ("Got it, sunset soon", "another doer's word"),
+                 ("copy " * 11, "too long")):
+    expect(ck(_t)[1] == "checkin_not_ack", f"check-in refuses {_why}: {_t!r}")
+CKCOOL = int(responder.DEFAULTS["CHECKIN_SENDER_COOLDOWN_S"])
+# Committed in the PAST and planned now: a plan dated a day ahead reads the status file as stale.
+st = {}
+responder.commit_sigreport(st, "!aaaaaaaa", ts=now_ts - CKCOOL + 60, checkin=True)
+expect(ck("Copy", st=st, ts=now_ts)[1] == "checkin_sender_cooldown", "check-in cooldown holds")
+st = {}
+responder.commit_sigreport(st, "!aaaaaaaa", ts=now_ts - CKCOOL - 60, checkin=True)
+_g = ck("Copy", st=st, ts=now_ts)
+expect(_g[0] is True, f"check-in cooldown releases: {_g[1]}")
+st = {}
+responder.commit_sigreport(st, "!aaaaaaaa", ts=now_ts)
+expect("checkin_per_sender" not in st, "an ordinary report does not spend the check-in cooldown")
+# presence_packet_ids reads ONLY presence sends, and fails closed on an unreadable log.
+_sl = os.path.join(HERE, ".eval_sent.jsonl")
+with open(_sl, "w", encoding="utf-8") as f:
+    for _src, _pid in (("presence", 11), ("responder", 22), ("presence", True), ("noaa", 33)):
+        f.write(json.dumps({"source": _src, "packet_id": _pid}) + "\n")
+    f.write("not json\n")
+expect(responder.presence_packet_ids(_sl) == {11}, f"presence ids only: {responder.presence_packet_ids(_sl)}")
+os.unlink(_sl)
+expect(responder.presence_packet_ids(os.path.join(HERE, ".eval_missing.jsonl")) is None,
+       "missing sent log is unknown, not empty")
+
 for p in (os.path.join(HERE, ".eval_status.json"),):
     if os.path.exists(p):
         os.unlink(p)
@@ -622,6 +673,13 @@ if "--self-test" in sys.argv:
         ("another doer's word is claimed again",
          'if lead in _OTHER_DOER:\n            return None',
          'if False:\n            return None'),
+        ("a question reads as a check-in ack",
+         'if _CHECKIN_ASKS.search(s):\n        return False', 'if False:\n        return False'),
+        ("a check-in naming another node is acked",
+         'if names_other_node(s):\n        return False\n    return not _claims_other_doer(s)',
+         'return not _claims_other_doer(s)'),
+        ("check-in word cap dropped",
+         'if not s or len(s.split()) > _CHECKIN_MAX_WORDS:', 'if not s:'),
         ('a non-string takes the responder down again',
          'if not isinstance(text, str):\n        return ""',
          'if False:\n        return ""'),
@@ -696,6 +754,11 @@ if "--self-test" in sys.argv:
                 caught = True                                           # another doer's word
             if any(mmod.match(t) is not None for t in (123, b"cal test", ["cal test"])):
                 caught = True                                           # non-string input
+            if not all(mmod.checkin_ack(t) for t in ("Copy in Olathe", "Loud and clear")):
+                caught = True                                           # check-in acks
+            if any(mmod.checkin_ack(t) for t in ("Copy, where are you?", "I see you 5580",
+                                                 "copy " * 11)):
+                caught = True                                           # check-in refusals
         except Exception:                                      # noqa: BLE001
             caught = True
         if name.startswith("CONTROL"):
