@@ -319,6 +319,13 @@ RECORDS = (
             {"limit": "No text loop-guard, by design — the ack IS a greeting, so such a rule "
                       "refuses the ordinary case. Budgets bound a loop instead.",
              "where": "responder.py"},
+            {"limit": "A tapback is not a greeting, with one exception since 2026-10-19: a wave "
+                      "tapped onto Cal's OWN message gets a wave back. Any other reaction, or a "
+                      "wave on another station's message, is left alone.",
+             "where": "responder.py:plan_greeting"},
+            {"limit": "A typed greeting that replies to another station's message is their "
+                      "exchange and is not acked (2026-10-19). A greeting to the whole mesh is.",
+             "where": "responder.py:plan_greeting"},
         ],
         "oracle_key": None,
     },

@@ -318,7 +318,7 @@ st_r = {}
 ok, why, _, _, _, gates = R.plan_greeting(cfg(), st_r, rec("👋", reaction=True), OURS)
 check("a tapback is refused", ok, False)
 check("and says why", why, "greeting_is_reaction")
-check("the gate is in the trace", any(g["gate"] == "not_a_reaction" for g in gates), True)
+check("the gate is in the trace", any(g["gate"] == "wave_on_own_message" and not g["pass"] for g in gates), True)
 # The same character TYPED by a person is still a greeting — which is exactly why text shape
 # cannot make this call and the protocol flag has to.
 ok2, _, _, _, t2, _ = R.plan_greeting(cfg(), {}, rec("👋"), OURS)
@@ -337,6 +337,39 @@ check("malformed refuses for the right reason", why5, "greeting_is_reaction")
 # A reaction must not consume the daily budget or a sender's cooldown — the caller commits
 # only on send, so the refusal has to happen before anything is spent.
 check("a refused tapback spends nothing", st_r, {})
+
+
+# ------------------------------------------------- a wave on CAL'S OWN message gets one back
+# 2026-10-19 (Dean's call). Ownership is reply_to against Cal's sent ids, never the glyph alone.
+print("\nwave on Cal's own message")
+MINE, THEIRS = 5150, 6060
+OWN = {MINE}
+ok, why, d, _, t, g = R.plan_greeting(cfg(), {}, rec("👋", reaction=True, reply_to=MINE), OURS, own_ids=OWN)
+check("a wave tapped on Cal's message is waved back", (ok, t, d), (True, "\U0001F44B", "^all"))
+check("the trace names the exception", any(x["gate"] == "wave_on_own_message" and x["pass"] for x in g), True)
+ok, *_ = R.plan_greeting(cfg(), {}, rec("👋\U0001F3FD", reaction=True, reply_to=MINE), OURS, own_ids=OWN)
+check("a toned wave on Cal's message counts", ok, True)
+for label, r_, ids in (("a wave on another station's message", rec("👋", reaction=True, reply_to=THEIRS), OWN),
+                       ("a thumbs-up on Cal's message", rec("👍", reaction=True, reply_to=MINE), OWN),
+                       ("a malformed flag on Cal's message", rec("👋", reaction="true", reply_to=MINE), OWN),
+                       ("an unreadable sent log", rec("👋", reaction=True, reply_to=MINE), None),
+                       ("a tapback with no reply_to", rec("👋", reaction=True), OWN)):
+    ok, why, *_ = R.plan_greeting(cfg(), {}, r_, OURS, own_ids=ids)
+    check("refused: " + label, (ok, why), (False, "greeting_is_reaction"))
+st_w = {"greet_per_sender": {"!e0000003": time.time() - 60}, "greet_day": {}}
+ok, why, *_ = R.plan_greeting(cfg(), st_w, rec("👋", reaction=True, reply_to=MINE), OURS, own_ids=OWN)
+check("the wave-back still obeys the cooldown", why, "greeting_sender_cooldown")
+
+# A TYPED greeting that replies to another station's message is their exchange.
+print("\ntyped replies")
+ok, why, *_ = R.plan_greeting(cfg(), {}, rec("👋", reply_to=THEIRS), OURS, own_ids=OWN)
+check("a typed wave replying to another station is refused", (ok, why), (False, "greeting_reply_to_other_station"))
+ok, why, *_ = R.plan_greeting(cfg(), {}, rec("Morning", reply_to=THEIRS), OURS, own_ids=None)
+check("unknown owner refuses a reply", (ok, why), (False, "greeting_reply_to_other_station"))
+ok, *_ = R.plan_greeting(cfg(), {}, rec("Morning", reply_to=MINE), OURS, own_ids=OWN)
+check("a typed greeting replying to Cal is acked", ok, True)
+ok, *_ = R.plan_greeting(cfg(), {}, rec("👋", reply_to=None), OURS, own_ids=None)
+check("a wave to the mesh needs no sent log", ok, True)
 
 
 print("eval_greeting: %d passed, %d failed" % (PASS, FAIL))

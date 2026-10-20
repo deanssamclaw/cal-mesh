@@ -14,7 +14,7 @@ the answer path** — that is the whole safety story. Taxonomy and specs in `doc
 | Signal report (range/signal test) | measured | **no — every number is the radio's own** | **ARMED** — runs *first*, see below |
 | Reply to Cal's radio check | measured | **no — the same signal report** | **ARMED** 2026-10-17 |
 | Capability list ("what can you do") | flags | no — composed from the live config flags | **ARMED** |
-| Greeting ack (off-list senders) | fixed table | no | **ARMED** |
+| Greeting ack (off-list senders) | fixed table | no | **ARMED** — a typed 👋 to the mesh, or a 👋 tapped on Cal's own message (2026-10-19), gets a 👋; never a reply to another station |
 | Second-opinion routing (s1route) | picks a doer on the fallthrough | **no — it writes nothing; the doer answers** | **ARMED** 2026-09-24 (local scorer; Jev as backup) — see below |
 | Wire gauge, fasteners (TABLE) | table | no — the harness returns the row | measured, not built |
 | Load and rigging | — | — | **refuted, will not ship** (see below) |
