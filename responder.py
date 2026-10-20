@@ -1176,7 +1176,7 @@ def is_bare_greeting(text):
     return _GREET_RE.match(s) is not None
 
 
-def plan_greeting(cfg, st, rec, ours, ts=None):
+def plan_greeting(cfg, st, rec, ours, ts=None, own_ids=None):
     """Decide whether an off-list sender's bare greeting gets the fixed ack.
 
     Pure: returns (should, reason, dest, ch, text, gates) and mutates nothing, so the whole
@@ -1222,10 +1222,23 @@ def plan_greeting(cfg, st, rec, ours, ts=None):
     # `is not True` was the first spelling and it fails OPEN — a corrupted or hand-edited
     # `"reaction": "true"` sails through and gets acked. The costs are lopsided: refusing a
     # greeting is silence, acking a tapback is the defect. So the unknown value refuses.
-    if not mark("not_a_reaction", rec.get("reaction") in (None, False)):
+    # ONE EXCEPTION, 2026-10-19 (Dean's call): a 👋 tapped onto CAL'S OWN message is a wave at
+    # Cal, and gets one back. Ownership is the firmware's reply_to against Cal's sent packet ids
+    # (`own_ids` from the caller; None = unreadable log = refuse). Only a wave, only an explicit
+    # True: any other reaction, or a wave on another station's message, is still declined.
+    rt = rec.get("reply_to")
+    mine = bool(rt) and own_ids is not None and rt in own_ids
+    if rec.get("reaction") in (None, False):
+        mark("not_a_reaction", True)
+    elif not mark("wave_on_own_message", rec.get("reaction") is True and mine
+                  and _WAVE_ONLY_RE.match(_normalize(inbound or "").strip()) is not None):
         return False, "greeting_is_reaction", None, ch, None, gates
     if not mark("bare_greeting", text is not None):
         return False, "not_a_greeting", None, ch, None, gates
+    # A typed greeting that REPLIES to another station's message is their exchange (same rule as
+    # sigreport's). A greeting to the mesh, or a reply to Cal, is Cal's to answer.
+    if rt and not mark("reply_not_to_other_station", mine):
+        return False, "greeting_reply_to_other_station", None, ch, None, gates
     # No text-matching loop guard, deliberately. Mirroring means the ack IS the greeting, so
     # any "don't say what they said" rule refuses the ordinary case — measured: it blocked
     # "Good morning" outright. The budgets are the real control and they already bound a
@@ -1971,7 +1984,7 @@ def main():
                                 save_state(st)
                                 continue
                             g_ok, g_reason, g_dest, g_ch, g_text, g_gates = plan_greeting(
-                                cfg, st, rec, ours)
+                                cfg, st, rec, ours, own_ids=own_packet_ids())
                             d["greeting_gates"] = g_gates
                             if g_ok:
                                 enqueue(g_text, g_dest, g_ch)

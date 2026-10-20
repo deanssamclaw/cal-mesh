@@ -386,6 +386,17 @@ try:
     # A packet outside the window belongs to a different message.
     mod._PACKETS = {("!zz", "Cal, test"): [dict(_TEST_PKT, ts="2026-09-06T00:30:00+00:00")]}
     ck("a packet outside the window is not claimed", mod.packet_for(_TEST_DEC) is None)
+
+    # THE TAPBACK FLAG LIVES ON THE PACKET (2026-10-19). The draft read it off the decision row,
+    # where it is absent, so every 👋 tapback drafted a wave live Cal never sent.
+    _WDEC = dict(_TEST_DEC, text="\U0001F44B")
+    mod._PACKETS = {("!zz", "\U0001F44B"): [dict(_TEST_PKT, text="\U0001F44B", reaction=True,
+                                                   reply_to=1)]}
+    _r4, _w4, _v4 = mod.cal_reply(_LADDER_CFG, _WDEC, "!me", dry=True)
+    ck("a tapback on another station's message drafts no wave", _v4 != "greeting", _v4)
+    mod._PACKETS = {("!zz", "\U0001F44B"): [dict(_TEST_PKT, text="\U0001F44B", reaction=False)]}
+    _r5, _w5, _v5 = mod.cal_reply(_LADDER_CFG, _WDEC, "!me", dry=True)
+    ck("a typed wave to the mesh drafts a wave", (_v5, _r5) == ("greeting", "\U0001F44B"), (_v5, _r5))
 finally:
     mod._PACKETS, mod._r.run_claude = _saved_pkts, _saved_rc2
 

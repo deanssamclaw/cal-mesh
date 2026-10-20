@@ -102,7 +102,7 @@ touches the radio, and `dashboard.py` publishes every decision along the way.
 | Arithmetic, units, RF formulas | computed in Python | anyone who names Cal |
 | Radio and mesh terms ("what's tropo?") | a vetted table; every entry cites its source | anyone who names Cal |
 | "What can you do" | the live config flags | anyone who names Cal |
-| Greeting ack | a fixed table, once a day | strangers |
+| Greeting ack (incl. 👋 to the mesh or on Cal's own message) | a fixed table, once a day | strangers; never a reply to another station |
 | Current weather | fetched from NWS; model narrates the fact only | allow-listed nodes |
 | Second-opinion routing | picks one of the above; writes nothing | allow-listed nodes |
 | Anything else addressed to Cal | a language model, no tools, no private context | allow-listed nodes |

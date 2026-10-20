@@ -457,11 +457,18 @@ def cal_reply(cfg, rec, our, dry=False):
     # 3. GREETING, off-list only -- which is where production mounts it. For a stranger this is
     #    the ONLY thing Cal ever sends, so falling through to the model here would misrepresent
     #    him in the direction that flatters: inventing conversation he does not actually offer.
-    if (off_list and cfg.get("GREETING_ENABLED", "false").lower() == "true"
-            and rec.get("to") in ("^all", None)
-            and rec.get("reaction") in (None, False)):
-        g = _r.greeting_reply(text, cfg.get("GREET_TEXT", ""))
-        if g:
+    #    Production's own gate, not a restatement of it: the tapback flag and reply_to live on
+    #    the PACKET, and a restated check read them off this record, where they are absent --
+    #    so every tapback drafted a wave live Cal never sent (found 2026-10-19). Empty state:
+    #    a draft answers what Cal would say, not whether today's budget or switch allows it.
+    if off_list:
+        pkt = packet_for(rec)
+        src = pkt if pkt is not None else rec
+        g_rec = dict(rec, reaction=src.get("reaction"), reply_to=src.get("reply_to"))
+        _own = _r.own_packet_ids(os.path.join(BASE, "sent.jsonl")) if g_rec["reply_to"] else None
+        g_ok, _, _, _, g, _ = _r.plan_greeting(dict(cfg, RESPONDER_ENABLED="true"), {}, g_rec, our,
+                                               own_ids=_own)
+        if g_ok:
             return g, "ok", "greeting"
 
     # DRY: the arm is decided by everything above this line, all of it deterministic. --audit
