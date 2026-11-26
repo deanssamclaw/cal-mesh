@@ -247,3 +247,8 @@ HOLIDAY_ANNOUNCE_ENABLED=false
 HOLIDAY_REPLY_ENABLED=false
 HOLIDAY_MAX_PER_DAY=8
 HOLIDAY_TZ=America/Chicago
+# ON THIS DAY (ontheday.py): one midday post (12:00-14:00 on the clock above), only on a date
+# with an entry in data/on_this_day.json -- a dated US event plus the practical lesson it
+# teaches, both sourced. Kansas City-area events first. Stands down on a holiday. Needs
+# RESPONDER_ENABLED and PRESENCE_ENABLED.
+ON_THIS_DAY_ENABLED=false
