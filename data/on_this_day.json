@@ -160,13 +160,13 @@
   "year": 2011,
   "place": "Joplin, Missouri",
   "event": "An EF5 tornado struck Joplin, killing 158 people and injuring over 1,000.",
-  "takeaway": "Act on the first warning. Most in Joplin waited for more proof before sheltering.",
+  "takeaway": "Act on the first warning; don't wait for more proof before you shelter.",
   "event_source": "https://www.weather.gov/media/publications/assessments/Joplin_tornado.pdf",
   "event_quote": "On May 22, 2011, one of the deadliest tornadoes in United States history struck Joplin, Missouri, directly killing 158 people and injuring over 1,000.",
   "takeaway_source": "https://www.weather.gov/media/publications/assessments/Joplin_tornado.pdf",
   "takeaway_quote": "The majority of Joplin residents did not immediately take protective action upon receiving a first indication of risk (usually via the local siren system), regardless of the source of the warning.",
   "local": true,
-  "checked": "2026-11-26 independent re-fetch: keep"
+  "checked": "2026-11-26 independent re-fetch: keep; 2026-11-26 review: reworded to drop blame, per its own quote"
  },
  {
   "date": "05-25",
@@ -559,19 +559,6 @@
   "checked": "2026-11-26 independent re-fetch: keep"
  },
  {
-  "date": "05-03",
-  "year": 1999,
-  "place": "Oklahoma City, Oklahoma",
-  "event": "Violent tornadoes hit Oklahoma; a woman died when blown out from under an overpass.",
-  "takeaway": "Avoid sheltering under a bridge or overpass; it offers little protection from debris.",
-  "event_source": "https://www.weather.gov/oun/events-19990503",
-  "event_quote": "The Tornado Emergency issued by the NWS Norman forecast office for the OKC metro area during the evening of May 3rd was the first warning of its kind.",
-  "takeaway_source": "https://www.ready.gov/tornadoes",
-  "takeaway_quote": "Avoid seeking shelter under bridges, which can create deadly traffic hazards while offering little protection against flying debris.",
-  "local": false,
-  "checked": "2026-11-26 independent re-fetch: reword"
- },
- {
   "date": "05-18",
   "year": 1980,
   "place": "Mount St. Helens, Washington",
@@ -601,14 +588,14 @@
   "date": "05-31",
   "year": 1889,
   "place": "Johnstown, Pennsylvania",
-  "event": "A dam failed above Johnstown, PA; few heeded the warnings and 2,209 people died.",
+  "event": "A dam failed above Johnstown, Pennsylvania; the flood and fires killed 2,209 people.",
   "takeaway": "If you live in a flood-prone area and are told to evacuate, go immediately.",
   "event_source": "https://www.weather.gov/ctp/TheGreatJohnstownFloodOf1889",
   "event_quote": "Historical reports indicate that there were a couple hours of warning given; but few people heeded the calls to move to higher ground, resulting in one of the greatest losses of human life in United State history. The flood and subsequent fires killed 2,209 people",
   "takeaway_source": "https://www.weather.gov/safety/flood-during",
   "takeaway_quote": "Obey Evacuation Orders: If told to evacuate, do so immediately.",
   "local": false,
-  "checked": "2026-11-26 independent re-fetch: keep"
+  "checked": "2026-11-26 independent re-fetch: keep; 2026-11-26 review: reworded to drop blame, per its own quote"
  },
  {
   "date": "06-29",

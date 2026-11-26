@@ -68,6 +68,7 @@ def run():
                    E("05-22", 2000, "No lesson source.", takeaway_source=""),
                    E("13-40", 2000, "Bad date."), E("05-23", "1999", "Year as text."),
                    E("05-24", 2001, "x" * 150, takeaway="y" * 150),
+                   E("05-25", 1, "A year that cannot be right."),
                    {"not": "an entry"}, 7], open(p, "w"))
         es = otd.load(p)
         ck("load: only valid, sourced, packet-sized entries", set(es) == {"05-20"}, sorted(es))
@@ -90,6 +91,9 @@ def run():
     ck("choose: then the next unused", otd.choose(todays, ids[:1]) is todays[1])
     ck("choose: a full round starts over", otd.choose(todays, ids) is todays[0])
     ck("choose: nothing to choose", otd.choose([], []) is None)
+    edited = [dict(todays[0], event="Reworded: " + todays[0]["event"])] + todays[1:]
+    ck("choose: an edited entry keeps its place in the rotation (review 2026-11-26)",
+       otd.choose(edited, ids[:1]) is edited[1], otd.choose(edited, ids[:1]))
 
     P = lambda cfg=CFG, day=DAY, hour=12, posted=frozenset(), heard=None, util=5.0, last=None, hol_=False: \
         otd.plan_post(cfg, day, hour, set(posted), heard, util, 1e9, 900, 25, last_send_ts=last,
@@ -164,6 +168,27 @@ def run():
         at(15)
         ck("e2e: never twice, and no ordinary greeting after it the same day", len(outbox()) == 1, outbox())
         ck("e2e: the record survives the ordinary writer", state().get("onthisday") == ["2026-05-20"])
+
+        # review 2026-11-26: a malformed record is REPAIRED by the next write, not kept forever
+        json.dump({"sends": [], "holidays": 5, "onthisday": {"x": 1}},
+                  open(os.path.join(base, "presence-state.json"), "w"))
+        shutil.rmtree(os.path.join(base, "outbox"), ignore_errors=True)
+        json.dump([], open(os.path.join(base, "data", "on_this_day.json"), "w"))
+        at(8)                                   # no entry now: the ordinary greeting writes
+        st2 = state()
+        ck("e2e: a malformed record is repaired by the next write",
+           st2.get("holidays") == [] and st2.get("onthisday") == [], st2)
+
+        # review 2026-11-26: the two-hour gap counts ANY transmission, not only presence's
+        json.dump([E("05-20", 1957, "A Kansas City event happened.", local=True)],
+                  open(os.path.join(base, "data", "on_this_day.json"), "w"))
+        json.dump({"sends": []}, open(os.path.join(base, "presence-state.json"), "w"))
+        shutil.rmtree(os.path.join(base, "outbox"), ignore_errors=True)
+        reply_at = datetime(2026, 5, 20, 11, 50, tzinfo=TZ)
+        open(os.path.join(base, "sent.jsonl"), "w").write(
+            json.dumps({"ts": reply_at.isoformat(), "text": "I hear you on 2 hops"}) + "\n")
+        at(12, 20)
+        ck("e2e: a reply 30 minutes earlier holds the post back", outbox() == [], outbox())
     finally:
         shutil.rmtree(base, ignore_errors=True)
 
@@ -171,6 +196,9 @@ def run():
     raw = json.load(open(os.path.join(HERE, "data", "on_this_day.json"), encoding="utf-8"))
     ck("table: every row loads", sum(len(v) for v in otd.load(os.path.join(HERE, "data", "on_this_day.json")).values())
        == len(raw), len(raw))
+    keys = [(e.get("date"), e.get("year")) for e in raw]
+    ck("table: at most one entry per date and year (entry_id relies on it)",
+       len(keys) == len(set(keys)), [k for k in keys if keys.count(k) > 1][:3])
     for i, e in enumerate(raw):
         tag = f"{e.get('date')}/{e.get('year')}"
         ck(f"{tag}: both sources https", str(e.get("event_source", "")).startswith("https://")
@@ -195,6 +223,13 @@ MUTATIONS = {
     "no spacing after a post": lambda: setattr(otd, "MIN_GAP_S", 0),
     "greeting not held": lambda: setattr(otd, "pending", lambda *a, **k: False),
     "rotation forgets": lambda: setattr(otd, "choose", lambda entries, used: entries[0] if entries else None),
+    "malformed records carried forward": lambda: setattr(presence, "_state_for_write",
+        lambda st: dict(st) if isinstance(st, dict) else {}),
+    "gap counts only presence's own posts": lambda: setattr(presence, "_last_tx",
+        lambda base, history: (history[-1]["ts"] if history else None)),
+    "id keyed on wording": lambda: setattr(otd, "entry_id", lambda e: f"{e['date']}:{e['year']}:{e['event'][:24]}"),
+    "any year accepted": lambda: setattr(otd, "_ok", (lambda f: lambda e: f(dict(e, year=2000)) if isinstance(e, dict)
+                                                      and isinstance(e.get("year"), int) else f(e))(otd._ok)),
 }
 
 if __name__ == "__main__":
@@ -204,7 +239,8 @@ if __name__ == "__main__":
     if "--self-test" in sys.argv:
         print("self-test -- each mutation must be CAUGHT:")
         keep = {n: getattr(otd, n) for n in ("load", "_ok", "WINDOW", "plan_post", "MIN_GAP_S",
-                                             "pending", "choose")}
+                                             "pending", "choose", "entry_id")}
+        keep_p = {n: getattr(presence, n) for n in ("_state_for_write", "_last_tx")}
         for name, mutate in MUTATIONS.items():
             mutate()
             caught = bool(run())
@@ -213,5 +249,7 @@ if __name__ == "__main__":
                 fails.append("self-test: " + name)
             for n, v in keep.items():
                 setattr(otd, n, v)
+            for n, v in keep_p.items():
+                setattr(presence, n, v)
     print(f"eval_ontheday: {len(fails)} failed")
     sys.exit(1 if fails else 0)

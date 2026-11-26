@@ -7,7 +7,8 @@ TAKEAWAY a listener can act on, and BOTH carry an https source and a verbatim ex
 by an independent pass before any of it was broadcast. Trivia with no lesson is not in the table.
 
 Dean's calls: midday delivery; only days with a strong entry (no entry, no post -- about one day
-in six); Kansas City-area events preferred where there is one; United States only.
+in six); Kansas City-area events preferred where there is one; United States only. In the table,
+`local: true` means Missouri or Kansas -- the region, not only the metro -- and sorts first.
 
 Delivery rides the presence timer, like the holiday announcement, and obeys the same rules: the
 master switch, PRESENCE_ENABLED and its own flag; never into a conversation or a busy channel;
@@ -18,6 +19,7 @@ so the day still has one post from presence. Nothing here is written by a model.
 import json
 import os
 import re
+from datetime import date
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, "data", "on_this_day.json")
@@ -31,6 +33,7 @@ _MMDD = re.compile(r"^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
 def _ok(e):
     return (isinstance(e, dict) and isinstance(e.get("date"), str) and _MMDD.match(e["date"])
             and isinstance(e.get("year"), int) and not isinstance(e.get("year"), bool)
+            and 1600 <= e["year"] <= date.today().year
             and isinstance(e.get("event"), str) and e["event"].strip()
             and isinstance(e.get("takeaway"), str) and e["takeaway"].strip()
             and str(e.get("event_source", "")).startswith("https://")
@@ -54,7 +57,10 @@ def load(path=None):
 
 
 def entry_id(e):
-    return f"{e['date']}:{e['year']}:{e['event'][:24]}"
+    """Date and year: stable when the wording of an entry is edited (review 2026-11-26: keying on
+    the text let an edited entry air again before the rest of its date's rotation). The table
+    holds at most one entry per date and year; eval_ontheday asserts it."""
+    return f"{e['date']}:{e['year']}"
 
 
 def text(e):
