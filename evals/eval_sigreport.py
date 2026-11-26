@@ -139,6 +139,23 @@ ALLOWED_SHAPES = {
     "radio check",
     "cal can you hear me?",
     "it has it's busy moments... got you from martin city",
+    # ADJUDICATED 2026-11-26 from the decision log, each by what happened on air. Eight bare
+    # tests, 11-05 -> 11-24, every one answered with the sender's own numbers ("I hear you on N
+    # hops from ..."): a person typing these is running the test this doer exists to answer.
+    "testing <n>",
+    "you copy??",
+    "test!",
+    "test.",
+    "firmware test",
+    "radio check?",
+    "range test!",
+    "rooftop range test!",
+    # Two contact reports that REPLY TO ANOTHER STATION (10-22, 10-23). match() reads text only;
+    # the reply gate kept Cal silent on both at the time. Under the operator's ruling of
+    # 2026-11-26 (P3: a report inside someone's test exchange gets a signal report) answering
+    # them is now intended, through SIGREPORT_TEST_EXCHANGE_ENABLED, not this text rule.
+    "hi drft, received you at <n> hops.",
+    "hearing you from main and <n>th",
 }
 
 # CONTACT REPORTS are allowed as a CLASS, not enumerated, because their tail is a place name
