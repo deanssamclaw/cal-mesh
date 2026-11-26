@@ -1,10 +1,275 @@
 {
-  "adjudicated": 31,
-  "armed": 14,
+  "adjudicated": 32,
+  "armed": 16,
   "by_hand": 4,
-  "by_loop": 3,
-  "clusters": 29,
-  "draft_verdicts": {},
+  "by_loop": 4,
+  "clusters": 30,
+  "draft_verdicts": {
+    "0454ccaa6119505b": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without a measurement that was on the packet. Contact reports are sigreport's shape, not the model's.",
+      "verdict": "doer"
+    },
+    "07c409103a187dac": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Promises an action Cal cannot take (investigate / relay / pass along). No such capability exists.",
+      "verdict": "wrong"
+    },
+    "0ac5911e9227c95e": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Capability question answered by the model. capabilities.py composes this from the armed flags; CAPS_ENABLED is still false.",
+      "verdict": "doer"
+    },
+    "0e43277c526fac4c": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Asserted a good link; measured SNR -15.25 dB / RSSI -120 dBm, at or below the usable floor. The number was on the packet.",
+      "verdict": "wrong"
+    },
+    "0f748858e0a6979e": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Asserted a good link; measured SNR -17.75 dB / RSSI -123 dBm, at or below the usable floor. The number was on the packet.",
+      "verdict": "wrong"
+    },
+    "122bfebe268ae1ce": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12 CORRECTED] CORRECTION. Earlier verdict said heat index was never answered; on air Cal said 'Clear skies, 88F, heat index 98F' and answered it correctly. The DRAFT omits it because drafts.py refetched weather at draft time (today: 63F fog, no spread). The defect is the stale weather fact in drafts.py, not a capability gap. Do not build a heat-index doer from this.",
+      "verdict": "wrong"
+    },
+    "160c1ef99f04921e": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12 RE-READ WITH CONTEXT] Context: a run of reactions between OTHER nodes ('Sick!', 'Incredible', another thumbs-up), no Cal involvement. Cal answering puts him in a thread he is not in. Was doer.",
+      "verdict": "harmful"
+    },
+    "190d0a116b8c9579": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Weather fact was fetched at draft time, not message time, and this row carries no 'simulated after the fact' caveat. The reply contradicts the message it answers.",
+      "verdict": "wrong"
+    },
+    "19a60b16326937c4": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12 RE-READ WITH CONTEXT] Context: this arrived 78s after Cal's own signal readback, so it is a thank-you for that reply. Answering a thumbs-up on your own message spends shared airtime to end a conversation that had ended. Earlier verdict (doer) read it as an unmeasured link claim; with context the right answer is silence, not a better answer.",
+      "verdict": "harmful"
+    },
+    "1c81ceeb6be33006": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Capability question answered by the model. capabilities.py composes this from the armed flags; CAPS_ENABLED is still false.",
+      "verdict": "doer"
+    },
+    "1fff299024c2ffa0": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Invents content ('sounds like great news') from a bare emoji carrying none, and addresses a node short-id unprompted.",
+      "verdict": "wrong"
+    },
+    "2a13b6c3fc070b68": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Weather fact was fetched at draft time, not message time, and this row carries no 'simulated after the fact' caveat. The reply contradicts the message it answers.",
+      "verdict": "wrong"
+    },
+    "31a37ad2e93d45db": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without a measurement that was on the packet. Contact reports are sigreport's shape, not the model's.",
+      "verdict": "doer"
+    },
+    "31b5450f65378938": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without the measurement that was on the packet. Missed by the first grading pass; the real count of this class is 27, not 21.",
+      "verdict": "doer"
+    },
+    "36ed563682c396ba": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12 CORRECTED] CORRECTION. Earlier verdict said heat index was never answered; on air Cal said 'Clear today, 81F, heat index 84F' and answered it correctly. The DRAFT omits it because drafts.py refetched weather at draft time (today: 63F fog, no spread). The defect is the stale weather fact in drafts.py, not a capability gap. Do not build a heat-index doer from this.",
+      "verdict": "wrong"
+    },
+    "39182baaed7640e5": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Promises an action Cal cannot take (investigate / relay / pass along). No such capability exists.",
+      "verdict": "wrong"
+    },
+    "3b266bbba29341ae": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Asserted a good link; measured SNR -18.75 dB / RSSI -123 dBm, at or below the usable floor. The number was on the packet.",
+      "verdict": "wrong"
+    },
+    "3b7457db70379a43": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without a measurement that was on the packet. Contact reports are sigreport's shape, not the model's.",
+      "verdict": "doer"
+    },
+    "513f332d59fcf54f": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Heat index was asked and never answered; reply substituted temp+wind without saying the value was unavailable.",
+      "verdict": "wrong"
+    },
+    "568fc57c5bf6c9d0": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12 RE-READ WITH CONTEXT] Context: replies to 'Test received' from a third node 170s earlier and names two more. Addressed to other people; Cal's 'relay chain is solid' barges in AND is unmeasured. Was doer.",
+      "verdict": "harmful"
+    },
+    "5dc06964b30c7d3c": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12 RE-READ WITH CONTEXT] Context: 31s after Cal's own greeting ack. Acknowledging an acknowledgement. Was graded doer; the right answer is silence.",
+      "verdict": "harmful"
+    },
+    "5f99c008e767d461": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without the measurement that was on the packet. Missed by the first grading pass; the real count of this class is 27, not 21.",
+      "verdict": "doer"
+    },
+    "64533cc809b26f60": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12 RE-READ WITH CONTEXT] Context changes the KIND of defect. 'Cal 5' answered Cal's own clarify ('Which grade -- 2, 5 or 8?') 24s earlier; the model read it as a radio check and the user re-typed the whole question 50s later. NOT a sigreport gap. Already fixed in the live path: the same message bound to calc at 09:47 the same day (fixed_calc, correct torque). Drafts cannot repl",
+      "verdict": "wrong"
+    },
+    "6483495c3720cb2e": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without a measurement that was on the packet. Contact reports are sigreport's shape, not the model's.",
+      "verdict": "doer"
+    },
+    "69ecd8dc45706b3c": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without the measurement that was on the packet. Missed by the first grading pass; the real count of this class is 27, not 21.",
+      "verdict": "doer"
+    },
+    "6bd55cf6e71b77f2": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without a measurement that was on the packet. Contact reports are sigreport's shape, not the model's.",
+      "verdict": "doer"
+    },
+    "804d92de89f1acd9": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without a measurement that was on the packet. Contact reports are sigreport's shape, not the model's.",
+      "verdict": "doer"
+    },
+    "850e409c2720d4de": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Read a Kansas City suburb as an abstract noun and replied 'Independence sounds good, stay strong'.",
+      "verdict": "wrong"
+    },
+    "94774cda2abc5793": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Replies to an automated position-share packet. No person asked anything; this is airtime spent on a machine notification.",
+      "verdict": "harmful"
+    },
+    "962bbca1341e1976": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12 RE-READ WITH CONTEXT] Re-read with context: this sits in a round of contact reports (a net check), and the redrafted reply is now a real measurement from the packet rather than prose. The doer this was graded for is armed; the work is done.",
+      "verdict": "good"
+    },
+    "a39efcd4ab414927": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12 RE-READ WITH CONTEXT] Context: 20s after a DIFFERENT node's 'Heard from 159th and I-35!', so 'Aye' is agreement in someone else's exchange. Was graded doer for the unmeasured signal claim; with context Cal should not answer at all.",
+      "verdict": "harmful"
+    },
+    "aa52885ddfdaebeb": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Claims Cal's own relay is 'active and strong'. Nothing in the system records Cal HT's role, so there is no basis for the claim.",
+      "verdict": "wrong"
+    },
+    "ae65d4c06bb64d35": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without a measurement that was on the packet. Contact reports are sigreport's shape, not the model's.",
+      "verdict": "doer"
+    },
+    "afe06f7123eda81e": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Renames tropospheric propagation as 'atmospheric skip' in a thread explicitly about tropo. Skip is ionospheric; these are different modes and this audience knows it.",
+      "verdict": "wrong"
+    },
+    "b06a94488a28343e": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without a measurement that was on the packet. Contact reports are sigreport's shape, not the model's.",
+      "verdict": "doer"
+    },
+    "b708cf0ec0411971": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Replies to an automated severe-weather broadcast. Cal should not answer alert traffic; it spends airtime on a station issuing a warning.",
+      "verdict": "harmful"
+    },
+    "bcaf17e2daf9823d": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Promises an action Cal cannot take (investigate / relay / pass along). No such capability exists.",
+      "verdict": "wrong"
+    },
+    "be61cdb31ff07bf8": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Accepts ownership of a map Cal does not publish and offers to correct it. Cal publishes a coarse Maidenhead grid; the no-map rule is a governing design rule.",
+      "verdict": "wrong"
+    },
+    "c61fd2c6076b10bc": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12 RE-READ WITH CONTEXT] Sits in a round of contact reports (a net check, with 'Thank you f350' 99s later). The redrafted reply is a real measurement from the packet rather than prose; the doer this was graded for is armed, so the work is done.",
+      "verdict": "good"
+    },
+    "cdc9b112cdfabb48": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without a measurement that was on the packet. Contact reports are sigreport's shape, not the model's.",
+      "verdict": "doer"
+    },
+    "eff5735bdc16b509": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Read a phonetic string (M-E-O-W) as a person's name and greeted 'Mike'.",
+      "verdict": "wrong"
+    },
+    "f26683279053d592": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12 RE-READ WITH CONTEXT] Sits in a round of contact reports; the redrafted reply is now a real measurement from the packet rather than prose. The doer this was graded for is armed, so the work is done.",
+      "verdict": "good"
+    },
+    "ff521734c44de8ff": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Link quality asserted without a measurement that was on the packet. Contact reports are sigreport's shape, not the model's.",
+      "verdict": "doer"
+    },
+    "ffc87b6fd0c07545": {
+      "by": "cal-review",
+      "day": "2026-09-12",
+      "note": "[cal-review 2026-09-12] Asserted a good link; measured SNR -16.5 dB / RSSI -121 dBm, at or below the usable floor. The number was on the packet.",
+      "verdict": "wrong"
+    }
+  },
   "rows": [
     {
       "counts": {
@@ -13,7 +278,7 @@
       "first_seen": "2026-08-22",
       "id": "ef2d127de37b942b",
       "kind": "ask",
-      "last_seen": "2026-09-05",
+      "last_seen": "2026-11-25",
       "last_unanswered": "2026-08-22",
       "nodes": 1,
       "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
@@ -103,7 +368,7 @@
       "first_seen": "2026-08-14",
       "id": "2cf24dba5fb0a30e",
       "kind": "ask",
-      "last_seen": "2026-08-29",
+      "last_seen": "2026-11-18",
       "last_unanswered": "2026-08-14",
       "nodes": 1,
       "note": "Conversational. No ground truth to measure against; the model is the correct handler.",
@@ -119,7 +384,7 @@
       "found_by": "loop",
       "id": "a05781e7486acfc6",
       "kind": "ask",
-      "last_seen": "2026-08-08",
+      "last_seen": "2026-09-25",
       "last_unanswered": "2026-08-08",
       "nodes": 1,
       "note": "sigreport now matches a greeting before the trigger; armed on deploy of 18977d0.",
@@ -176,6 +441,9 @@
       "source": "Quikrete published bag yields; hole volume from geometry; nominal lumber per softwood dimension standard"
     },
     {
+      "armed": "2026-09-24",
+      "commit": "cb11c14",
+      "commit_source": "stated",
       "counts": {
         "GAP": 1
       },
@@ -186,11 +454,15 @@
       "last_seen": "2026-08-09",
       "last_unanswered": "2026-08-09",
       "nodes": 1,
-      "note": "[withheld: quotes message text]",
+      "note": "Answered by the s1route rescue into sigreport since S1_ROUTE armed 2026-09-24; verified live 2026-11-25 (route sigreport 0.90, all gates pass). Never marked armed until now.",
       "oracle": "derivable",
+      "pushed": true,
       "source": "snr-history.jsonl measured SNR/RSSI for the sending node"
     },
     {
+      "armed": "2026-11-26T00:36:38.110480+00:00",
+      "commit": "6ee81f4",
+      "commit_source": "stated",
       "counts": {
         "GAP": 1,
         "THROTTLED": 1
@@ -202,8 +474,9 @@
       "last_seen": "2026-08-17",
       "last_unanswered": "2026-08-17",
       "nodes": 1,
-      "note": "No doer matches; answered by vibe ('signal's solid') when measured SNR was on disk. sigreport is the natural owner.",
+      "note": "Asked over DM, where s1route never consults. sigreport.private_link_ask + SIGREPORT_PRIVATE_ASK_ENABLED armed 2026-11-25; PR #40, on origin, not yet merged to main.",
       "oracle": "derivable",
+      "pushed": true,
       "source": "snr-history.jsonl measured SNR/RSSI for the sending node"
     },
     {
@@ -262,7 +535,7 @@
       "first_seen": "2026-08-22",
       "id": "9f86d081884c7d65",
       "kind": "ask",
-      "last_seen": "2026-09-04",
+      "last_seen": "2026-11-24",
       "last_unanswered": "2026-08-22",
       "nodes": 1,
       "note": "sigreport:tail.",
@@ -316,6 +589,20 @@
       "oracle": "derivable",
       "pushed": true,
       "source": "snr-history.jsonl measured SNR/RSSI for the sending node"
+    },
+    {
+      "counts": {
+        "GAP": 1
+      },
+      "first_seen": "2026-09-23",
+      "found_by": "loop",
+      "id": "86d8fa32c93a4e24",
+      "kind": "ask",
+      "last_seen": "2026-09-23",
+      "last_unanswered": "2026-09-23",
+      "nodes": 1,
+      "note": "No source for local places; the right answer is I do not know. The model invented one on 2026-09-23. All personas forbid invented facts since 6ee81f4 (PR #40).",
+      "oracle": "none"
     },
     {
       "counts": {
