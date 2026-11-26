@@ -241,18 +241,21 @@ def load_json(path, default):
 
 
 def iter_decisions():
-    """Yield parsed records in file order. A malformed line is skipped, not fatal."""
+    """Yield parsed records in file order. A malformed line -- torn, not an object, bad
+    UTF-8 -- is skipped, not fatal."""
     if not os.path.exists(DECISIONS):
         return
-    with open(DECISIONS) as f:
+    with open(DECISIONS, encoding="utf-8", errors="replace") as f:
         for ln in f:
             ln = ln.strip()
             if not ln:
                 continue
             try:
-                yield json.loads(ln)
+                r = json.loads(ln)
             except Exception:
                 continue
+            if isinstance(r, dict):
+                yield r
 
 
 # THROTTLED clusters with the rest: a question refused for capacity is still an ask, and it is
@@ -319,7 +322,7 @@ def migrate(agg):
         newest = {}
         for rec in iter_decisions():
             k = cluster_key(rec.get("text", ""))
-            ts = rec.get("ts", "")
+            ts = _s(rec.get("ts"))
             if ts > newest.get(k, ""):
                 newest[k] = ts
         for key, c in agg.get("clusters", {}).items():
@@ -348,7 +351,7 @@ def fold(reset=False):
 
     run = {"processed": 0, "new_gaps": 0, "buckets": {}, "migrated": migrated}
     for rec in iter_decisions():
-        ts = rec.get("ts", "")
+        ts = _s(rec.get("ts"))
         if watermark and ts <= watermark:
             continue          # already folded on a prior run
         if ts > new_watermark:
@@ -518,7 +521,11 @@ def render_md(agg, state, tr):
     lines.append(f"_Generated {datetime.now(timezone.utc).isoformat()} · "
                  f"run #{state.get('runs', 0)} · watermark `{state.get('last_ts','')}`_")
     lines.append("")
-    h = health()
+    try:
+        h = health()
+    except Exception as e:      # the ledger still renders; the header says why it cannot judge
+        h = {"state": "UNKNOWN", "reason": f"health check raised {type(e).__name__}",
+             "run_age_h": None, "input_age_h": None, "stale": None, "audited": 0, "runs": 0}
     lines.append(f"**Loop health: {h['state']}** — {h['reason']}  ")
     lines.append(f"_last run {_fmt_age(h['run_age_h'])} ago · last inbound "
                  f"{_fmt_age(h['input_age_h'])} ago · "
@@ -598,6 +605,37 @@ def render_md(agg, state, tr):
             lines.append("")
         for i, (key, c) in enumerate(group, 1):
             _cluster_lines(i, key, c, verdict(tr, key), lines)
+
+    try:
+        o = overheard()
+    except Exception as e:
+        o = {"days": OVERHEARD_DAYS, "heard": "?", "questions": "?", "unthreaded": "?",
+             "doer_could": "?", "drafts_failed": "?", "ungraded": "?", "last_grade": None,
+             "top": [], "error": type(e).__name__}
+    lines.append(f"## Overheard — last {o['days']} days")
+    if o.get("error"):
+        lines.append("")
+        lines.append(f"_Could not read the drafts ({o['error']})._")
+    lines.append("")
+    lines.append("_Public traffic Cal stayed silent on, read from the drafts. Propose-only: this "
+                 "is what the mesh asks, not a build order._")
+    lines.append("")
+    lines.append("| metric | value |")
+    lines.append("|---|---:|")
+    lines.append(f"| messages Cal stayed silent on | {o['heard']} |")
+    lines.append(f"| question-shaped | {o['questions']} |")
+    lines.append(f"| … with no threaded reply from anyone | **{o['unthreaded']}** |")
+    lines.append(f"| a doer had an answer | {o['doer_could']} |")
+    lines.append(f"| model drafts that FAILED | {o['drafts_failed']} |")
+    lines.append(f"| model drafts awaiting a grade | {o['ungraded']} |")
+    lines.append(f"| last grade given | {(o['last_grade'] or 'never')[:10]} |")
+    lines.append("")
+    for i, q in enumerate(o["top"], 1):
+        lines.append(f"{i}. \"{q['text']}\" — {q['n']}×, {q['unthreaded']} unthreaded, "
+                     f"last {q['last'][:10]}")
+    if not o["top"]:
+        lines.append("_(no unthreaded questions)_")
+    lines.append("")
 
     # Every correction, including ones on doers that never appeared as a cluster. A doer fixed
     # after arming is the counter-metric; if it only ever showed as a number in the scoreboard
@@ -699,6 +737,105 @@ def grade_queue(tr=None):
     return out
 
 
+INBOX = os.path.join(BASE, "inbox.jsonl")
+OVERHEARD_DAYS = 14
+
+# Question-shaped: a question mark anywhere, or an interrogative opener. Shape only -- it
+# chooses which overheard messages are LISTED, and it never decides anything Cal says.
+_QUESTION = re.compile(
+    r"\?|^\W*(?:who|whos|what|whats|when|where|wheres|why|how|hows|is|are|can|could|does|do|"
+    r"did|will|would|anyone|anybody|any)\b", re.I)
+
+
+def _packet_id(draft_id):
+    """drafts.py writes draft_id as '<ts>:<packet id>'."""
+    try:
+        return int(str(draft_id).rsplit(":", 1)[1])
+    except (IndexError, ValueError):
+        return None
+
+
+def overheard(now=None, days=OVERHEARD_DAYS, top=10):
+    """What the mesh said that Cal did not answer, from drafts.jsonl joined to inbox.jsonl.
+
+    THE GAP LEDGER ONLY SEES ASKS ADDRESSED TO CAL. From 2026-09-25 to 2026-11-25 that was one
+    message in 706, while the public channel carried newcomers, radio questions and
+    conversations the loop never read. drafts.py already drafts every one of them; this reads
+    those drafts for three things that need no human:
+
+      * questions  -- public, question-shaped, and Cal stayed silent
+      * unthreaded -- of those, how many no other node answered with a threaded reply
+                      (reply_to = that packet, not a tapback). A lower bound on "unanswered":
+                      plenty of people answer without threading.
+      * doer_could -- Cal stayed silent, but a deterministic doer had an answer
+
+    plus the human side: model drafts waiting for a grade, and when the last grade came in.
+
+    Public broadcasts only (to ^all, not Cal's own channel). Every text listed here is already
+    published on the Simulated Replies tab. Propose-only: nothing here changes what Cal says.
+    """
+    now = now or datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=days)).isoformat()
+    own_ch = cal_channel()
+    pk = {}
+    answered = set()
+    for p in _iter_jsonl(INBOX):
+        if _s(p.get("ts")) < cutoff:
+            continue
+        if _key(p.get("id")) is not None:
+            pk[p["id"]] = p
+        rt = _key(p.get("reply_to"))
+        if rt and p.get("reaction") in (None, False):
+            answered.add(rt)
+    try:
+        grades = json.load(open(GRADES, encoding="utf-8"))
+        grades = grades if isinstance(grades, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        grades = {}
+    last_grade = max((_s(g.get("ts")) for g in grades.values() if isinstance(g, dict)),
+                     default="") or None
+
+    heard = questions = unthreaded = doer_could = failed = ungraded = 0
+    clusters = {}
+    for r in _iter_jsonl(DRAFTS):
+        ts = _s(r.get("ts"))
+        if ts < cutoff:
+            continue
+        p = pk.get(_packet_id(r.get("draft_id")))
+        if not p or p.get("to") != "^all" or (own_ch >= 0 and p.get("channel") == own_ch):
+            continue
+        if r.get("sent_reply"):
+            continue                      # Cal answered it; that is the ledger's business
+        heard += 1
+        via = str(r.get("via") or "")
+        g = r.get("gen_status")
+        if via.startswith("model") and isinstance(g, str) and g.startswith("gen_"):
+            failed += 1
+        elif via.startswith("model") and g == "ok" and _s(r.get("draft_id")) not in grades:
+            ungraded += 1
+        if r.get("doers"):
+            doer_could += 1
+        text = _s(r.get("text")).strip()
+        if not _QUESTION.search(text):
+            continue
+        questions += 1
+        thread = p.get("id") in answered
+        if not thread:
+            unthreaded += 1
+        c = clusters.setdefault(cluster_key(text), {"text": text, "n": 0, "last": ts,
+                                                   "unthreaded": 0})
+        c["n"] += 1
+        c["unthreaded"] += 0 if thread else 1
+        if ts > c["last"]:
+            c["last"], c["text"] = ts, text
+    ranked = sorted(clusters.items(),
+                    key=lambda kv: (kv[1]["unthreaded"], kv[1]["n"], kv[1]["last"]), reverse=True)
+    return {"days": days, "heard": heard, "questions": questions, "unthreaded": unthreaded,
+            "doer_could": doer_could, "drafts_failed": failed, "ungraded": ungraded,
+            "last_grade": last_grade,
+            "top": [{"key": k, **v} for k, v in ranked if v["unthreaded"]][:top]}
+
+
 def snapshot(agg, tr):
     """The scoreboard as numbers, for one run.
 
@@ -732,7 +869,21 @@ def snapshot(agg, tr):
         # folding the two into one number would hide it inside a bigger one.
         "graded_open": sum(1 for g in grade_queue(tr) if not g["triaged"]),
         "graded_total": len(grade_queue(tr)),
+        **_overheard_counts(),
     }
+
+
+def _overheard_counts():
+    """overheard() as flat numbers for the history line. An unreadable drafts file is zeros
+    plus `heard_ok: False`, never a missing key a plot would read as zero anyway."""
+    try:
+        o = overheard()
+        ok = True
+    except Exception:
+        o, ok = {}, False
+    return {"heard_ok": ok, "heard_q": o.get("questions", 0),
+            "heard_unthreaded": o.get("unthreaded", 0), "heard_doer": o.get("doer_could", 0),
+            "drafts_failed": o.get("drafts_failed", 0), "ungraded": o.get("ungraded", 0)}
 
 
 def append_history(run, snap):
@@ -775,10 +926,30 @@ INPUT_STALL_H = 48
 #                       loop was FRESH: it watches the distiller, and a responder whose model
 #                       calls all fail looks exactly like a quiet mesh from here.
 GEN_FAIL_RUN = 3
+#   STARVE_D = 30       Days without an ASK: a record classify() files as GAP, CLARIFY,
+#                       NO_TABLE, THROTTLED, REFUSED, or a HIT from any doer but sigreport.
+#                       Greetings and signal tests are excluded because they teach the loop
+#                       nothing. Over all 53 asks on record (2026-08-08 .. 2026-09-30) the gap
+#                       between asks has median 15 min, p90 2.1 d, largest 22.7 d (09-01 ->
+#                       09-23). 30 d clears that worst case. Then nobody asked for 56 days while
+#                       the strip read FRESH, because input kept flowing -- all of it greetings
+#                       and radio checks. STALLED watches the radio; this watches the questions.
+STARVE_D = 30
+#   DRAFTS_STALE_H = 72 drafts.py runs daily at 06:30; three missed days means it is not running,
+#                       and its last failures no longer describe the model.
+DRAFTS_STALE_H = 72
 
 # The closed set. A verdict outside it is a bug, not a new state -- and UNKNOWN is what an
 # unreadable artefact produces, never a cheerful default.
-STATES = ("FRESH", "LATE", "STALLED", "FAILING", "DRIFT", "UNKNOWN")
+STATES = ("FRESH", "LATE", "STALLED", "FAILING", "DRIFT", "STARVED", "UNKNOWN")
+
+ASK_BUCKETS = ("GAP", "CLARIFY", "NO_TABLE", "THROTTLED", "REFUSED")
+
+
+def is_ask(rec, our):
+    """True if this record is a question the loop can learn from. See STARVE_D."""
+    b = classify(rec, our)
+    return b in ASK_BUCKETS or (b == "HIT" and rec.get("capability") != "sigreport")
 
 
 def audit(agg=None, watermark=None):
@@ -808,7 +979,7 @@ def audit(agg=None, watermark=None):
     our, own_ch = our_id(), cal_channel()
     rebuilt, n = {}, 0
     for rec in iter_decisions():
-        ts = rec.get("ts") or ""
+        ts = _s(rec.get("ts"))
         if not ts or ts > watermark:
             continue
         n += 1
@@ -867,17 +1038,106 @@ def _gen_health(now):
             continue
         n += 1
         if g == "ok":
-            trail, last_ok = 0, rec.get("ts")
+            trail, last_ok = 0, _s(rec.get("ts"))
         else:
             # The CODE only ("gen_rc1"), never the stderr tail gen_status carries after the colon:
             # this reason is published, and a CLI error can hold account detail.
-            trail, last_fail, last_status = trail + 1, rec.get("ts"), g.split(":", 1)[0][:24]
+            trail, last_fail, last_status = trail + 1, _s(rec.get("ts")), g.split(":", 1)[0][:24]
     return {"attempts": n, "recent_failed": trail, "last_ok": last_ok, "last_fail": last_fail,
             "last_status": last_status, "last_fail_age_h": _age_h(last_fail, now),
             "fail_after": GEN_FAIL_RUN}
 
 
-def _health_reason(state, run_age, in_age, a, gen=None):
+def _iter_jsonl(path):
+    """Dict rows only. A torn line, a non-object (`[]`, `3`) or bad UTF-8 is skipped: one bad
+    line must not take down the health check, which is the thing that would report it."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for ln in f:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    r = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(r, dict):
+                    yield r
+    except OSError:
+        return
+
+
+def _s(v):
+    """A field as a string, whatever was written there. Comparisons and .strip() then cannot
+    raise on a number or a list."""
+    return v if isinstance(v, str) else ("" if v is None else str(v))
+
+
+def _key(v):
+    """A packet id usable as a dict key, or None."""
+    return v if isinstance(v, (int, str)) and not isinstance(v, bool) else None
+
+
+def _drafts_gen_health(now):
+    """The drafts job's model calls, read from drafts.jsonl: the same trailing-failure count as
+    _gen_health. None when the file does not exist (drafts disarmed).
+
+    WHY A SECOND SOURCE. drafts.py calls responder.run_claude, the same function and CLI the
+    live responder uses. On 2026-10-24 the CLI login on rflab expired and every model draft
+    failed for a month. _gen_health saw none of it: the responder had not attempted a model
+    reply since 2026-09-23, so its trailing count stayed 0. Drafts run daily and are the first
+    place a broken model shows up.
+
+    Row `ts` is the MESSAGE time, not the draft time, so the age of the newest failure is not
+    reported. The file's mtime says when drafting last ran."""
+    if not os.path.exists(DRAFTS):
+        return None
+    # A drafts file nobody has written for DRAFTS_STALE_H says nothing about the model today --
+    # drafts disarmed with the file left behind would otherwise read FAILING forever.
+    try:
+        run_age = max(0.0, now.timestamp() - os.path.getmtime(DRAFTS)) / 3600.0
+    except OSError:
+        return None
+    if run_age > DRAFTS_STALE_H:
+        return None
+    trail, last_status, n = 0, None, 0
+    for r in _iter_jsonl(DRAFTS):
+        if not str(r.get("via") or "").startswith("model"):
+            continue
+        g = r.get("gen_status")
+        if not isinstance(g, str) or not (g == "ok" or g.startswith("gen_")):
+            continue
+        n += 1
+        if g == "ok":
+            trail = 0
+        else:
+            trail, last_status = trail + 1, g.split(":", 1)[0][:24]
+    return {"attempts": n, "recent_failed": trail, "last_status": last_status,
+            "run_age_h": run_age, "fail_after": GEN_FAIL_RUN}
+
+
+def _ask_health(now):
+    """When someone last asked Cal something the loop can learn from (see STARVE_D).
+
+    decisions.jsonl is trimmed to its last 5000 lines, so an ask can rotate out. If none is in
+    the log, the age is AT LEAST the age of the oldest record, and `in_log` says it is a
+    lower bound, not a date."""
+    our = our_id()
+    last, oldest = None, None
+    for rec in iter_decisions():
+        ts = _s(rec.get("ts"))
+        if not ts:
+            continue
+        if oldest is None or ts < oldest:
+            oldest = ts
+        if is_ask(rec, our) and (last is None or ts > last):
+            last = ts
+    age_h = _age_h(last or oldest, now)
+    return {"last_ask": last, "in_log": last is not None,
+            "age_d": None if age_h is None else age_h / 24.0, "starve_after_d": STARVE_D}
+
+
+def _health_reason(state, run_age, in_age, a, gen=None, drafts=None, ask=None):
     """One sentence per state, and each one names ITS OWN mechanism.
 
     A fall-through that describes some other state's mechanism is worse than no sentence: it
@@ -898,9 +1158,21 @@ def _health_reason(state, run_age, in_age, a, gen=None):
                 f"code running now -- rebuild with `learn.py --reset`")
     if state == "FAILING":
         g = gen or {}
+        dg = drafts or {}
+        if (g.get("recent_failed") or 0) < GEN_FAIL_RUN and (dg.get("recent_failed") or 0) >= GEN_FAIL_RUN:
+            return (f"the loop is running, but the last {dg.get('recent_failed')} drafted replies "
+                    f"all failed ({dg.get('last_status')}) -- drafts call the same model the "
+                    f"responder does, so a live question would fail the same way")
         return (f"the loop is running, but the last {g.get('recent_failed')} model replies all "
                 f"failed ({g.get('last_status')}, newest {_fmt_age(g.get('last_fail_age_h'))} ago) "
                 f"-- 'nothing new' here may be replies that never happened")
+    if state == "STARVED":
+        k = ask or {}
+        d = k.get("age_d")
+        span = "?" if d is None else f"{d:.0f}"
+        since = f"in {span} days" if k.get("in_log", True) else f"in the retained log ({span}+ days)"
+        return (f"the loop is running and input is flowing, but nobody has asked Cal anything "
+                f"it could learn from {since} -- greetings and signal tests do not count")
     return f"unrecognised state {state!r}"
 
 
@@ -932,20 +1204,22 @@ def health(now=None):
                     rec = json.loads(ln)
                 except Exception:
                     continue
-                if rec.get("ts"):
-                    last_run, runs = rec["ts"], runs + 1
+                if isinstance(rec, dict) and _s(rec.get("ts")):
+                    last_run, runs = _s(rec["ts"]), runs + 1
     except Exception:
         pass
 
     last_input = ""
     for rec in iter_decisions():
-        ts = rec.get("ts") or ""
+        ts = _s(rec.get("ts"))
         if ts > last_input:
             last_input = ts
     last_input = last_input or None
 
     a = audit()
     gen = _gen_health(now)
+    dgen = _drafts_gen_health(now)
+    ask = _ask_health(now)
     run_age, in_age = _age_h(last_run, now), _age_h(last_input, now)
 
     # Flags are collected, not short-circuited: two things can be wrong at once, and a strip
@@ -957,16 +1231,19 @@ def health(now=None):
         flags.append("LATE")
     if in_age is not None and in_age > INPUT_STALL_H:
         flags.append("STALLED")
-    if gen["recent_failed"] >= GEN_FAIL_RUN:
+    if gen["recent_failed"] >= GEN_FAIL_RUN or (dgen or {}).get("recent_failed", 0) >= GEN_FAIL_RUN:
         flags.append("FAILING")
     if a.get("stale"):
         flags.append("DRIFT")
+    if ask["age_d"] is not None and ask["age_d"] > STARVE_D:
+        flags.append("STARVED")
 
     # Precedence is upstream-first: a loop that has not run makes every number under it old,
     # so naming DRIFT while the job itself is dead would point at the wrong repair. The strip
     # renders all four facts regardless, so precedence chooses the chip -- it hides nothing.
+    # STARVED is last: everything is working, there is just nothing to learn from.
     state = "FRESH"
-    for s in ("UNKNOWN", "LATE", "STALLED", "FAILING", "DRIFT"):
+    for s in ("UNKNOWN", "LATE", "STALLED", "FAILING", "DRIFT", "STARVED"):
         if s in flags:
             state = s
             break
@@ -988,8 +1265,8 @@ def health(now=None):
             "stall_after_h": INPUT_STALL_H,
             "stale": a.get("stale"), "audited": a.get("audited"),
             "delta": a.get("delta") or {},
-            "gen": gen,
-            "reason": _health_reason(state, run_age, in_age, a, gen)}
+            "gen": gen, "drafts_gen": dgen, "ask": ask,
+            "reason": _health_reason(state, run_age, in_age, a, gen, dgen, ask)}
 
 
 def git_head():

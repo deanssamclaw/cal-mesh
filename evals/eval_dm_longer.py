@@ -122,6 +122,11 @@ def run():
     check("DM persona grants no context freedom", "speak freely" not in p)
     check("DM persona drops the 5-7 word rule", "5-7 words" not in p)
     check("public persona still capped at 5-7 words", "5-7 words" in R.PERSONA)
+    # No invented facts, in all three (2026-11-25; measured in responder.py beside NO_INVENTION).
+    check("public persona forbids invented facts", R.NO_INVENTION in R.PERSONA)
+    check("DM persona forbids invented facts", R.NO_INVENTION in R.PERSONA_DM_AUTHED)
+    check("unlock persona forbids invented facts beyond its context",
+          "never guess one" in R.PERSONA_PRIVATE and "Beyond that context" in R.PERSONA_PRIVATE)
 
     # ---- plan_response: general path gets the budget -------------------------------------
     plan = R.plan_response(on, PEER, "cal how does a mesh work?", dm_authed=True)
@@ -189,6 +194,10 @@ MUTATIONS = [
     ("persona drops the location refusal",
      lambda: setattr(R, "PERSONA_DM_AUTHED", R.PERSONA_DM_AUTHED.replace(
          "NEVER reveal Dean's location, personal life, schedule, or work; ", ""))),
+    ("public persona drops the no-invention rule",
+     lambda: setattr(R, "PERSONA", R.PERSONA.replace(R.NO_INVENTION, ""))),
+    ("unlock persona drops the no-invention rule",
+     lambda: setattr(R, "PERSONA_PRIVATE", R.PERSONA_PRIVATE.replace("never guess one", ""))),
     ("DM persona becomes the unlock persona",
      lambda: setattr(R, "PERSONA_DM_AUTHED", R.PERSONA_PRIVATE)),
     ("defaults ship enabled",
@@ -201,7 +210,8 @@ MUTATIONS = [
 def self_test():
     import copy
     base_defaults = copy.deepcopy(R.DEFAULTS)
-    originals = {n: getattr(R, n) for n in ("dm_longer", "PERSONA_DM_AUTHED")}
+    originals = {n: getattr(R, n) for n in ("dm_longer", "PERSONA_DM_AUTHED", "PERSONA",
+                                            "PERSONA_PRIVATE")}
     print("negative controls — each mutation MUST be caught:")
     all_caught = True
     for name, mutate in MUTATIONS:

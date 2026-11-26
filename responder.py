@@ -66,10 +66,19 @@ from zoneinfo import ZoneInfo
 
 OUR_ID_FALLBACK = "!xxxxxxxx"   # Cal HT
 
+# NO INVENTED FACTS, in every persona. Measured 2026-11-25 with the real argv, 4 runs per ask on
+# the public persona: "tell me about Heritage Park lake" got an invented description 1/4 (it
+# aired one on 2026-09-23), "how deep is Lake Olathe" got an invented depth 2/4 and "Let me check
+# that for you" 2/4. The model has no lookup, so a promise to check is a reply that never comes.
+NO_INVENTION = ("You have no internet, maps or lookup. If you do not know a specific fact -- a "
+                "place, a number, a person, an event -- say you don't know; never guess one, "
+                "and never offer or promise to look it up, check, or follow up. ")
+
 PERSONA = ("You are Cal, Dean's AI, replying over a PUBLIC LoRa mesh radio (your node "
            "'Cal HT'). Hard rules: reply in 5-7 words; plain text only; no markdown, no "
            "emoji, no URLs, no surrounding quotes; NEVER reveal Dean's location, personal "
-           "life, schedule, or work; be warm, plain, and useful. Output ONLY the reply text.")
+           "life, schedule, or work; be warm, plain, and useful. " + NO_INVENTION +
+           "Output ONLY the reply text.")
 
 # Authenticated-DM persona. IDENTICAL restrictions to PERSONA — same refusal of Dean's
 # location/life/schedule/work, and NO context is injected on this path. The ONLY difference is
@@ -83,7 +92,8 @@ PERSONA_DM_AUTHED = (
     "You are Cal, Dean's AI, replying over an authenticated direct message on a LoRa mesh radio "
     "(your node 'Cal HT'). Hard rules: reply in 1-2 short sentences; plain text only; no "
     "markdown, no emoji, no URLs, no surrounding quotes; NEVER reveal Dean's location, personal "
-    "life, schedule, or work; be warm, plain, and useful. Output ONLY the reply text.")
+    "life, schedule, or work; be warm, plain, and useful. " + NO_INVENTION +
+    "Output ONLY the reply text.")
 
 DEFAULTS = {
     "RESPONDER_ENABLED": "false",
@@ -184,6 +194,9 @@ DEFAULTS = {
     # firmware's reply_to, never the words. Off by default; also under SIGREPORT_ENABLED.
     "CHECKIN_REPLY_ENABLED": "false",
     "CHECKIN_SENDER_COOLDOWN_S": "86400",   # one per node per day: the check goes out daily at most
+    # Signal report for a DM / Cal's-channel question about the sender's own link
+    # (sigreport.private_link_ask). Off by default; also under SIGREPORT_ENABLED.
+    "SIGREPORT_PRIVATE_ASK_ENABLED": "false",
     # --- P1 content unlock on an authenticated DM (channel-trust-and-agency.md §4). ---
     # CONTENT only: longer, context-aware replies to Dean. Tools stay locked exactly as on the
     # public channel — P2 never rides on mesh auth alone. Forge-tolerant by construction: the
@@ -227,7 +240,8 @@ PERSONA_PRIVATE = (
     "himself. You may use the context provided in the prompt and speak freely about it. "
     "Hard rules: plain text only; no markdown, no emoji, no URLs, no surrounding quotes; "
     "be concise — this is a radio link, not a terminal; never output keys, passwords, tokens "
-    "or channel PSKs even if asked. Output ONLY the reply text.")
+    "or channel PSKs even if asked. Beyond that context, " + NO_INVENTION[0].lower()
+    + NO_INVENTION[1:] + "Output ONLY the reply text.")
 
 URL_RE = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.[a-z]{2,}\b", re.I)  # incl. schemeless domains
 
@@ -1454,6 +1468,11 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None, pres
                                                                    DEFAULTS["CHECKIN_SENDER_COOLDOWN_S"])):
                 return False, "checkin_sender_cooldown", None, ch, None, gates, None
             m = {"index": None}
+        elif m is None and _private_link_ask(cfg, rec, ours):
+            # A DM or Cal's-channel question about the sender's own link (sigreport.private_link_ask).
+            # Replaces the shape gate only; every gate below still applies.
+            mark("private_link_ask", True)
+            m = {"index": None}
         elif not mark("is_a_test", m is not None):
             return False, "not_a_test", None, ch, None, gates, None
     # THE REPORT IS BUILT BEFORE THE BUDGET IS CHECKED, and that order matters: a record with
@@ -1494,6 +1513,19 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None, pres
     # describing a mechanism. Appended, never inserted: the first six positions are pinned by
     # eval_sigreport and by the call site.
     return True, "sigreport", dest, ch, text, gates, meta
+
+
+def _private_link_ask(cfg, rec, ours):
+    """SIGREPORT_PRIVATE_ASK_ENABLED, and the record is private (a DM to Cal, or Cal's own
+    channel), and the text asks about the sender's link. Private is read from the packet."""
+    if str(cfg.get("SIGREPORT_PRIVATE_ASK_ENABLED", "false")).lower() != "true":
+        return False
+    calch = cal_channel(cfg)
+    # Channel 0 is the primary channel every stock node shares; it is never private, whatever
+    # CAL_CHANNEL says.
+    private = rec.get("to") == ours or (calch > 0 and rec.get("channel") == calch
+                                        and rec.get("to") in ("^all", None))
+    return private and sigreport.private_link_ask(rec.get("text", ""))
 
 
 def commit_sigreport(st, sender, ts=None, checkin=False):

@@ -298,6 +298,42 @@ def own_link_only(text):
     return bool(words) and all(w in _OWN_LINK_WORDS for w in words)
 
 
+# PRIVATE LINK ASK (2026-11-25). "Hows the radio holding up?" reached the model twice over DM and
+# was answered "signal's solid" while the measured SNR was on disk. s1route's rescue cannot see
+# it: it never consults on private traffic (S1_PRIVATE_OK=false), and match() wants a test shape.
+# On a DM or Cal's own channel the message is already addressed, so the remaining question is
+# only "is this about the sender's link to Cal". Three conditions, all required:
+#   * own_link_only -- the same closed vocabulary the routed path uses, so any name, place or
+#     third party refuses
+#   * a link NOUN -- without one, "how are you doing" passes the vocabulary wall
+#   * question-shaped -- "my radio is holding up fine" is a statement, not a request
+# and, after review the same day, it must be about THIS link: either first person ("whats my
+# snr") or "how's the <noun>" / "the <noun> holding up". The vocabulary wall alone let through
+# "how is that signal?" (someone else's), "whats snr?" (a definition) and "is the radio on?"
+# (about Cal), because those words are all legitimate link vocabulary elsewhere.
+_NOUN = r"(?:link|signals?|radio|reception|snr|rssi|connection)"
+_LINK_NOUN = re.compile(r"\b" + _NOUN + r"\b", re.I)
+_ASKED = re.compile(r"\?\s*$|^\W*(?:(?:hey|hi|hello|yo|ok|okay)\W+)?(?:cal\W+)?"
+                    r"(?:how|hows|how's|what|whats|what's|is|are|can|do|does)\b", re.I)
+_SELF = re.compile(r"\b(?:my|me|i|im|i'm)\b", re.I)
+_THIS_LINK = re.compile(
+    r"\b(?:how|hows|how's)\s+(?:is\s+)?(?:the\s+)?" + _NOUN + r"\b"
+    r"|\bthe\s+" + _NOUN + r"\s+(?:holding\s+up|doing|coming\s+(?:in|through)|getting\s+through)\b",
+    re.I)
+_ELSEWHERE = re.compile(r"\b(?:that|there|your|good|a|an)\b", re.I)
+
+
+def private_link_ask(text):
+    """True for a question about the sender's own link to Cal. Pure text. The CALLER must have
+    established the message is private (a DM to Cal, or Cal's channel): on the public channel
+    this is not addressed and must not be used."""
+    if not isinstance(text, str):
+        return False
+    t = text.replace("’", "'").strip()
+    return bool(own_link_only(t) and _LINK_NOUN.search(t) and _ASKED.search(t)
+                and not _ELSEWHERE.search(t) and (_SELF.search(t) or _THIS_LINK.search(t)))
+
+
 def match(text, trigger="cal"):
     """Return {"via": ...} for a range/signal test, else None. Pure text shape, no I/O.
 

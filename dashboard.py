@@ -740,8 +740,15 @@ def build_learning(top=6, runs=20):
     except Exception:
         graded = []
     open_grades = [g for g in graded if not g.get("triaged")]
+    # Live, like health: the texts are already on the Simulated Replies tab, and a failed read is
+    # None so the panel says it could not read the drafts rather than showing an empty list.
+    try:
+        overheard = _learn.overheard() if _learn else None
+    except Exception:
+        overheard = None
     return {
         "health": health,
+        "overheard": overheard,
         "scoreboard": {
             "untriaged": last.get("untriaged", len(untriaged)),
             "armed": last.get("armed", len(armed)),
@@ -6563,6 +6570,7 @@ border:1px solid var(--line);background:var(--card);color:var(--fg)}
 border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 .gsaid{font-size:12px;color:var(--dim)}
 #pane-learn .lchip.unknown{background:#fff8c5;color:var(--warn);border-color:#f0e08a}
+#pane-learn .lchip.warn{background:#fff1e0;color:#9a4a00;border-color:#f5c58a}
 #pane-learn .lhwhy{color:var(--dim);font-size:12.5px}
 #pane-learn .lfacts{display:flex;flex-wrap:wrap;gap:1px;background:var(--line)}
 #pane-learn .lfact{flex:1 1 150px;background:var(--card);padding:10px 14px}
@@ -6909,6 +6917,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     the open queue. A bar in <span class="lwarn">warning colour</span> is a run that landed more
     than 26 h after the one before it, which is the schedule slipping.</p>
     <div class="tiles" id="lrn-stats"></div>
+    <div class="lsec"><h3>Overheard &mdash; asked on the mesh, no reply</h3><div id="lrn-overheard"></div></div>
     <div class="lsec"><h3>Graded from the page</h3><div id="lrn-graded"></div></div>
     <div class="lsec"><h3>Armed</h3><div id="lrn-armed"></div></div>
     <div class="lsec"><h3>Waiting on an oracle</h3>
@@ -8118,7 +8127,7 @@ function drawHealth(H){
       +'<span class="lhwhy">this page could not read the distiller&rsquo;s health</span></div>';
     return; }
   const F=H.flags||[];
-  const cls={FRESH:'ok',LATE:'bad',STALLED:'bad',FAILING:'bad',DRIFT:'bad',UNKNOWN:'unknown'}[H.state]||'unknown';
+  const cls={FRESH:'ok',LATE:'bad',STALLED:'bad',FAILING:'bad',DRIFT:'bad',STARVED:'warn',UNKNOWN:'unknown'}[H.state]||'unknown';
   const fact=(k,v,warn)=>`<div class="lfact${warn?' warn':''}"><div class="lk">${k}</div><div class="lv">${v}</div></div>`;
   el.innerHTML=
      `<div class="lhrow"><span class="lchip ${cls}">${esc(H.state)}</span>`
@@ -8127,8 +8136,23 @@ function drawHealth(H){
     +fact('next run due',`<span id="lrn-agenext">${untilTxt(H.next_expected)}</span>`,F.includes('LATE'))
     +fact('last inbound',`<span id="lrn-agein">${ageTxt(H.input_age_h)}</span> ago`,F.includes('STALLED'))
     +fact('bank check',(H.stale==null?'?':H.stale)+' stale of '+(H.audited??0),F.includes('DRIFT'))
-    +(H.gen?fact('model replies',H.gen.recent_failed?`last ${H.gen.recent_failed} failed`:'last one ok',F.includes('FAILING')):'')
+    +(H.gen?fact('model replies',H.gen.recent_failed?`last ${H.gen.recent_failed} failed`:'last one ok',F.includes('FAILING')&&H.gen.recent_failed>=(H.gen.fail_after||3)):'')
+    +(H.drafts_gen?fact('drafted replies',H.drafts_gen.recent_failed?`last ${H.drafts_gen.recent_failed} failed`:'last one ok',(H.drafts_gen.recent_failed||0)>=(H.drafts_gen.fail_after||3)):'')
+    +(H.ask?fact('last real ask',H.ask.age_d==null?'?':(H.ask.in_log?'':'over ')+Math.round(H.ask.age_d)+' d ago',F.includes('STARVED')):'')
     +`</div>`;
+}
+function drawOverheard(O){
+  const el=$('#lrn-overheard'); if(!el) return;
+  // Absent payload says so; it never renders as an empty, healthy list.
+  if(!O){ el.innerHTML='<div class="empty">This page could not read the drafts.</div>'; return; }
+  const T=O.top||[];
+  const head=`<div class="lmeta">${O.heard??0} public messages Cal stayed silent on in ${O.days??14} d &middot; `
+    +`${O.questions??0} question-shaped &middot; ${O.doer_could??0} a doer could have answered`
+    +((O.drafts_failed||0)?` &middot; <span class="lwarn">${O.drafts_failed} drafts failed</span>`:'')+`</div>`;
+  el.innerHTML=head+(T.length?T.map(q=>
+    `<div class="lrow"><div class="lask">${esc(q.text||'')}</div>`
+    +`<div class="lmeta">${q.n}&times; &middot; last ${daystamp(q.last)}</div></div>`).join('')
+    :'<div class="empty">No unanswered questions overheard.</div>');
 }
 function drawSpark(hist){
   const el=$('#lrn-spark'); if(!el) return;
@@ -8243,8 +8267,9 @@ function renderLearning(L){
   // on every single tick and re-run every innerHTML write underneath it -- which is precisely
   // the cost the signature exists to avoid.
   paintAges(H);
-  const lsig=JSON.stringify([sb,L.armed,L.untriaged,L.corrections,L.history,
-    H&&[H.state,H.flags,H.stale,H.audited,H.last_run,H.last_input,H.next_expected]]);
+  const lsig=JSON.stringify([sb,L.armed,L.untriaged,L.corrections,L.history,L.overheard,
+    H&&[H.state,H.flags,H.stale,H.audited,H.last_run,H.last_input,H.next_expected,
+        H.ask&&H.ask.last_ask,H.drafts_gen&&H.drafts_gen.recent_failed]]);
   if(lsig===lastLsig) return;
   lastLsig=lsig;
   drawHealth(H);
@@ -8263,7 +8288,12 @@ function renderLearning(L){
     // wrong is a scarcer signal than the distiller noticing an ask went unanswered, and adding
     // the two together would bury it inside a bigger number.
     tile('graded, still open', sb.graded_open??0, 'from the page'),
+    // What the mesh asked that nobody answered, and drafts nobody has graded. Neither is an
+    // alarm on its own; together they say whether the loop has anything to learn from.
+    tile('overheard questions', (L.overheard&&L.overheard.unthreaded)??0, 'no reply, last '+((L.overheard&&L.overheard.days)||14)+' d'),
+    tile('drafts to grade', (L.overheard&&L.overheard.ungraded)??0, L.overheard&&L.overheard.last_grade?'last graded '+daystamp(L.overheard.last_grade):'never graded'),
   ].join('');
+  drawOverheard(L.overheard);
   const G=L.graded||[];
   const gbox=$('#lrn-graded');
   if(gbox){
