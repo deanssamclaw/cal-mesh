@@ -306,6 +306,43 @@ RECORDS = (
         "oracle_key": None,
     },
     {
+        "flag": "SIGREPORT_PRIVATE_ASK_ENABLED", "name": "private link question", "kind": "doer",
+        "module": "sigreport.py", "model_runs": False,
+        "answers": "The same signal report, for a question about the sender's own link asked "
+                   "in a DM or on Cal's own channel (Hows the radio holding up?), added "
+                   "2026-11-25.",
+        "trigger": "A DM to Cal or a message on Cal's channel whose every word is link "
+                   "vocabulary, with a link noun, asked as a question, about this link.",
+        "who": "anyone who DMs Cal, and members of Cal's channel",
+        "out_of_scope": [
+            {"limit": "Never on the public channel, and never on channel 0 whatever "
+                      "CAL_CHANNEL says.", "where": "responder.py:_private_link_ask"},
+            {"limit": "A question about someone else's link, a definition (whats snr) or Cal's "
+                      "own radio is refused.", "where": "sigreport.py:private_link_ask"},
+            {"limit": "Every signal-report rule still applies.",
+             "where": "responder.py:plan_sigreport"},
+        ],
+        "oracle_key": None,
+    },
+    {
+        "flag": "SIGREPORT_TEST_EXCHANGE_ENABLED", "name": "test exchange report", "kind": "doer",
+        "module": "sigreport.py", "model_runs": False,
+        "answers": "The same signal report, for a report inside somebody's test (Received in "
+                   "OP, 2 hops to Waldo, 87b3 1 hop), even when it replies to or names another "
+                   "station. The operator's ruling of 2026-11-26.",
+        "trigger": "A broadcast of twelve words or fewer that carries a hop count, leads with "
+                   "a report word, or holds a report phrase, and asks nothing.",
+        "who": "anyone",
+        "out_of_scope": [
+            {"limit": "Chatter that merely replies to someone stays silent; a bare Copy counts "
+                      "only inside an exchange; a question is not a report.",
+             "where": "sigreport.py:test_exchange"},
+            {"limit": "Broadcasts only, and every signal-report rule still applies.",
+             "where": "responder.py:plan_sigreport"},
+        ],
+        "oracle_key": None,
+    },
+    {
         "flag": "GREETING_ENABLED", "name": "greeting ack", "kind": "doer",
         "module": "responder.py", "model_runs": False,
         "answers": "Mirrors a bare greeting back, in register and never with the same words.",

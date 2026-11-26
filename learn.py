@@ -637,6 +637,31 @@ def render_md(agg, state, tr):
         lines.append("_(no unthreaded questions)_")
     lines.append("")
 
+    try:
+        g = _policy_grade()
+    except Exception as e:
+        g = {"error": type(e).__name__}
+    lines.append(f"## Policy — what Cal should have done, last {g.get('days', '?')} days")
+    lines.append("")
+    if g.get("error"):
+        lines.append(f"_Could not grade ({g['error']})._")
+    else:
+        lines.append(f"_Every inbound message checked against the operator's rulings of "
+                     f"{g['ruled']}. No human grading. A broken rule is a defect with code behind it._")
+        lines.append("")
+        lines.append(f"**{g['ok']} of {g['n']} follow the rulings.**")
+        lines.append("")
+        lines.append("| rule | seen | broken |")
+        lines.append("|---|---:|---:|")
+        for r, v in g["by_rule"].items():
+            lines.append(f"| {r}: {g['rules'][r]} | {v['n']} | {v['bad']} |")
+        lines.append("")
+        for r, ex in g["examples"].items():
+            for e in ex:
+                lines.append(f"- {r} {e['ts']}: \"{e['text']}\" — expected {e['expected']}, "
+                             f"did {e['did']}")
+    lines.append("")
+
     # Every correction, including ones on doers that never appeared as a cluster. A doer fixed
     # after arming is the counter-metric; if it only ever showed as a number in the scoreboard
     # it would be the easiest thing in this file to stop looking at.
@@ -870,7 +895,25 @@ def snapshot(agg, tr):
         "graded_open": sum(1 for g in grade_queue(tr) if not g["triaged"]),
         "graded_total": len(grade_queue(tr)),
         **_overheard_counts(),
+        **_policy_counts(),
     }
+
+
+def _policy_grade():
+    """policy.grade(), imported here: policy imports learn, so a top-level import would cycle."""
+    import policy
+    return policy.grade()
+
+
+def _policy_counts():
+    """The policy grade as flat numbers for the history line; `policy_ok_run` False if it raised."""
+    try:
+        g = _policy_grade()
+        return {"policy_ok_run": True, "policy_n": g["n"], "policy_ok": g["ok"],
+                "policy_bad": g["bad"],
+                **{f"policy_bad_{r}": v["bad"] for r, v in g["by_rule"].items()}}
+    except Exception:
+        return {"policy_ok_run": False}
 
 
 def _overheard_counts():

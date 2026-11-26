@@ -298,6 +298,53 @@ def own_link_only(text):
     return bool(words) and all(w in _OWN_LINK_WORDS for w in words)
 
 
+# TEST EXCHANGE (2026-11-26, Dean's ruling). A report inside somebody's test -- "Received in OP",
+# "2 hops to Waldo", "87b3 1 hop" -- gets Cal's own measurement of that packet, even when it
+# replies to or names another station. That reverses the 2026-09-25 "their exchange" refusal for
+# REPORT-SHAPED messages only; chatter that happens to reply to someone is still left alone.
+# Shape, measured by replay over all 1,291 inbound before it was written down:
+#   * a hop count anywhere ("3 hops", "3 of 3 hops", "direct contact"), or
+#   * a report word LEADING the message ("Received ...", "Heard in ...", "Test ...", "Ack ..."),
+#     optionally after a 4-character short name ("e260... Rcvd ..."), or
+#   * a report phrase anywhere ("heard in", "received at", "got you", "test received")
+# and no question mark, at most 12 words, no word another doer owns. "heard" mid-sentence is
+# NOT enough: "I heard about that show" and "I heard the NWS is down" were the false fires.
+# A bare acknowledgement ("Copy", "Gotcha") counts only as a REPLY inside an exchange.
+# Tightened after adversarial review the same day, which made it fire on "Rec center is open till
+# 9", "Copy machine at work is broken", "Received my new radio today" and "I got it at Walmart":
+#   * the optional short-name prefix is a 4-HEX node name ("e260", "87b3"), not any 4-letter word
+#   * a leading receipt word must be followed by the end, punctuation, a place preposition or a
+#     number -- "Received in OP" yes, "Received my new radio" no. "Test"/"Testing" lead freely:
+#     on this mesh a message that starts with it has been a radio test every time on record.
+#   * "rec" alone and "got it at" are gone; the hop rule still catches "Rec 7 hops".
+#   * "heard/got you" is not here: an "I hear you" report belongs to match()'s contact rule.
+_TX_HOPS = re.compile(r"\b\d+\s*(?:of\s+\d+\s+)?hops?\b|\bdirect\s+(?:contact|connection)\b", re.I)
+_TX_PREFIX = r"^\W*(?:[0-9a-f]{4}\b\W*)?"
+_TX_LEAD = re.compile(_TX_PREFIX + r"(?:test(?:ing)?\b"
+                      r"|(?:heard|received|rcvd|copy|copied|gotcha|ack)"
+                      r"(?=\W*$|\s*[-,.:;!]|\s+(?:in|near|from|at|to|on|here|\d)\b"
+                      r"|(?-i:\s+[A-Z0-9])))", re.I)   # a place: "Received OP 103rd", "Heard Quality Hill"
+_TX_PHRASE = re.compile(r"\b(?:heard|received|rcvd|copy)\s+(?:in|near|from|at)\b"
+                        r"|\btest\s+(?:received|heard)\b", re.I)
+_TX_BARE_ACK = re.compile(r"^\W*(?:good\s+)?(?:copy|copied|gotcha|ack|received|rcvd)\W*$", re.I)
+_TX_MAX_WORDS = 12
+
+
+def test_exchange(text, is_reply=False):
+    """True if the text is a report inside a test exchange (see above). Pure text. The caller
+    keeps it off messages that name Cal and off replies to anything Cal sent."""
+    if not isinstance(text, str):
+        return False
+    t = text.replace("’", "'").replace("？", "?").strip()
+    if not t or "?" in t or len(t.split()) > _TX_MAX_WORDS:
+        return False
+    if _TX_BARE_ACK.match(t) and not is_reply:
+        return False
+    if _claims_other_doer(t):
+        return False
+    return bool(_TX_HOPS.search(t) or _TX_LEAD.search(t) or _TX_PHRASE.search(t))
+
+
 # PRIVATE LINK ASK (2026-11-25). "Hows the radio holding up?" reached the model twice over DM and
 # was answered "signal's solid" while the measured SNR was on disk. s1route's rescue cannot see
 # it: it never consults on private traffic (S1_PRIVATE_OK=false), and match() wants a test shape.

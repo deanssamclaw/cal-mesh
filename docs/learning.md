@@ -193,6 +193,26 @@ record classified GAP, CLARIFY, NO_TABLE, THROTTLED, REFUSED, or a HIT from any 
 sigreport. Over the 53 asks on record the largest gap was 22.7 days, so the threshold is 30. It
 is amber, not red: nothing is broken, there is just nothing to learn from.
 
+### Policy
+
+Grading drafts by hand never took hold: every one of the 44 draft grades on record came from a
+programmatic review (`by: cal-review`, 2026-09-12), none from a person. A model grader tested
+blind against those 44 reached 57% at best, which measured one pass of Cal against another,
+not against the operator. So the operator ruled once instead (2026-11-26), and `policy.py`
+checks every inbound message against the rulings:
+
+| rule | ruling |
+|---|---|
+| P1 | a tapback gets silence; a wave on Cal's own message may be mirrored |
+| P2 | a check-in on the public channel gets a signal report, Cal named or not |
+| P3 | a report inside another station's test exchange gets a signal report |
+| P4 | no model-written words on the public channel unless Cal is named |
+
+Its shapes are its own, written apart from the matchers it grades, so it can disagree with
+them. Over the 30 days before the rulings: 333 of 385 messages conformed; the 52 that did not
+were all P2/P3 silence, which `SIGREPORT_TEST_EXCHANGE_ENABLED` closes. Read-only, published under
+Learning Loops and in every history line. `eval_policy.py` drives each rule both ways.
+
 ### Overheard
 
 The ledger only sees asks addressed to Cal — one in 706 messages from 09-25 to 11-25. `overheard()`

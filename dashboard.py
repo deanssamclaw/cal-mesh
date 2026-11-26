@@ -746,9 +746,14 @@ def build_learning(top=6, runs=20):
         overheard = _learn.overheard() if _learn else None
     except Exception:
         overheard = None
+    try:
+        policy = _learn._policy_grade() if _learn else None
+    except Exception:
+        policy = None
     return {
         "health": health,
         "overheard": overheard,
+        "policy": policy,
         "scoreboard": {
             "untriaged": last.get("untriaged", len(untriaged)),
             "armed": last.get("armed", len(armed)),
@@ -6917,6 +6922,7 @@ details.tr[open]>summary:hover{border-color:#4478ad;
     the open queue. A bar in <span class="lwarn">warning colour</span> is a run that landed more
     than 26 h after the one before it, which is the schedule slipping.</p>
     <div class="tiles" id="lrn-stats"></div>
+    <div class="lsec"><h3>Policy &mdash; what Cal should have done</h3><div id="lrn-policy"></div></div>
     <div class="lsec"><h3>Overheard &mdash; asked on the mesh, no reply</h3><div id="lrn-overheard"></div></div>
     <div class="lsec"><h3>Graded from the page</h3><div id="lrn-graded"></div></div>
     <div class="lsec"><h3>Armed</h3><div id="lrn-armed"></div></div>
@@ -8141,6 +8147,18 @@ function drawHealth(H){
     +(H.ask?fact('last real ask',H.ask.age_d==null?'?':(H.ask.in_log?'':'over ')+Math.round(H.ask.age_d)+' d ago',F.includes('STARVED')):'')
     +`</div>`;
 }
+function drawPolicy(P){
+  const el=$('#lrn-policy'); if(!el) return;
+  if(!P){ el.innerHTML='<div class="empty">This page could not grade against the rulings.</div>'; return; }
+  const R=P.by_rule||{}, X=P.examples||{};
+  el.innerHTML=`<div class="lmeta"><b>${P.ok??0} of ${P.n??0}</b> messages in ${P.days??14} d followed the operator&rsquo;s rulings of ${esc(P.ruled||'')}. Graded by code, not by a person.</div>`
+    +Object.keys(R).map(k=>{
+      const v=R[k]||{}, ex=X[k]||[];
+      return `<div class="lrow${v.bad?' bad':''}"><div class="lask">${esc(k)}: ${esc((P.rules||{})[k]||'')}</div>`
+        +`<div class="lmeta">${v.n??0} seen &middot; ${v.bad?`<span class="lwarn">${v.bad} broken</span>`:'0 broken'}</div>`
+        +ex.slice(0,3).map(e=>`<div class="lmeta">&ldquo;${esc(e.text||'')}&rdquo; &mdash; expected ${esc(e.expected||'')}, did ${esc(e.did||'')}</div>`).join('')
+        +`</div>`;}).join('');
+}
 function drawOverheard(O){
   const el=$('#lrn-overheard'); if(!el) return;
   // Absent payload says so; it never renders as an empty, healthy list.
@@ -8267,7 +8285,7 @@ function renderLearning(L){
   // on every single tick and re-run every innerHTML write underneath it -- which is precisely
   // the cost the signature exists to avoid.
   paintAges(H);
-  const lsig=JSON.stringify([sb,L.armed,L.untriaged,L.corrections,L.history,L.overheard,
+  const lsig=JSON.stringify([sb,L.armed,L.untriaged,L.corrections,L.history,L.overheard,L.policy,
     H&&[H.state,H.flags,H.stale,H.audited,H.last_run,H.last_input,H.next_expected,
         H.ask&&H.ask.last_ask,H.drafts_gen&&H.drafts_gen.recent_failed]]);
   if(lsig===lastLsig) return;
@@ -8290,10 +8308,14 @@ function renderLearning(L){
     tile('graded, still open', sb.graded_open??0, 'from the page'),
     // What the mesh asked that nobody answered, and drafts nobody has graded. Neither is an
     // alarm on its own; together they say whether the loop has anything to learn from.
+    tile('follows your rules', L.policy&&L.policy.n?Math.round(100*L.policy.ok/L.policy.n)+'%':'?',
+         L.policy?(L.policy.bad+' broken, last '+L.policy.days+' d'):'could not grade',
+         L.policy&&L.policy.bad>0?'alarm':''),
     tile('overheard questions', (L.overheard&&L.overheard.unthreaded)??0, 'no reply, last '+((L.overheard&&L.overheard.days)||14)+' d'),
     tile('drafts to grade', (L.overheard&&L.overheard.ungraded)??0, L.overheard&&L.overheard.last_grade?'last graded '+daystamp(L.overheard.last_grade):'never graded'),
   ].join('');
   drawOverheard(L.overheard);
+  drawPolicy(L.policy);
   const G=L.graded||[];
   const gbox=$('#lrn-graded');
   if(gbox){

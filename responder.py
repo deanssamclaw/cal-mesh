@@ -197,6 +197,9 @@ DEFAULTS = {
     # Signal report for a DM / Cal's-channel question about the sender's own link
     # (sigreport.private_link_ask). Off by default; also under SIGREPORT_ENABLED.
     "SIGREPORT_PRIVATE_ASK_ENABLED": "false",
+    # Signal report for a report inside a test exchange, including replies to and mentions of
+    # other stations (sigreport.test_exchange, 2026-11-26). Off by default; under SIGREPORT_ENABLED.
+    "SIGREPORT_TEST_EXCHANGE_ENABLED": "false",
     # --- P1 content unlock on an authenticated DM (channel-trust-and-agency.md §4). ---
     # CONTENT only: longer, context-aware replies to Dean. Tools stay locked exactly as on the
     # public channel — P2 never rides on mesh auth alone. Forge-tolerant by construction: the
@@ -1429,8 +1432,26 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None, pres
     # the caller (this function does no I/O); None means the sent log was unreadable, and an
     # unknown owner is not permission. A message that replies to nothing is unaffected.
     rt = rec.get("reply_to")
-    if rt and not mark("reply_not_to_other_station", own_ids is not None and rt in own_ids):
-        return False, "sigreport_reply_to_other_station", None, ch, None, gates, None
+    # EXCEPT a report inside a test exchange (2026-11-26, Dean's ruling): "Received in OP" in
+    # reply to someone's "Test" gets Cal's measurement of that packet. Broadcast only, its own
+    # flag, report-shaped words only (sigreport.test_exchange); every later gate still applies.
+    # Never when the message names Cal (the ladders answer that, review 2026-11-26), never for a
+    # reply to anything Cal sent (an auto-responder answering Cal's own report would loop), and
+    # never when the sent log is unreadable (an unknown owner is not permission).
+    trig = (cfg.get("TRIGGER_WORD") or "cal").strip()
+    tx_flag = (str(cfg.get("SIGREPORT_TEST_EXCHANGE_ENABLED", "false")).lower() == "true"
+               and rec.get("to") in ("^all", None) and own_ids is not None
+               and not (trig and re.search(r"\b%s\b" % re.escape(trig), rec.get("text") or "", re.I)))
+    tx = False
+    if rt and not (own_ids is not None and rt in own_ids):
+        tx = tx_flag and sigreport.test_exchange(rec.get("text", ""), is_reply=True)
+        if tx:
+            mark("test_exchange_reply", True)       # the trace names the exception, not a pass
+        else:
+            mark("reply_not_to_other_station", False)
+            return False, "sigreport_reply_to_other_station", None, ch, None, gates, None
+    elif rt:
+        mark("reply_not_to_other_station", True)
     # `forced` is s1route's rescue of an ADDRESSED message the shape rule missing ("Cal, hows the
     # link holding up?"). It replaces this one gate and no other: measurements, the quiet channel,
     # the per-sender cooldown and the daily budget below are still checked, and the trace names
@@ -1467,6 +1488,12 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None, pres
             if not mark("checkin_cooldown", ts - lastc >= _int_cfg(cfg, "CHECKIN_SENDER_COOLDOWN_S",
                                                                    DEFAULTS["CHECKIN_SENDER_COOLDOWN_S"])):
                 return False, "checkin_sender_cooldown", None, ch, None, gates, None
+            m = {"index": None}
+        elif m is None and (tx or (tx_flag and not rt
+                                   and sigreport.test_exchange(rec.get("text", "")))):
+            # A report inside a test exchange (see the reply gate above), replied or not:
+            # "87b3 1 hop", "Received in OP". Replaces the shape gate only.
+            mark("test_exchange_report", True)
             m = {"index": None}
         elif m is None and _private_link_ask(cfg, rec, ours):
             # A DM or Cal's-channel question about the sender's own link (sigreport.private_link_ask).
