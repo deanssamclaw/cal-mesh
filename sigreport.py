@@ -298,6 +298,41 @@ def own_link_only(text):
     return bool(words) and all(w in _OWN_LINK_WORDS for w in words)
 
 
+# TEST EXCHANGE (2026-11-26, Dean's ruling). A report inside somebody's test -- "Received in OP",
+# "2 hops to Waldo", "87b3 1 hop" -- gets Cal's own measurement of that packet, even when it
+# replies to or names another station. That reverses the 2026-09-25 "their exchange" refusal for
+# REPORT-SHAPED messages only; chatter that happens to reply to someone is still left alone.
+# Shape, measured by replay over all 1,291 inbound before it was written down:
+#   * a hop count anywhere ("3 hops", "3 of 3 hops", "direct contact"), or
+#   * a report word LEADING the message ("Received ...", "Heard in ...", "Test ...", "Ack ..."),
+#     optionally after a 4-character short name ("e260... Rcvd ..."), or
+#   * a report phrase anywhere ("heard in", "received at", "got you", "test received")
+# and no question mark, at most 12 words, no word another doer owns. "heard" mid-sentence is
+# NOT enough: "I heard about that show" and "I heard the NWS is down" were the false fires.
+# A bare acknowledgement ("Copy", "Gotcha") counts only as a REPLY inside an exchange.
+_TX_HOPS = re.compile(r"\b\d+\s*(?:of\s+\d+\s+)?hops?\b|\bdirect\s+(?:contact|connection)\b", re.I)
+_TX_LEAD = re.compile(r"^\W*(?:\w{4}\W+)?(?:heard|received|rcvd|rec|copy|copied|gotcha|"
+                      r"test(?:ing)?|ack)\b", re.I)
+_TX_PHRASE = re.compile(r"\b(?:heard|received|rcvd|got|copy)\s+(?:you|ya|u|in|near|from|at|it\s+at)\b"
+                        r"|\btest\s+(?:received|heard)\b", re.I)
+_TX_BARE_ACK = re.compile(r"^\W*(?:good\s+)?(?:copy|copied|gotcha|ack|received|rcvd)\W*$", re.I)
+_TX_MAX_WORDS = 12
+
+
+def test_exchange(text, is_reply=False):
+    """True if the text is a report inside a test exchange (see above). Pure text."""
+    if not isinstance(text, str) or "?" in text:
+        return False
+    t = text.replace("’", "'").strip()
+    if not t or len(t.split()) > _TX_MAX_WORDS:
+        return False
+    if _TX_BARE_ACK.match(t) and not is_reply:
+        return False
+    if _claims_other_doer(t):
+        return False
+    return bool(_TX_HOPS.search(t) or _TX_LEAD.search(t) or _TX_PHRASE.search(t))
+
+
 # PRIVATE LINK ASK (2026-11-25). "Hows the radio holding up?" reached the model twice over DM and
 # was answered "signal's solid" while the measured SNR was on disk. s1route's rescue cannot see
 # it: it never consults on private traffic (S1_PRIVATE_OK=false), and match() wants a test shape.
