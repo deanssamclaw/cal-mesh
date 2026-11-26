@@ -45,12 +45,20 @@ WINDOW_DAYS = 14
 
 _NAMED = re.compile(r"\bcal\b(?!['’]s)", re.I)
 _KEYCAP = re.compile(r"^\s*(?:[0-9#*]️?⃣\s*)+$")
-_HOPS = re.compile(r"\b\d+\s*(?:of\s+\d+\s+)?hops?\b|\bdirect\b", re.I)
-_CHECKIN = re.compile(r"^\W*(?:\w{4}\W+)?(?:test\w*|radio\s+check|range\s+test|check(?:ing)?\s+in|"
-                      r"heard|received|rcvd|rec|copy|copied|ack)\b"
-                      r"|\b(?:heard|received|rcvd|got|copy)\s+(?:you|ya|u|in|near|from|at)\b"
-                      r"|\btest\s+(?:received|heard)\b", re.I)
-_WAVES = ("\U0001F44B",)
+_HOPS = re.compile(r"\b\d+\s*(?:of\s+\d+\s+)?hops?\b|\bdirect\s+(?:contact|connection)\b", re.I)
+# Written as a CLOSED list of what a check-in or report looks like, phrased differently from the
+# matcher it grades (review 2026-11-26: an earlier version copied the matcher's loose prefix and
+# could not see the matcher's false fires). A leading word counts only when the rest is a test
+# label or a place; a receipt verb only with a place preposition or "you".
+_CHECKIN = re.compile(
+    r"^\W*(?:test(?:ing)?|radio\s+check|range\s+test|signal\s+check|check(?:ing)?\s+in)\b"
+    r"|\btest(?:ing)?\W*\d*\W*$"                     # "Firmware test", "Rooftop range test!"
+    r"|^\W*(?:any(?:one|body)\s+)?(?:you\s+)?(?:copy|hear\s+me)\W*$"
+    r"|\b(?:heard|received|rcvd|copy)\s+(?:in|near|from|at)\s+\w"
+    r"|\b(?:hear|got|copy)\s+(?:you|ya|u)\b"
+    r"|\btest\s+(?:received|heard)\b", re.I)
+_WAVE = "\U0001F44B"                                  # any skin tone: the base code point leads
+_HELD = ("channel_quiet", "sender_cooldown", "daily_budget", "has_measurements", "checkin_cooldown")
 
 
 def _sent_ids():
@@ -60,7 +68,7 @@ def _sent_ids():
 
 def checkin(text):
     """This file's own reading of 'a check-in or a report': short, and not a real question."""
-    t = learn._s(text).strip()
+    t = learn._s(text).replace("\uff1f", "?").strip()
     # A long question is a conversation; a short one ("Radio check?", "You copy??") is a check-in.
     if not t or len(t.split()) > 12 or ("?" in t and len(t.split()) > 4):
         return False
@@ -70,16 +78,16 @@ def checkin(text):
 def expected(d, p, ours, sent, own_ch):
     """(action, rule) Cal should have taken. action: silent | sigreport | any."""
     text = learn._s(d.get("text"))
-    public = d.get("to") in ("^all", None) and not (own_ch >= 0 and d.get("channel") == own_ch)
+    public = _public(d, own_ch)
     if p.get("reaction") not in (None, False):
-        if p.get("reply_to") in sent and text.strip() in _WAVES:
+        if learn._key(p.get("reply_to")) in sent and text.strip().startswith(_WAVE):
             return "wave", "P1"
         return "silent", "P1"
     if not public:
         return "any", ""                      # DMs and Cal's channel: the ladder decides
     if _NAMED.search(text):
         return "any", ""
-    rt = p.get("reply_to")
+    rt = learn._key(p.get("reply_to"))
     if rt and rt not in sent:
         return ("sigreport", "P3") if checkin(text) else ("silent", "P4")
     if checkin(text):
@@ -87,9 +95,20 @@ def expected(d, p, ours, sent, own_ch):
     return "silent", "P4"
 
 
+def _public(d, own_ch):
+    """Only an explicit broadcast is public. A record with no `to` is not assumed to be one, so
+    its text is never quoted (review 2026-11-26)."""
+    return d.get("to") == "^all" and not (own_ch >= 0 and d.get("channel") == own_ch)
+
+
 def actual(d):
-    """What Cal did: silent | sigreport | doer | words."""
+    """What Cal did: silent | held | sigreport | doer | words. `held` is a signal report that a
+    capacity or measurement gate stopped -- the rule was followed and the radio said no."""
     if not d.get("reply"):
+        g = d.get("sigreport_gates")
+        if isinstance(g, list) and any(isinstance(x, dict) and x.get("gate") in _HELD
+                                       and x.get("pass") is False for x in g):
+            return "held"
         return "silent"
     cap = d.get("capability")
     if cap == "sigreport":
@@ -104,10 +123,12 @@ def conforms(exp, act, rule=""):
         return True
     if exp == "wave":
         return act in ("doer", "silent")      # mirroring is allowed, not required
+    if exp == "sigreport":
+        return act in ("sigreport", "held")   # a gate saying no is the rule working
     if exp == "silent" and rule == "P4":
-        # P4 governs MODEL words. A doer reply -- the greeting table, a signal report -- is not
-        # prose, so it never breaks P4 (over-firing is sigreport's own eval's business).
-        return act in ("silent", "doer", "sigreport")
+        # P4 governs MODEL words; the greeting table is not prose. A signal report on chatter IS
+        # a miss: P2/P3 say which messages get one, so a report anywhere else is over-firing.
+        return act in ("silent", "held", "doer")
     return act == exp                         # P1 silence is strict: no reply of any kind
 
 
@@ -136,8 +157,7 @@ def grade(now=None, days=WINDOW_DAYS, top=8):
             by[rule]["n"] += 1
             if not good:
                 by[rule]["bad"] += 1
-                public = d.get("to") in ("^all", None) and not (own_ch >= 0 and d.get("channel") == own_ch)
-                if public and len(examples[rule]) < top:
+                if _public(d, own_ch) and len(examples[rule]) < top:
                     examples[rule].append({"ts": learn._s(d.get("ts"))[:16],
                                            "text": learn._s(d.get("text"))[:80],
                                            "expected": exp, "did": act})

@@ -61,6 +61,14 @@ NOT_REPORTS = [  # each refused for a stated reason
     ("Good copy", "a bare acknowledgement that replies to nothing"),
     ("Gotcha", "a bare acknowledgement that replies to nothing"),
     ("", "empty"),
+    # adversarial review 2026-11-26: each fired before the tightening
+    ("Rec center is open till 9", "'rec' is not a report"),
+    ("Copy machine at work is broken", "a receipt word followed by a noun"),
+    ("Received my new radio today", "a receipt word followed by a noun"),
+    ("Just heard the news about the bridge", "a 4-letter word is not a node name"),
+    ("Heard you were sick, feel better", "'heard you' is the contact rule's, not this one"),
+    ("I got it at Walmart", "'got it at'"),
+    ("Received in OP \uff1f", "a full-width question mark is still a question"),
 ]
 
 
@@ -124,6 +132,17 @@ def run():
     plain_off = plan(rec("87b3 1 hop"), cfg={"SIGREPORT_TEST_EXCHANGE_ENABLED": "false"})
     ck("flag off: the hop report is not a test", plain_off[0] is False and plain_off[1] == "not_a_test",
        plain_off[:2])
+    named = plan(rec("Copy Cal thanks for the info"))
+    ck("a message naming Cal is never this rule", "test_exchange_report" not in gates(named)
+       and "test_exchange_reply" not in gates(named), gates(named))
+    loop = plan(rec("\U0001F916 Copy, Cal.  2 hops at 14:12", reply_to=777))
+    ck("a reply to Cal's own packet is never this rule (no loop with an auto-responder)",
+       "test_exchange_report" not in gates(loop), gates(loop))
+    loop2 = plan(rec("\U0001F916 Copy, DRFT.  2 hops at 14:12", reply_to=777))
+    ck("even when it does not name Cal", "test_exchange_report" not in gates(loop2), gates(loop2))
+    nolog = responder.plan_sigreport(dict(CFG), {}, rec("Received in OP", reply_to=555), OURS,
+                                     ts=time.time(), own_ids=None)
+    ck("an unreadable sent log refuses", nolog[0] is False, nolog[:2])
     ack = plan(rec("Gotcha"))
     ck("a bare ack replying to nothing stays silent", ack[0] is False, ack[:2])
 
@@ -157,20 +176,30 @@ MUTATIONS = {
 _SRC = os.path.join(HERE, "responder.py")
 
 
-def _flag_ignored():
+# Responder guards are mutated in its SOURCE: (anchor, replacement), each anchor exactly once.
+SRC_MUTATIONS = {
+    "flag ignored": ('str(cfg.get("SIGREPORT_TEST_EXCHANGE_ENABLED", "false")).lower() == "true"',
+                     "True"),
+    "messages naming Cal not excluded": ("and not (trig and re.search(", "and not (False and re.search("),
+    "replies to Cal's own packets not excluded": ("(tx_flag and not rt", "(tx_flag"),
+    "unreadable sent log treated as readable": ("and own_ids is not None\n", "\n"),
+}
+
+
+def _src_mutant(anchor, repl):
     src = open(_SRC, encoding="utf-8").read()
-    needle = 'tx_flag = str(cfg.get("SIGREPORT_TEST_EXCHANGE_ENABLED", "false")).lower() == "true"'
-    assert needle in src, "self-test anchor missing"
+    assert src.count(anchor) == 1, f"self-test anchor missing: {anchor!r}"
     spec = importlib.util.spec_from_loader("responder_mut", loader=None)
     mod = importlib.util.module_from_spec(spec)
     mod.__file__ = _SRC
-    exec(compile(src.replace(needle, "tx_flag = True"), _SRC, "exec"), mod.__dict__)
+    exec(compile(src.replace(anchor, repl), _SRC, "exec"), mod.__dict__)
     mod.sigreport = sigreport
     mod.STATUS = _STATUS
     return mod
 
 
-MUTATIONS["flag ignored"] = None
+for _n in SRC_MUTATIONS:
+    MUTATIONS[_n] = None
 
 if __name__ == "__main__":
     fails = run()
@@ -182,8 +211,8 @@ if __name__ == "__main__":
                                                    "_TX_MAX_WORDS", "_TX_BARE_ACK", "_claims_other_doer")}
         real_responder = responder
         for name, mutate in MUTATIONS.items():
-            if name == "flag ignored":
-                globals()["responder"] = _flag_ignored()
+            if name in SRC_MUTATIONS:
+                globals()["responder"] = _src_mutant(*SRC_MUTATIONS[name])
             else:
                 mutate()
             caught = bool(run())

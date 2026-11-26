@@ -1435,11 +1435,16 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None, pres
     # EXCEPT a report inside a test exchange (2026-11-26, Dean's ruling): "Received in OP" in
     # reply to someone's "Test" gets Cal's measurement of that packet. Broadcast only, its own
     # flag, report-shaped words only (sigreport.test_exchange); every later gate still applies.
-    tx_flag = str(cfg.get("SIGREPORT_TEST_EXCHANGE_ENABLED", "false")).lower() == "true"
+    # Never when the message names Cal (the ladders answer that, review 2026-11-26), never for a
+    # reply to anything Cal sent (an auto-responder answering Cal's own report would loop), and
+    # never when the sent log is unreadable (an unknown owner is not permission).
+    trig = (cfg.get("TRIGGER_WORD") or "cal").strip()
+    tx_flag = (str(cfg.get("SIGREPORT_TEST_EXCHANGE_ENABLED", "false")).lower() == "true"
+               and rec.get("to") in ("^all", None) and own_ids is not None
+               and not (trig and re.search(r"\b%s\b" % re.escape(trig), rec.get("text") or "", re.I)))
     tx = False
     if rt and not (own_ids is not None and rt in own_ids):
-        tx = (tx_flag and rec.get("to") in ("^all", None)
-              and sigreport.test_exchange(rec.get("text", ""), is_reply=True))
+        tx = tx_flag and sigreport.test_exchange(rec.get("text", ""), is_reply=True)
         if tx:
             mark("test_exchange_reply", True)       # the trace names the exception, not a pass
         else:
@@ -1484,7 +1489,7 @@ def plan_sigreport(cfg, st, rec, ours, ts=None, forced=False, own_ids=None, pres
                                                                    DEFAULTS["CHECKIN_SENDER_COOLDOWN_S"])):
                 return False, "checkin_sender_cooldown", None, ch, None, gates, None
             m = {"index": None}
-        elif m is None and (tx or (tx_flag and rec.get("to") in ("^all", None)
+        elif m is None and (tx or (tx_flag and not rt
                                    and sigreport.test_exchange(rec.get("text", "")))):
             # A report inside a test exchange (see the reply gate above), replied or not:
             # "87b3 1 hop", "Received in OP". Replaces the shape gate only.

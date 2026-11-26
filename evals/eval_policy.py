@@ -41,11 +41,11 @@ def iso(m):
 
 
 def case(i, text, *, m=None, to="^all", ch=0, reply_to=None, reaction=None, reply=None,
-         cap=None, gen=None):
+         cap=None, gen=None, **extra):
     """One inbound message: its decision record and its inbox packet."""
     ts = iso(m if m is not None else 600 - i)
     d = {"ts": ts, "id": i, "from": "!aaaaaaaa", "to": to, "channel": ch, "text": text,
-         "reply": reply, "capability": cap, "gen_status": gen}
+         "reply": reply, "capability": cap, "gen_status": gen, **extra}
     p = {"ts": ts, "id": i, "from": "!aaaaaaaa", "to": to, "channel": ch, "text": text,
          "reply_to": reply_to, "reaction": reaction}
     return d, p
@@ -75,6 +75,17 @@ CASES = [
     ("open chatter, model words", case(15, "Beautiful sunrise over the lake this morning", **WORDS), "P4", False),
     ("open chatter, greeting doer", case(16, "Good morning mesh", **GREET), "P4", True),
     ("long question is not a check-in", case(17, "Does the channel order change how meshtastic behaves at all?"), "P4", True),
+    # review 2026-11-26
+    ("toned wave on Cal's own message, mirrored", case(18, "\U0001F44B\U0001F3FD", reaction=True, reply_to=CAL_PKT, **WAVE), "P1", True),
+    ("check-in held by the daily budget", case(19, "Test from Raytown", sigreport_gates=[{"gate": "daily_budget", "pass": False}]), "P2", True),
+    ("signal report on chatter is over-firing", case(20, "Rec center is open till 9", **SIG), "P4", False),
+    ("chatter: copy machine", case(21, "Copy machine at work is broken", **SIG), "P4", False),
+    ("chatter: new radio", case(22, "Received my new radio today", **SIG), "P4", False),
+    ("chatter: walmart", case(23, "I got it at Walmart", **SIG), "P4", False),
+    ("chatter reply answered with a report", case(24, "Copy that, heading home now", reply_to=555, **SIG), "P4", False),
+    ("contact report answered", case(25, "I hear you a3704b7d", **SIG), "P2", True),
+    ("anyone copy", case(26, "Anyone copy", **SIG), "P2", True),
+    ("a test named at the end", case(27, "Rooftop range test!", **SIG), "P2", True),
 ]
 UNGRADED = [
     ("named: the ladder decides", case(30, "Cal what's 5 mi in km", **WORDS)),
@@ -126,13 +137,18 @@ def run():
     allc += [case(40, "Test from Gardner", m=60 * 24 * 20)]          # outside the window
     allc += [case(41, "secret dm test", to=OURS)]                     # DM text must never publish
     allc += [case(42, "keyed channel test 3 hops", ch=1)]
+    nto = case(43, "no destination recorded test")
+    nto[0].pop("to")
+    allc += [nto]
     with Fixture(allc):
         g = policy.grade(now=NOW, days=14)
     ck("window: an old message is not graded", g["n"] == len(allc) - 1, g["n"])
+    ck("a record with no destination is never quoted", "no destination" not in json.dumps(g))
     blob = json.dumps(g)
     ck("DM text never published", "secret dm" not in blob and "private hello" not in blob)
     ck("Cal's-channel text never published", "keyed channel" not in blob)
     expected_bad = sum(1 for _, _, _, good in CASES if not good)
+    # the extra no-`to` record is not public, so it is ungraded ("any") and conforms
     ck("totals add up", g["bad"] == expected_bad and g["ok"] + g["bad"] == g["n"], g)
     ck("every rule is described", set(g["rules"]) == set(g["by_rule"]) == {"P1", "P2", "P3", "P4"})
 
@@ -143,6 +159,10 @@ def run():
             f.write("[]\n7\n" + json.dumps({"ts": 5, "id": [1], "text": None}) + "\n")
         with open(fx.inb, "a") as f:
             f.write("[]\n" + json.dumps({"id": {"x": 1}, "ts": None}) + "\n")
+            f.write(json.dumps({"id": 51, "ts": iso(5), "reply_to": [1, 2], "reaction": True,
+                                "text": "x"}) + "\n")
+        with open(fx.dec, "a") as f:
+            f.write(json.dumps({"id": 51, "ts": iso(5), "to": "^all", "text": "x"}) + "\n")
         try:
             g = policy.grade(now=NOW, days=14)
             ok = True
@@ -195,7 +215,12 @@ MUTATIONS = {
     "words never break P4": lambda: setattr(policy, "conforms",
         (lambda f: lambda e, a, r="": True if a == "words" else f(e, a, r))(policy.conforms)),
     "check-ins never recognised": lambda: setattr(policy, "checkin", lambda t: False),
-    "wave exception removed": lambda: setattr(policy, "_WAVES", ()),
+    "wave exception removed": lambda: setattr(policy, "_WAVE", "\uffff"),
+    "held reports graded broken": lambda: setattr(policy, "_HELD", ()),
+    "reports on chatter allowed": lambda: setattr(policy, "conforms",
+        (lambda f: lambda e, a, r="": True if (r == "P4" and a == "sigreport") else f(e, a, r))(policy.conforms)),
+    "loose check-in reading": lambda: setattr(policy, "_CHECKIN", __import__("re").compile(
+        r"^\W*(?:\w{4}\W+)?(?:test\w*|heard|received|rcvd|rec|copy|copied|ack)\b|\bgot\s+it\s+at\b", __import__("re").I)),
     "P1 silence loosened": lambda: setattr(policy, "conforms",
         (lambda f: lambda e, a, r="": True if (r == "P1" and a != "words") else f(e, a, r))(policy.conforms)),
     "DMs graded as public": lambda: setattr(learn, "cal_channel", lambda: -1) or setattr(
@@ -208,7 +233,8 @@ if __name__ == "__main__":
         print("  FAIL " + f)
     if "--self-test" in sys.argv:
         print("self-test -- each mutation must be CAUGHT:")
-        keep = {n: getattr(policy, n) for n in ("expected", "conforms", "checkin", "_WAVES")}
+        keep = {n: getattr(policy, n) for n in ("expected", "conforms", "checkin", "_WAVE", "_HELD",
+                                                "_CHECKIN")}
         keep_cc = learn.cal_channel
         for name, mutate in MUTATIONS.items():
             mutate()
