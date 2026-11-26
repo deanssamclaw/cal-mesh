@@ -104,7 +104,8 @@ OUR_ID_FALLBACK = "!xxxxxxxx"   # Cal HT (real id lives in gitignored status.jso
 # signal readback's own correct replies were filed as gaps -- inflating the denominator of the
 # one metric this whole file exists to report. A hand-kept list drifts on every arming, so the
 # fall-through below turns the next omission into a tripwire instead of a silent gap.
-DOER_CAPS = {"weather", "calc", "sunmoon", "nav", "navigation", "sigreport", "capabilities"}
+DOER_CAPS = {"weather", "calc", "sunmoon", "nav", "navigation", "sigreport", "capabilities", "kb",
+             "holiday"}
 
 # The tell that the model answered as a product instead of as this node. A GAP reply matching
 # any of these is the worst kind — it invents a self-description a stranger cannot check. These
@@ -992,7 +993,8 @@ ASK_BUCKETS = ("GAP", "CLARIFY", "NO_TABLE", "THROTTLED", "REFUSED")
 def is_ask(rec, our):
     """True if this record is a question the loop can learn from. See STARVE_D."""
     b = classify(rec, our)
-    return b in ASK_BUCKETS or (b == "HIT" and rec.get("capability") != "sigreport")
+    # A signal test and a holiday wish are answered, but neither is a question to learn from.
+    return b in ASK_BUCKETS or (b == "HIT" and rec.get("capability") not in ("sigreport", "holiday"))
 
 
 def audit(agg=None, watermark=None):

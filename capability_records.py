@@ -325,6 +325,40 @@ RECORDS = (
         "oracle_key": None,
     },
     {
+        "flag": "HOLIDAY_REPLY_ENABLED", "name": "holiday wish", "kind": "doer",
+        "module": "usholidays.py", "model_runs": False,
+        "answers": "A holiday wish on the channel (Happy Thanksgiving) gets the wish back with a "
+                   "short fact about the holiday, never the same fact twice in a row. Added "
+                   "2026-11-26.",
+        "trigger": "A broadcast of fifteen words or fewer that wishes someone a US federal or "
+                   "widely celebrated holiday falling today or tomorrow, and asks nothing.",
+        "who": "anyone",
+        "out_of_scope": [
+            {"limit": "Every fact comes from a table where each entry cites its source; a fact "
+                      "with no https source is never loaded.", "where": "usholidays.py:load_facts"},
+            {"limit": "Once per sender per day, a daily cap, broadcasts only, never inside another "
+                      "station's exchange.", "where": "responder.py:plan_holiday"},
+            {"limit": "Dates are the holiday itself, computed offline; not the federal observed "
+                      "Friday or Monday.", "where": "usholidays.py:dates"},
+        ],
+        "oracle_key": None,
+    },
+    {
+        "flag": "HOLIDAY_ANNOUNCE_ENABLED", "name": "holiday announcement", "kind": "doer",
+        "module": "presence.py", "model_runs": False,
+        "answers": "On a holiday, once, from 9 AM local: Happy <holiday>, mesh! and a sourced "
+                   "fact. It is that day's presence post. Added 2026-11-26.",
+        "trigger": "The presence timer, on a date usholidays.py computes as a holiday.",
+        "who": "the whole channel",
+        "out_of_scope": [
+            {"limit": "Never into a conversation or a busy or unknown channel, and silent when "
+                      "RESPONDER_ENABLED is off.", "where": "usholidays.py:plan_announce"},
+            {"limit": "Once per holiday per day, recorded before it is queued.",
+             "where": "presence.py:_holiday_announce"},
+        ],
+        "oracle_key": None,
+    },
+    {
         "flag": "SIGREPORT_TEST_EXCHANGE_ENABLED", "name": "test exchange report", "kind": "doer",
         "module": "sigreport.py", "model_runs": False,
         "answers": "The same signal report, for a report inside somebody's test (Received in "

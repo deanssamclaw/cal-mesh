@@ -200,6 +200,11 @@ DEFAULTS = {
     # Signal report for a report inside a test exchange, including replies to and mentions of
     # other stations (sigreport.test_exchange, 2026-11-26). Off by default; under SIGREPORT_ENABLED.
     "SIGREPORT_TEST_EXCHANGE_ENABLED": "false",
+    # A holiday wish on the channel gets the wish back with a sourced fact (usholidays.py,
+    # 2026-11-26). Off by default. One per sender per local day, this many per day in total.
+    "HOLIDAY_REPLY_ENABLED": "false",
+    "HOLIDAY_MAX_PER_DAY": "8",
+    "HOLIDAY_TZ": "America/Chicago",
     # --- P1 content unlock on an authenticated DM (channel-trust-and-agency.md §4). ---
     # CONTENT only: longer, context-aware replies to Dean. Tools stay locked exactly as on the
     # public channel — P2 never rides on mesh auth alone. Forge-tolerant by construction: the
@@ -1568,6 +1573,91 @@ def commit_sigreport(st, sender, ts=None, checkin=False):
         st["sig_day"].pop(d, None)
 
 
+def _holiday_today(cfg, ts):
+    """The operator's local date for holiday purposes, or None if the zone is unusable."""
+    try:
+        return datetime.fromtimestamp(ts, ZoneInfo(str(cfg.get("HOLIDAY_TZ", DEFAULTS["HOLIDAY_TZ"])))).date()
+    except Exception:
+        return None
+
+
+def plan_holiday(cfg, st, rec, ours, ts=None, own_ids=None, draw=None):
+    """A holiday wish on the channel gets the wish back with a sourced fact (2026-11-26, Dean).
+
+    Same contract as plan_sigreport: returns (should, reason, dest, ch, text, gates, meta) and
+    mutates nothing in `st`. Its ONE side effect is drawing a fact from the no-repeat deck
+    (holidays.draw, injectable): a fact drawn for a reply that then fails to send is skipped,
+    the quiet direction. Mounted ahead of the ladders, so an allow-listed node's "Happy
+    Thanksgiving" gets the fact rather than a model's improvisation."""
+    import usholidays as _hol
+    ts = time.time() if ts is None else ts
+    ch = rec.get("channel", 0)
+    sender = rec.get("from")
+    gates = []
+
+    def mark(name, ok):
+        gates.append({"gate": name, "pass": bool(ok)})
+        return ok
+
+    def no(reason):
+        return False, reason, None, ch, None, gates, None
+
+    if not mark("responder_enabled", str(cfg.get("RESPONDER_ENABLED", "false")).lower() == "true"):
+        return no("disabled")
+    if not mark("holiday_reply_enabled",
+                str(cfg.get("HOLIDAY_REPLY_ENABLED", "false")).lower() == "true"):
+        return no("holiday_disabled")
+    if not mark("not_self", sender != ours):
+        return no("self")
+    if not mark("not_a_reaction", rec.get("reaction") in (None, False)):
+        return no("holiday_is_reaction")
+    # A wish is a public act and the answer belongs where it was said, like the greeting ack.
+    if not mark("broadcast", rec.get("to") in ("^all", None)):
+        return no("holiday_not_broadcast")
+    # A wish inside somebody else's exchange is theirs. A reply to Cal (the announcement) is Cal's.
+    rt = rec.get("reply_to")
+    if rt and not mark("reply_not_to_other_station", own_ids is not None and rt in own_ids):
+        return no("holiday_reply_to_other_station")
+    today = _holiday_today(cfg, ts)
+    if not mark("timezone", today is not None):
+        return no("holiday_bad_timezone")
+    m = _hol.match_wish(rec.get("text", ""), today)
+    if not mark("holiday_wish", m is not None):
+        return no("not_a_holiday_wish")
+    key, opener = m
+    day = today.isoformat()
+    if not mark("sender_once_a_day", (st.get("holiday_per_sender") or {}).get(sender) != day):
+        return no("holiday_sender_today")
+    used = (st.get("holiday_day") or {}).get(day, 0)
+    if not mark("daily_budget", used < _int_cfg(cfg, "HOLIDAY_MAX_PER_DAY", DEFAULTS["HOLIDAY_MAX_PER_DAY"])):
+        return no("holiday_budget_spent")
+    busy, util, why = channel_busy(cfg, ts=ts)
+    if not mark("channel_quiet", not busy):
+        return no("holiday_channel_" + why)
+    try:
+        fact = (draw or _hol.draw)(key)
+    except Exception:
+        fact = None                  # a broken deck is silence, never a dropped record
+    text = _hol.reply_text(key, fact, opener) if fact else None
+    if not mark("has_fact", text is not None):
+        return no("holiday_no_fact")
+    dest = "^all"
+    return True, "holiday", dest, ch, text, gates, {"holiday": key, "day": day}
+
+
+def commit_holiday(st, sender, day):
+    """Spend the budget. Separate from plan_holiday so a send that fails costs nothing."""
+    st.setdefault("holiday_per_sender", {})[sender] = day
+    d = st.setdefault("holiday_day", {})
+    d[day] = d.get(day, 0) + 1
+    for k in [k for k in d if k < day]:
+        del d[k]
+    # bounded: one entry per sender, and only today's matter
+    hp = st["holiday_per_sender"]
+    for s in [s for s, v in hp.items() if v < day]:
+        del hp[s]
+
+
 def commit_greeting(st, sender, ts=None):
     """Spend the budget. Separate from plan_greeting so a send that fails costs nothing."""
     ts = time.time() if ts is None else ts
@@ -1870,6 +1960,25 @@ def main():
                                       # readback instead of describing a mechanism.
                                       "sigreport": s_meta})
                             log(f"SIGREPORT {rec.get('from')} -> {s_dest}: {s_text!r}")
+                            record_decision(d)
+                            st["inbox_offset"] = new_off
+                            save_state(st)
+                            continue
+                        # HOLIDAY WISH (2026-11-26). Ahead of both ladders, like sigreport, so a
+                        # wish from anyone gets the sourced fact and never a model's version.
+                        h_ok, h_reason, h_dest, h_ch, h_text, h_gates, h_meta = plan_holiday(
+                            cfg, st, rec, ours, own_ids=own_packet_ids())
+                        if any(g["gate"] == "holiday_reply_enabled" and g["pass"] for g in h_gates):
+                            d["holiday_gates"] = h_gates
+                        if h_ok:
+                            enqueue(h_text, h_dest, h_ch)
+                            commit_holiday(st, rec.get("from"), h_meta["day"])
+                            save_state(st)
+                            d.update({"matched": True, "reason": h_reason, "reply": h_text,
+                                      "dest": h_dest, "capability": "holiday",
+                                      "prompt_kind": "fixed", "gen_status": "fixed_holiday",
+                                      "holiday": h_meta["holiday"]})
+                            log(f"HOLIDAY {rec.get('from')} -> {h_dest}: {h_text!r}")
                             record_decision(d)
                             st["inbox_offset"] = new_off
                             save_state(st)

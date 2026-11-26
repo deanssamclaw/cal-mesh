@@ -1,0 +1,682 @@
+{
+ "new_years_day": [
+  {
+   "fact": "From 1801 until 1932, presidents opened the White House to visitors on New Year's Day.",
+   "source": "https://blogs.loc.gov/manuscripts/2024/01/of-note-new-years-receptions-and-white-feathers-at-the-white-house-in-1818/",
+   "quote": "From 1801, when John Adams was president, until 1932, when Herbert Hoover was in the White House, presidents and first ladies welcomed visitors on New Year’s Day.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Theodore Roosevelt shook 8,513 hands at the White House New Year's Day reception on January 1, 1907.",
+   "source": "https://hoover.blogs.archives.gov/2021/01/13/new-years-day-january-1-1931",
+   "quote": "President Theodore Roosevelt shook 8,513 hands during the January 1, 1907 New Year’s Day reception",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "On New Year's Day 1863, Lincoln shook about six thousand hands, then signed the Emancipation Proclamation.",
+   "source": "https://georgewbush-whitehouse.archives.gov/holiday/2006/text/pg5.html",
+   "quote": "Abraham Lincoln spent that morning at a public reception in the Blue Room, shaking hands with about six thousand people. Afterward, he went upstairs to attend to more historic business: signing the Emancipation Proclamation.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In 1870 Congress made New Year's Day one of four federal holidays in the District of Columbia.",
+   "source": "https://www.archives.gov/publications/prologue/2004/winter/gw-birthday-1.html",
+   "quote": "Originally federal worker absenteeism had forced Congress to take a cue from surrounding states and formally declare New Year's Day, Independence Day, Thanksgiving, and Christmas Day as federal holidays in the District of Columbia.",
+   "checked": "2026-11-26 independent re-fetch: reword"
+  },
+  {
+   "fact": "New Year's Day kept its fixed January 1 date when a 1968 law moved several federal holidays to Mondays.",
+   "source": "https://www.archives.gov/publications/prologue/2004/winter/gw-birthday-1.html",
+   "quote": "Of the federal holidays, two were almost immediately exempt from the shift to Mondays: New Year's Day, January 1, and Christmas Day, December 25.",
+   "checked": "2026-11-26 independent re-fetch: reword"
+  }
+ ],
+ "mlk_day": [
+  {
+   "fact": "Rep. John Conyers introduced a bill for a King holiday just four days after Dr. King was killed in 1968.",
+   "source": "https://obamawhitehouse.archives.gov/blog/2012/01/13/archives-president-reagan-designates-martin-luther-king-jr-day-federal-holiday",
+   "quote": "U.S. Rep. John Conyers (D-MI) introduced legislation to establish the holiday just four days after Dr. King was killed",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Coretta Scott King testified before Congress multiple times in support of a federal holiday.",
+   "source": "https://obamawhitehouse.archives.gov/blog/2012/01/13/archives-president-reagan-designates-martin-luther-king-jr-day-federal-holiday",
+   "quote": "Coretta Scott King testified before Congress multiple times, calling for a federally recognized day to honor the life and work of her late husband.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Stevie Wonder's 1980 song \"Happy Birthday\" became a rallying cry for supporters of the holiday.",
+   "source": "https://obamawhitehouse.archives.gov/blog/2012/01/13/archives-president-reagan-designates-martin-luther-king-jr-day-federal-holiday",
+   "quote": "In 1980, Stevie Wonder released a song, “Happy Birthday ,” which became both a hit and a rallying cry for supporters of the holiday",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "President Reagan signed the bill creating the holiday in the White House Rose Garden in 1983.",
+   "source": "https://obamawhitehouse.archives.gov/blog/2012/01/13/archives-president-reagan-designates-martin-luther-king-jr-day-federal-holiday",
+   "quote": "President Ronald Reagan signs legislation to create a federal holiday honoring Martin Luther King, Jr. in the Rose Garden of the White House",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The first national Martin Luther King, Jr. Day was observed on Monday, January 20, 1986.",
+   "source": "https://www.reaganlibrary.gov/research/speeches/11886a",
+   "quote": "do hereby proclaim Monday, January 20, 1986, as Martin Luther King, Jr. Day.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Public Law 98-144 set the holiday on the third Monday in January each year.",
+   "source": "https://www.reaganlibrary.gov/research/speeches/11886a",
+   "quote": "By Public Law 98 - 144, the third Monday in January of each year has been designated as a public holiday in honor of the ``Birthday of Martin Luther King, Jr.''",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "washingtons_birthday": [
+  {
+   "fact": "Washington was born Feb. 11, 1731 by the old Julian calendar; the 1752 calendar change made it Feb. 22, 1732.",
+   "source": "https://www.archives.gov/legislative/features/washington",
+   "quote": "George Washington was born in Virginia on February 11, 1731, according to the then-used Julian calendar. In 1752, however, Britain and all its colonies adopted the Gregorian calendar which moved Washington's birthday a year and 11 days to February 22, 1732.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Hayes signed Washington's Birthday into law for DC federal workers on January 31, 1879.",
+   "source": "https://www.govinfo.gov/features/presidents-day",
+   "quote": "Signed into law January 31, 1879, by President Rutherford B. Hayes, the law was implemented in 1880 and applied only to District federal workers.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Washington's Birthday was the first federal holiday to single out an individual's birth date.",
+   "source": "https://www.govinfo.gov/features/presidents-day",
+   "quote": "Washington's Birthday had become the first Federal holiday to single out an individual's birth date",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Reading Washington's Farewell Address aloud became an annual Senate tradition still observed today.",
+   "source": "https://www.archives.gov/legislative/features/washington",
+   "quote": "Eventually, the reading of George Washington's Farewell Address became an annual event for the Senate, a tradition that is still observed to this day.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Because the holiday is the third Monday in February, it can never fall on Washington's birthday, February 22.",
+   "source": "https://www.archives.gov/legislative/features/washington",
+   "quote": "Ironically, this guaranteed that the holiday would never be celebrated on Washington's actual birthday, as the third Monday in February cannot fall any later than February 21.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The federal holiday's legal name is still Washington's Birthday; Congress never renamed it Presidents' Day.",
+   "source": "https://www.archives.gov/legislative/features/washington",
+   "quote": "Contrary to popular belief, neither Congress nor the President has ever stipulated that the name of the holiday observed as Washington's Birthday be changed to \"President's Day.\"",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "memorial_day": [
+  {
+   "fact": "On May 5, 1868, Gen. John A. Logan issued General Orders No. 11 naming May 30 for decorating soldiers' graves.",
+   "source": "https://blogs.loc.gov/loc/2025/05/from-decoration-day-to-memorial-day/",
+   "quote": "On May 5, 1868, as the national commander of the Grand Army of the Republic , the dominant organization of Union veterans, he issued General Orders No. 11 , naming May 30 of each year",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The first Decoration Day rites at Arlington National Cemetery were held on May 30, 1868.",
+   "source": "https://www.nps.gov/articles/memorial-day-history.htm",
+   "quote": "There rites were first held in Arlington on May 30, 1868, four years after burials started at General Robert E. Lee’s former Virginia estate.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "May 30 is believed to have been chosen because flowers would be in bloom all over the country.",
+   "source": "https://www.nps.gov/articles/000/john-logan-war-hero-public-servant-founder-of-memorial-day.htm",
+   "quote": "It is believed that May 30 was selected because flowers would be in bloom all over the country.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The name Memorial Day was first used in 1882, but Congress did not make it the official name until 1967.",
+   "source": "https://www.nps.gov/articles/memorial-day-history.htm",
+   "quote": "First used in 1882, it wasn’t common vernacular until after World War II. Still, it wasn’t until 1967 that Congress asserted that “Memorial Day” was the official name of the holiday.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The Uniform Holiday Bill, signed June 28, 1968, moved Memorial Day to a Monday to create a three-day weekend.",
+   "source": "https://department.va.gov/veterans-day/history-of-veterans-day/",
+   "quote": "The Uniform Holiday Bill (Public Law 90-363 (82 Stat. 250)) was signed on June 28, 1968, and was intended to ensure three-day weekends for Federal employees by celebrating four national holidays on Mondays: Washington’s Birthday, Memorial Day, Veterans Day, and Columbus Day.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "A law signed December 28, 2000, set 3:00 PM on Memorial Day as a national moment of remembrance.",
+   "source": "https://www.nps.gov/articles/memorial-day-history.htm",
+   "quote": "On December 28, 2000, President Clinton signed the National Moment of Remembrance Act which designated 3:00 PM as a moment of silence in honor of Memorial Day.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "juneteenth": [
+  {
+   "fact": "On June 19, 1865, Gen. Gordon Granger's General Order No. 3 told Texans all enslaved people were free.",
+   "source": "https://www.archives.gov/news/topics/juneteenth",
+   "quote": "On June 19, 1865, U.S. Maj. Gen. Gordon Granger issued General Order No. 3 , which informed the people of Texas that all enslaved people were now free.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The name Juneteenth is a combination of June and 19th.",
+   "source": "https://www.archives.gov/news/topics/juneteenth",
+   "quote": "This day has come to be known as Juneteenth, a combination of June and 19th.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Juneteenth is also called Freedom Day or Emancipation Day.",
+   "source": "https://www.archives.gov/news/articles/juneteenth-original-document",
+   "quote": "It is also called Freedom Day or Emancipation Day, and it is the oldest known celebration commemorating the end of slavery in the United States.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "General Order No. 3 came two and a half years after Lincoln's Emancipation Proclamation.",
+   "source": "https://www.archives.gov/news/articles/juneteenth-original-document",
+   "quote": "On June 19, 1865, two and a half years after President Abraham Lincoln’s historic Emancipation Proclamation , U.S. Maj. Gen. Gordon Granger issued General Order No. 3",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "African American communities in Texas have formally celebrated Juneteenth since 1866.",
+   "source": "https://www.archives.gov/news/articles/juneteenth-original-document",
+   "quote": "Juneteenth has been formally celebrated primarily by people in African American communities in Texas since 1866 and later celebrated in other states.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "President Joe Biden signed legislation making Juneteenth a national holiday on June 17, 2021.",
+   "source": "https://www.archives.gov/news/topics/juneteenth",
+   "quote": "On June 17, 2021, President Joe Biden signed legislation making Juneteenth a national holiday.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "independence_day": [
+  {
+   "fact": "The Continental Congress approved the resolution declaring independence on July 2, 1776.",
+   "source": "https://prologue.blogs.archives.gov/2014/07/02/john-adams-vision-of-july-4-was-july-2",
+   "quote": "on July 2, 1776, the Continental Congress ended its debate and approved the resolution proposed on June 7 by Richard Henry Lee of Virginia and seconded by Adams",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "John Adams predicted July 2 would be celebrated with guns, bells, bonfires and illuminations.",
+   "source": "https://prologue.blogs.archives.gov/2013/07/02/happy-july-2-john-adams/",
+   "quote": "It ought to be solemnized with Pomp and Parade, with Shews, Games, Sports, Guns, Bells, Bonfires and Illuminations from one End of this Continent to the other from this Time forward forever more.",
+   "checked": "2026-11-26 independent re-fetch: reword"
+  },
+  {
+   "fact": "Congress formally adopted the Declaration of Independence on July 4, 1776.",
+   "source": "https://www.nps.gov/subjects/nationalmall4th/history-of-independence-day.htm",
+   "quote": "Congress formally adopted the Declaration of Independence two days later, July 4, 1776",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Most delegates signed the Declaration on August 2, 1776; 56 delegates eventually put their names on it.",
+   "source": "https://prologue.blogs.archives.gov/2014/07/02/john-adams-vision-of-july-4-was-july-2",
+   "quote": "Most delegates gathered to sign the parchment copy on August 2, but a few others signed it later. Eventually, 56 delegates would put their names on it.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "On July 9, 1776, George Washington had the Declaration read aloud to his troops in New York City.",
+   "source": "https://www.nps.gov/subjects/nationalmall4th/history-of-independence-day.htm",
+   "quote": "On July 9, 1776, General George Washington, while concentrating troops in New York City, ordered the Declaration of Independence read aloud to his men.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In 1870 Congress made Independence Day one of four federal holidays in the District of Columbia.",
+   "source": "https://www.archives.gov/publications/prologue/2004/winter/gw-birthday-1.html",
+   "quote": "Originally federal worker absenteeism had forced Congress to take a cue from surrounding states and formally declare New Year's Day, Independence Day, Thanksgiving, and Christmas Day as federal holidays in the District of Columbia.",
+   "checked": "2026-11-26 independent re-fetch: reword"
+  }
+ ],
+ "labor_day": [
+  {
+   "fact": "The first Labor Day was celebrated on Tuesday, September 5, 1882, at the urging of the Central Labor Union.",
+   "source": "https://blogs.loc.gov/inside_adams/2010/09/the-first-monday-of-september/",
+   "quote": "The first Labor Day holiday was celebrated on Tuesday, September 5, 1882 at the behest of the Central Labor Union.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "New York City's Union Square was the site of the first recorded Labor Day parade, on September 5, 1882.",
+   "source": "https://www.nps.gov/places/union-square.htm",
+   "quote": "On September 5, 1882, New York City’s Union Square was the location of the first recorded Labor Day parade in America.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The first Labor Day parade had three separate divisions that merged on Broadway and passed Union Square.",
+   "source": "https://www.nps.gov/places/union-square.htm",
+   "quote": "The first parade was composed of three separate divisions that would merge on Broadway and pass by Union Square.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "By 1894, more than 20 states had adopted Labor Day as a holiday.",
+   "source": "https://blogs.loc.gov/inside_adams/2010/09/the-first-monday-of-september/",
+   "quote": "The Central Labor Union pushed other organizations to follow and by 1894 23 other states had adopted the holiday.",
+   "checked": "2026-11-26 independent re-fetch: reword"
+  },
+  {
+   "fact": "On June 28, 1894, Labor Day became a legal holiday on the first Monday of September.",
+   "source": "https://blogs.loc.gov/inside_adams/2010/09/the-first-monday-of-september/",
+   "quote": "on June 28, 1894 Labor Day as a legal holiday on the first Monday of September was approved.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Union Square in New York became a National Historic Landmark in 1997 for its role in Labor Day history.",
+   "source": "https://www.nps.gov/places/union-square.htm",
+   "quote": "Union Square was designated a National Historic Landmark in 1997 for its national significance to the history of Labor Day.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "columbus_day": [
+  {
+   "fact": "The Uniform Holiday Bill, signed June 28, 1968, put Columbus Day and three other holidays on Mondays.",
+   "source": "https://department.va.gov/veterans-day/history-of-veterans-day/",
+   "quote": "The Uniform Holiday Bill (Public Law 90-363 (82 Stat. 250)) was signed on June 28, 1968, and was intended to ensure three-day weekends for Federal employees by celebrating four national holidays on Mondays: Washington’s Birthday, Memorial Day, Veterans Day, and Columbus Day.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The 1968 Uniform Monday Holiday law made Columbus Day a federal holiday on the second Monday in October.",
+   "source": "https://www.archives.gov/publications/prologue/2004/winter/gw-birthday-1.html",
+   "quote": "One newly created holiday—Columbus Day—was positioned on the second Monday in October",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Columbus Day was added to the 1968 Monday holiday bill, a goal Italian-American groups had sought for years.",
+   "source": "https://www.archives.gov/publications/prologue/2004/winter/gw-birthday-1.html",
+   "quote": "He also agreed to sweeten the package by including Columbus Day as a Federal holiday, a goal sought for years by Italian-American groups.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "veterans_day": [
+  {
+   "fact": "World War I fighting stopped at the 11th hour of the 11th day of the 11th month: November 11, 1918.",
+   "source": "https://department.va.gov/veterans-day/history-of-veterans-day/",
+   "quote": "went into effect on the eleventh hour of the eleventh day of the eleventh month. For that reason, November 11, 1918, is generally regarded as the end of “the war to end all wars.”",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In November 1919, President Wilson proclaimed November 11 as the first commemoration of Armistice Day.",
+   "source": "https://department.va.gov/veterans-day/history-of-veterans-day/",
+   "quote": "In November 1919, President Wilson proclaimed November 11 as the first commemoration of Armistice Day",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Armistice Day was first planned with parades, public meetings and a brief pause in business at 11 a.m.",
+   "source": "https://department.va.gov/veterans-day/history-of-veterans-day/",
+   "quote": "The original concept for the celebration was for a day observed with parades and public meetings and a brief suspension of business beginning at 11:00 a.m.",
+   "checked": "2026-11-26 independent re-fetch: reword"
+  },
+  {
+   "fact": "An act approved May 13, 1938, made November 11 a legal holiday known as Armistice Day.",
+   "source": "https://department.va.gov/veterans-day/history-of-veterans-day/",
+   "quote": "An Act (52 Stat. 351; 5 U. S. Code, Sec. 87a) approved May 13, 1938, made the 11th of November in each year a legal holiday",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "A law approved June 1, 1954, renamed Armistice Day as Veterans Day, honoring veterans of all wars.",
+   "source": "https://department.va.gov/veterans-day/history-of-veterans-day/",
+   "quote": "With the approval of this legislation (Public Law 380) on June 1, 1954, November 11th became a day to honor American Veterans of all wars.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "President Gerald Ford signed a 1975 law returning Veterans Day to November 11, beginning in 1978.",
+   "source": "https://department.va.gov/veterans-day/history-of-veterans-day/",
+   "quote": "on September 20th, 1975, President Gerald R. Ford signed Public Law 94-97 (89 Stat. 479), which returned the annual observance of Veterans Day to its original date of November 11, beginning in 1978.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "thanksgiving": [
+  {
+   "fact": "On September 28, 1789, the first Federal Congress asked the President to recommend a day of thanksgiving.",
+   "source": "https://www.archives.gov/legislative/features/thanksgiving",
+   "quote": "On September 28, 1789, just before leaving for recess, the first Federal Congress passed a resolution asking that the President of the United States recommend to the nation a day of thanksgiving.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "George Washington proclaimed Thursday, November 26, 1789, a day of public thanksgiving.",
+   "source": "https://www.archives.gov/legislative/features/thanksgiving",
+   "quote": "President George Washington issued a proclamation naming Thursday, November 26, 1789 as a \"Day of Publick Thanksgivin\"",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "After Lincoln's 1863 proclamation, Thanksgiving was held each year on the last Thursday of November.",
+   "source": "https://www.archives.gov/legislative/features/thanksgiving",
+   "quote": "It wasn't until President Abraham Lincoln's 1863 Proclamation that Thanksgiving was regularly commemorated each year on the last Thursday of November.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In 1939, Franklin D. Roosevelt moved Thanksgiving to the second-to-last Thursday of November.",
+   "source": "https://www.archives.gov/legislative/features/thanksgiving",
+   "quote": "President Franklin D. Roosevelt issued a Presidential Proclamation moving Thanksgiving to the second to last Thursday of November.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "After FDR's change, 32 states followed it and 16 did not, so for two years Thanksgiving fell on two days.",
+   "source": "https://www.archives.gov/legislative/features/thanksgiving",
+   "quote": "32 states issued similar proclamations while 16 states refused to accept the change and proclaimed Thanksgiving to be the last Thursday in November. For two years two days were celebrated as Thanksgiving",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "On December 26, 1941, Roosevelt signed a resolution fixing Thanksgiving on the fourth Thursday in November.",
+   "source": "https://www.archives.gov/legislative/features/thanksgiving",
+   "quote": "President Roosevelt signed the resolution on December 26, 1941, thus establishing the fourth Thursday in November as the Federal Thanksgiving Day holiday.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "christmas": [
+  {
+   "fact": "In 1870 Congress made Christmas Day one of four federal holidays in the District of Columbia.",
+   "source": "https://www.archives.gov/publications/prologue/2004/winter/gw-birthday-1.html",
+   "quote": "Originally federal worker absenteeism had forced Congress to take a cue from surrounding states and formally declare New Year's Day, Independence Day, Thanksgiving, and Christmas Day as federal holidays in the District of Columbia.",
+   "checked": "2026-11-26 independent re-fetch: reword"
+  },
+  {
+   "fact": "The National Christmas Tree tradition began December 24, 1923, when Calvin Coolidge lit a tree on the Ellipse.",
+   "source": "https://prologue.blogs.archives.gov/?p=36513",
+   "quote": "The tradition of the National Christmas Tree lighting ceremony began on December 24, 1923, when President Calvin Coolidge lit a 48-foot balsam fir from Vermont that was erected in the middle of the Ellipse.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The first National Christmas Tree was a 48-foot balsam fir from Vermont, donated by Middlebury College.",
+   "source": "https://www.nps.gov/whho/learn/historyculture/national-christmas-tree-history.htm",
+   "quote": "\"pushed the button\" to light the cut 48-foot Balsam fir, as 3,000 enthusiastic spectators looked on. The tree, donated by Middlebury College, was from the President's native state of Vermont.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The 1923 tree was lit with 2,500 electric bulbs in red, white and green.",
+   "source": "https://www.nps.gov/whho/learn/historyculture/1923-national-christmas-tree.htm",
+   "quote": "2,500 electric bulbs in red, white and green, donated by the Electric League of Washington, illuminated the tree.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The national tree-lighting ceremony paused during World War II and returned in 1945 under President Truman.",
+   "source": "https://prologue.blogs.archives.gov/?p=36513",
+   "quote": "Because of U.S. involvement in World War II, the tree-lighting ceremony went on hiatus for the remainder of FDR’s Presidency and didn’t return until 1945. That year, President Harry S. Truman picked up the tradition again",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Christmas kept its fixed December 25 date when a 1968 law moved several federal holidays to Mondays.",
+   "source": "https://www.archives.gov/publications/prologue/2004/winter/gw-birthday-1.html",
+   "quote": "Of the federal holidays, two were almost immediately exempt from the shift to Mondays: New Year's Day, January 1, and Christmas Day, December 25.",
+   "checked": "2026-11-26 independent re-fetch: keep; reworded to match batch A's 1968-law finding"
+  }
+ ],
+ "valentines_day": [
+  {
+   "fact": "Starting in the 1840s, sending valentine cards became very fashionable in New York, then spread.",
+   "source": "https://www.nps.gov/articles/000/historic-valentine-s-day-cards.htm",
+   "quote": "Starting in the 1840s, the British trend caught on, and sending cards became very fashionable in New York. The popularity spread to other cities and the rural parts of America.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Esther Howland, called New England's first career woman, popularized Valentine's Day cards in the US.",
+   "source": "https://blogs.loc.gov/inside_adams/2016/03/esther-howland-and-the-business-of-love/",
+   "quote": "Esther Howland, known as “New England’s first career woman,” was a visionary artist and entrepreneur who popularized Valentine’s Day cards in the United States.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Esther Howland guessed her brother might sell $200 of her valentines; he returned with $5,000 in orders.",
+   "source": "https://blogs.loc.gov/inside_adams/2016/03/esther-howland-and-the-business-of-love/",
+   "quote": "Esther estimated that Allen might take orders for about $200 of valentines, but she was stunned when Allen returned with $5,000 worth of orders for her cards.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "After her death in 1904, a newspaper named Esther Howland the Mother of the American Valentine.",
+   "source": "https://blogs.loc.gov/inside_adams/2016/03/esther-howland-and-the-business-of-love/",
+   "quote": "Named the “Mother of the American Valentine” in a newspaper after her death in 1904",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In the early 1890s, confectioners began selling special boxes of candy for Valentine's Day.",
+   "source": "https://blogs.loc.gov/inside_adams/2016/02/commercialization-of-valentines-day/",
+   "quote": "In the early 1890s, confectioners began offering specialized boxes of candy during the holiday, eventually leading to the red heart-shaped boxes we are so familiar with today.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "st_patricks_day": [
+  {
+   "fact": "On March 17, 1762, Irish soldiers serving in the English military marched through New York City.",
+   "source": "https://www.nps.gov/articles/000/stpatricksday1780.htm",
+   "quote": "Irish soldiers serving in the English military marched through New York City on March 17, 1762.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In the late 1700s, Irish Aid societies like the Friendly Sons of St. Patrick held parades with bagpipes.",
+   "source": "https://www.nps.gov/articles/000/stpatricksday1780.htm",
+   "quote": "so-called ‘Irish Aid’ societies like the Friendly Sons of Saint Patrick and the Hibernian Society. Each group would hold annual parades featuring bagpipes and drums",
+   "checked": "2026-11-26 independent re-fetch: reword"
+  },
+  {
+   "fact": "In the Hard Winter of 1779-1780, General Washington gave his soldiers a holiday on St. Patrick's Day.",
+   "source": "https://www.nps.gov/articles/000/stpatricksday1780.htm",
+   "quote": "the ‘Hard Winter’ of 1779— 1780. Most of the soldiers’ time was spent in guard duty, training, and camp chores. To break up the monotony of the winter camp and recognize political developments in Ireland, General Washington gave the soldiers a holiday on St. Patrick’s Day.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Washington's St. Patrick's Day was his troops' only holiday that winter; not even Christmas was celebrated.",
+   "source": "https://www.nps.gov/articles/000/stpatricksday1780.htm",
+   "quote": "General Washington gave the soldiers a holiday on St. Patrick’s Day. This would be the only holiday the soldiers would get that winter; not even Christmas was celebrated.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Washington ordered that his army's St. Patrick's Day be held without the least rioting or disorder.",
+   "source": "https://www.nps.gov/articles/000/stpatricksday1780.htm",
+   "quote": "He ordered, “... the celebration of the day will not be attended with the least rioting or disorder.”",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In 1967, some 122,000 marchers braved snow on the three-mile St. Patrick's Day route up Fifth Avenue.",
+   "source": "https://unwritten-record.blogs.archives.gov/2014/03/17/this-week-in-universal-news-nyc-st-patricks-day-parade-1967/",
+   "quote": "Braving snow and low temperatures, some 120 thousand march up Fifth Avenue in the annual Saint Patrick’s Day Parade. 122,000 marchers trudge the frigid three-mile route",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "easter": [
+  {
+   "fact": "The first clear record of the Easter Hare tradition is a 1682 essay by Georg Franck von Franckenau.",
+   "source": "https://blogs.loc.gov/folklife/2016/03/easter-bunny/",
+   "quote": "the first clear reference to the tradition comes from Georg Franck von Franckenau’s academic essay De ovis paschalibus [About Easter Eggs] from 1682.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Pennsylvania Dutch children set out their caps and bonnets as nests for the Easter rabbit.",
+   "source": "https://blogs.loc.gov/folklife/2016/03/easter-bunny/",
+   "quote": "Generally speaking the children set their headgear as a nest for the Easter rabbit, the boys their woolen caps or hats and the girls their bonnets.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In 1878, President Rutherford B. Hayes let children roll their Easter eggs at the White House.",
+   "source": "https://www.nps.gov/whho/planyourvisit/easter-egg-roll.htm",
+   "quote": "In 1878, President Rutherford B. Hayes issued an order that if any children should come to the White House to roll their Easter eggs, they would be allowed to do so.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In 1953, President Dwight D. Eisenhower resumed the White House Easter egg roll after a long pause.",
+   "source": "https://www.nps.gov/articles/000/eisenhower-easter-egg-roll.htm",
+   "quote": "The American public did not roll Easter eggs on the South Lawn until President Dwight D. Eisenhower resumed the tradition in 1953.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "First Lady Pat Nixon was the first to have an Easter bunny at the White House.",
+   "source": "https://www.nps.gov/articles/000/eisenhower-easter-egg-roll.htm",
+   "quote": "First Lady Pat Nixon was the first to have an Easter bunny at the White House.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "mothers_day": [
+  {
+   "fact": "The first formal Mother's Day church service was held May 10, 1908, in Grafton, West Virginia.",
+   "source": "https://www.nps.gov/people/anna-maria-jarvis.htm",
+   "quote": "The first formal Mother’s Day church service was held on May 10, 1908, at Andrews Methodist Episcopal Church in Grafton, West Virginia.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Anna Jarvis sent 500 white carnations to the first formal Mother's Day church service.",
+   "source": "https://www.nps.gov/people/anna-maria-jarvis.htm",
+   "quote": "However, she sent 500 white carnations to Andrews Methodist Episcopal Church for the service’s attendees.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Anna Jarvis's mother led a Mothers Friendship Day for families of Union and Confederate soldiers.",
+   "source": "https://blogs.loc.gov/loc/2016/05/lcm-trending-the-mother-of-mothers-day/",
+   "quote": "After the war, Mrs. Jarvis continued to unite the deeply divided community by spearheading “Mothers Friendship Day” for the families of Confederate and Union soldiers.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "President Woodrow Wilson signed Mother's Day legislation on May 9, 1914, for the second Sunday in May.",
+   "source": "https://blogs.loc.gov/loc/2016/05/lcm-trending-the-mother-of-mothers-day/",
+   "quote": "Her efforts culminated in legislation passed by Congress and signed by President Woodrow Wilson on May 9, 1914, that declared flags be flown “on the second Sunday in May as a public expression of our love and reverence for the mothers of our country.”",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Mother's Day is singular possessive: Anna Jarvis meant it to honor the best mother who ever lived, yours.",
+   "source": "https://blogs.loc.gov/loc/2016/05/lcm-trending-the-mother-of-mothers-day/",
+   "quote": "Mother’s Day is a singular possessive because Anna Jarvis intended for the holiday to honor “the best mother who ever lived, yours.”",
+   "checked": "2026-11-26 independent re-fetch: reword"
+  },
+  {
+   "fact": "Anna Jarvis later protested the holiday's commercialization, starting with florists.",
+   "source": "https://blogs.loc.gov/loc/2016/05/lcm-trending-the-mother-of-mothers-day/",
+   "quote": "A victim of her movement’s success, Jarvis spent much of the rest of her life railing against the increasing commercialization of the holiday all over the world. Her protests, which began first with florists, escalated to arrests for public disturbances.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "fathers_day": [
+  {
+   "fact": "Sonora Smart Dodd got the idea for Father's Day in 1909 while at a Mother's Day church service.",
+   "source": "https://www.nps.gov/places/dodd-house.htm",
+   "quote": "In 1909, while attending a Mother's Day church service (itself a relatively new holiday), Dodd had the idea to create an equivalent holiday to celebrate fathers.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Dodd's mother died when she was 16, leaving her father, a Civil War veteran, with six children.",
+   "source": "https://www.nps.gov/places/dodd-house.htm",
+   "quote": "When she was sixteen years old, her mother died in childbirth, leaving behind six children and Dodd's father, Civil War veteran William Jackson Smart.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Working with Spokane ministers, Dodd helped plan the first Father's Day service, held in June 1910.",
+   "source": "https://www.nps.gov/places/dodd-house.htm",
+   "quote": "Working with local Spokane ministers, Dodd helped plan the nation's first Father's Day service, which was held in June 1910.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Father's Day was first observed nationally in 1966, under a law that covered only that year.",
+   "source": "https://blogs.loc.gov/teachers/2017/06/celebrating-fathers-day-with-primary-sources-from-the-library-of-congress/",
+   "quote": "Father’s Day was not officially celebrated nationally until 1966 when Public Law 89-450 was enacted. This law only covered 1966.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In 1972, President Richard Nixon signed a resolution making Father's Day a national holiday.",
+   "source": "https://www.nps.gov/places/dodd-house.htm",
+   "quote": "the coalition was victorious in 1972, when President Richard Nixon signed a Congressional resolution that made Father's Day a national holiday.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Worries that Father's Day would be commercialized delayed a national holiday in Congress for years.",
+   "source": "https://blogs.loc.gov/teachers/2017/06/celebrating-fathers-day-with-primary-sources-from-the-library-of-congress/",
+   "quote": "However, many in Congress were concerned that it would become commercialized. As a result, even though many wanted a national holiday, many years passed before it became law.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "halloween": [
+  {
+   "fact": "The night before All Hallows' Day became known as All Hallows' Eve, which we now call Halloween.",
+   "source": "https://blogs.loc.gov/loc/2024/10/the-multinational-traditions-of-halloween-and-dia-de-los-muertos/",
+   "quote": "The night before All Hallows’ Day became known as All Hallows’ Eve. Or, as we now call it, Halloween.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In the eighth century, November 1 was set as All Saints Day; November 2 later became All Souls Day.",
+   "source": "https://science.nasa.gov/earth/earth-observatory/halloween-history-84643/",
+   "quote": "In the eighth century, November 1 was set as All Saints Day. Later, November 2 became All Souls Day.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Most historians trace Halloween's earliest origins to Samhain, a Celtic harvest festival.",
+   "source": "https://science.nasa.gov/earth/earth-observatory/halloween-history-84643/",
+   "quote": "Most historians trace the earliest origins of Halloween to Samhain, a Celtic harvest festival.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Guy Fawkes Day bonfires, turnip-carving and begging pennies from neighbors influenced modern Halloween.",
+   "source": "https://science.nasa.gov/earth/earth-observatory/halloween-history-84643/",
+   "quote": "Guy Fawkes Day was celebrated with bonfires, feasts, turnip-carving, begging pennies from neighbors, and other mischief-making that have had an important influence on modern celebrations of Halloween.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Long before pumpkins became a Halloween symbol, turnips were used to make jack-o'-lanterns.",
+   "source": "https://www.nps.gov/planyourvisit/event-details.htm?id=5DB842DA-9E10-A846-FA36D81B17436DC9",
+   "quote": "Long before pumpkins took over as a symbol of Halloween, turnips were used to make Jack o’ lanterns!",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Not long ago, Halloween was known more as a night of tricks, with pranks on those who gave no treats.",
+   "source": "https://blogs.loc.gov/headlinesandheroes/2026/10/halloween-traditions-to-follow-tricks-and-treats-of-the-season/",
+   "quote": "Not long ago, however, Halloween was known more as a night of tricks—pranks played upon unsuspecting passersby, and especially played upon those who did not provide treats.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "christmas_eve": [
+  {
+   "fact": "Apollo 8, the first crewed mission to the moon, entered lunar orbit on Christmas Eve, Dec. 24, 1968.",
+   "source": "https://www.nasa.gov/missions/apollo/apollo-8-christmas-at-the-moon/",
+   "quote": "Apollo 8, the first manned mission to the moon, entered lunar orbit on Christmas Eve, Dec. 24, 1968.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Apollo 8's Frank Borman, Jim Lovell and Bill Anders became the first humans to orbit another world.",
+   "source": "https://www.nasa.gov/missions/apollo/apollo-8-christmas-at-the-moon/",
+   "quote": "the Apollo 8 astronauts—Frank Borman, Jim Lovell and Bill Anders – became the first humans to orbit another world.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "From lunar orbit, the Apollo 8 crew read from Genesis and closed with a wish for all on the good Earth.",
+   "source": "https://www.nasa.gov/missions/apollo/apollo-8-christmas-at-the-moon/",
+   "quote": "As their command module floated above the lunar surface, the astronauts beamed back images of the moon and Earth and took turns reading from the book of Genesis, closing with a wish for everyone “on the good Earth.”",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "NORAD's Santa tracking began in 1955, when Colonel Harry Shoup got a call from a child seeking Santa.",
+   "source": "https://unwritten-record.blogs.archives.gov/2015/12/22/vintage-footage-shows-how-norad-tracks-santa/",
+   "quote": "Colonel Harry Shoup began the tradition in 1955, after receiving a phone call from a child expecting to reach Santa Claus.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "In 1974, NORAD released footage to TV stations showing how its Santa tracking worked.",
+   "source": "https://unwritten-record.blogs.archives.gov/2015/12/22/vintage-footage-shows-how-norad-tracks-santa/",
+   "quote": "In 1974, the NORAD released this footage to television stations in order to show the public how NORAD’s Santa tracking operations worked.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Silent Night began as an 1816 poem by Father Joseph Mohr, set to music by Oberndorf organist Franz Gruber.",
+   "source": "https://blogs.loc.gov/nls-music-notes/2015/12/the-spirit-of-music/",
+   "quote": "Father Joseph Mohr requested Franz Gruber, the organist in the church in Oberndorf Austria, to set music to a poem he had written in 1816.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ],
+ "new_years_eve": [
+  {
+   "fact": "Robert Burns wrote the lyrics of Auld Lang Syne in 1788, compiling parts from older sources.",
+   "source": "https://blogs.loc.gov/music/2018/12/auld-lang-syne-sharing-a-cup-of-kindness-with-old-friends/",
+   "quote": "Scottish poet Robert Burns wrote the lyrics of the song in 1788, or more accurately, compiled the lyrics, since elements of the work were taken from a variety of sources, some dating back to the sixteenth century.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The title Auld Lang Syne translates roughly to good old times.",
+   "source": "https://blogs.loc.gov/music/2018/12/auld-lang-syne-sharing-a-cup-of-kindness-with-old-friends/",
+   "quote": "The title translates roughly to “Good old times”",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "The familiar Auld Lang Syne tune was chosen by Burns's publisher and comes from a Scottish folk-dance tune.",
+   "source": "https://blogs.loc.gov/music/2018/12/auld-lang-syne-sharing-a-cup-of-kindness-with-old-friends/",
+   "quote": "The familiar tune, which was chosen by Burns’s publisher, derives from a traditional Scottish folk-dance tune",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Six manuscripts of Auld Lang Syne exist in Burns's hand, and no two of them are exactly alike.",
+   "source": "https://blogs.loc.gov/folklife/2013/12/auld-acquaintance-for-the-new-year-burnss-auld-lang-syne/",
+   "quote": "six manuscripts exist in Burns’s hand, and no two of these are exactly alike.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  },
+  {
+   "fact": "Burns's words to Auld Lang Syne were first published in 1796, the year of his death.",
+   "source": "https://blogs.loc.gov/folklife/2013/12/auld-acquaintance-for-the-new-year-burnss-auld-lang-syne/",
+   "quote": "Burns’s words to “Auld Lang Syne” were first published in volume five of the Scots Musical Museum, an anthology of Scottish songs organized and edited by James Johnson. That publication had been several years in the making, and the volume was finally issued in the year of Burns’s death, 1796.",
+   "checked": "2026-11-26 independent re-fetch: keep"
+  }
+ ]
+}
