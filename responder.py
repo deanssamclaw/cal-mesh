@@ -200,7 +200,7 @@ DEFAULTS = {
     # Signal report for a report inside a test exchange, including replies to and mentions of
     # other stations (sigreport.test_exchange, 2026-11-26). Off by default; under SIGREPORT_ENABLED.
     "SIGREPORT_TEST_EXCHANGE_ENABLED": "false",
-    # A holiday wish on the channel gets the wish back with a sourced fact (holidays.py,
+    # A holiday wish on the channel gets the wish back with a sourced fact (usholidays.py,
     # 2026-11-26). Off by default. One per sender per local day, this many per day in total.
     "HOLIDAY_REPLY_ENABLED": "false",
     "HOLIDAY_MAX_PER_DAY": "8",
@@ -1589,7 +1589,7 @@ def plan_holiday(cfg, st, rec, ours, ts=None, own_ids=None, draw=None):
     (holidays.draw, injectable): a fact drawn for a reply that then fails to send is skipped,
     the quiet direction. Mounted ahead of the ladders, so an allow-listed node's "Happy
     Thanksgiving" gets the fact rather than a model's improvisation."""
-    import holidays as _hol
+    import usholidays as _hol
     ts = time.time() if ts is None else ts
     ch = rec.get("channel", 0)
     sender = rec.get("from")
@@ -1621,9 +1621,10 @@ def plan_holiday(cfg, st, rec, ours, ts=None, own_ids=None, draw=None):
     today = _holiday_today(cfg, ts)
     if not mark("timezone", today is not None):
         return no("holiday_bad_timezone")
-    key = _hol.wished(rec.get("text", ""), today)
-    if not mark("holiday_wish", key is not None):
+    m = _hol.match_wish(rec.get("text", ""), today)
+    if not mark("holiday_wish", m is not None):
         return no("not_a_holiday_wish")
+    key, opener = m
     day = today.isoformat()
     if not mark("sender_once_a_day", (st.get("holiday_per_sender") or {}).get(sender) != day):
         return no("holiday_sender_today")
@@ -1633,8 +1634,11 @@ def plan_holiday(cfg, st, rec, ours, ts=None, own_ids=None, draw=None):
     busy, util, why = channel_busy(cfg, ts=ts)
     if not mark("channel_quiet", not busy):
         return no("holiday_channel_" + why)
-    fact = (draw or _hol.draw)(key)
-    text = _hol.reply_text(key, fact) if fact else None
+    try:
+        fact = (draw or _hol.draw)(key)
+    except Exception:
+        fact = None                  # a broken deck is silence, never a dropped record
+    text = _hol.reply_text(key, fact, opener) if fact else None
     if not mark("has_fact", text is not None):
         return no("holiday_no_fact")
     dest = "^all"

@@ -217,27 +217,43 @@ def _fresh_util(base, cfg, now):
         return None
 
 
-def _holiday_announce(cfg, state, history, heard, util, now, base, channel, send, stamp, state_path):
-    """On a holiday, once, from 9 AM local: "Happy Thanksgiving, mesh! <fact>" (holidays.py).
-
-    Runs ahead of the ordinary greeting and, when it sends, IS that day's presence post: it is
-    written into the same history, so the daily cap keeps a "Morning Mesh" from following it.
-    Outbox source is "holiday", not "presence": a reply to it is not a reply to Cal's radio check
-    and must not earn a signal report. Returns True if it sent (or would have, on a dry run)."""
-    import holidays as _hol
+def _holiday_local(cfg, now):
+    """Now on HOLIDAY_TZ's clock (PRESENCE_TZ if unset), or None if the zone is unusable."""
     from zoneinfo import ZoneInfo
     try:
-        local = datetime.fromtimestamp(now, ZoneInfo(str(cfg.get("PRESENCE_TZ", DEFAULTS["PRESENCE_TZ"]))))
+        tz = str(cfg.get("HOLIDAY_TZ") or cfg.get("PRESENCE_TZ", DEFAULTS["PRESENCE_TZ"]))
+        return datetime.fromtimestamp(now, ZoneInfo(tz))
     except Exception:
+        return None
+
+
+def _announced(state, history):
+    """The set of "YYYY-MM-DD:key" already announced, or None if the record is malformed."""
+    if not isinstance(state, dict) or history is None:
+        return None
+    a = state.get("holidays", [])
+    return set(a) if isinstance(a, list) and all(isinstance(x, str) for x in a) else None
+
+
+def _holiday_announce(cfg, state, history, heard, util, now, base, channel, send, stamp, state_path):
+    """On a holiday, once, from 9 AM local: "Happy Thanksgiving, mesh! <fact>" (usholidays.py).
+
+    Runs ahead of the ordinary greeting and, when it sends, IS that day's presence post: it is
+    written into the same history, so the daily cap keeps a "Morning Mesh" from following it, and
+    while it is still pending the ordinary greeting holds off (see main). On HOLIDAY_TZ's clock.
+    Outbox source is "holiday", not "presence": a reply to it is not a reply to Cal's radio check
+    and must not earn a signal report. Returns True if it sent (or would have, on a dry run)."""
+    import usholidays as _hol
+    local = _holiday_local(cfg, now)
+    if local is None:
         return False
-    announced = None
-    if isinstance(state, dict) and history is not None:
-        a = state.get("holidays", [])
-        announced = set(a) if isinstance(a, list) and all(isinstance(x, str) for x in a) else None
+    announced = _announced(state, history)
+    sends = history or []
     key, reason = _hol.plan_announce(
         cfg, local.date(), local.hour, announced,
         "unknown" if heard is UNKNOWN else heard, util, now,
-        _num(cfg, "PRESENCE_QUIET_S"), _num(cfg, "PRESENCE_MAX_CH_UTIL"))
+        _num(cfg, "PRESENCE_QUIET_S"), _num(cfg, "PRESENCE_MAX_CH_UTIL"),
+        last_send_ts=sends[-1]["ts"] if sends else None)
     if not key:
         if reason not in ("no_holiday_to_announce", "holiday_announce_disabled"):
             print(f"{stamp} presence: holiday {reason}")
@@ -260,7 +276,7 @@ def _holiday_announce(cfg, state, history, heard, util, now, base, channel, send
     os.replace(state_path + ".tmp", state_path)
     outbox = os.path.join(base, "outbox")
     os.makedirs(outbox, exist_ok=True)
-    name = f"holiday.{int(now * 1000)}"
+    name = f"holiday.{int(now * 1000)}.{os.getpid()}.{random.randrange(10 ** 6)}"
     tmp = os.path.join(outbox, "." + name)
     with open(tmp, "w") as f:
         json.dump({"text": text, "dest": "^all", "channel": channel, "source": "holiday"}, f)
@@ -276,6 +292,25 @@ def main(argv=None, base=None, now=None):
     now = time.time() if now is None else now
     cfg = _load_cfg(base)
     state_path = os.path.join(base, "presence-state.json")
+    # ONE RUN AT A TIME (review 2026-11-26: two concurrent runs both announced, 20 of 20 trials).
+    # The lock covers read, decide and write; a second run waits, then sees the first one's send.
+    import fcntl
+    try:
+        lock_fd = os.open(state_path + ".lock", os.O_CREAT | os.O_RDWR, 0o644)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    except OSError:
+        print(f"{datetime.fromtimestamp(now).isoformat(timespec='seconds')} presence: lock_unavailable")
+        return 0
+    try:
+        return _run(argv, base, now, cfg, state_path)
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_fd)
+
+
+def _run(argv, base, now, cfg, state_path):
     if os.path.exists(state_path):
         try:
             state = json.load(open(state_path))
@@ -290,6 +325,16 @@ def main(argv=None, base=None, now=None):
     util = _fresh_util(base, cfg, now)
     if _holiday_announce(cfg, state, history, heard, util, now, base, channel, "--send" in argv,
                          stamp, state_path):
+        return 0
+    try:
+        import usholidays as _hol
+        local = _holiday_local(cfg, now)
+        held = bool(local and local.hour < _hol.ANNOUNCE_UNTIL_H
+                    and _hol.pending(cfg, local.date(), _announced(state, history)))
+    except Exception:
+        held = False
+    if held:
+        print(f"{stamp} presence: holiday announcement pending; the ordinary greeting waits")
         return 0
     got, reason = plan(cfg, history, heard, util, now=now)
     if not got:

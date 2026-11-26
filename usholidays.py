@@ -45,7 +45,7 @@ HOLIDAYS = {
                                               "happy st patty's day", "happy st pattys day"]),
     "easter": ("Easter", ["happy easter"]),
     "mothers_day": ("Mother's Day", ["happy mother's day", "happy mothers day"]),
-    "memorial_day": ("Memorial Day", ["happy memorial day", "memorial day weekend"]),
+    "memorial_day": ("Memorial Day", ["happy memorial day"]),
     "fathers_day": ("Father's Day", ["happy father's day", "happy fathers day"]),
     "juneteenth": ("Juneteenth", ["happy juneteenth"]),
     "independence_day": ("Independence Day", ["happy 4th", "happy fourth", "happy 4th of july",
@@ -116,34 +116,81 @@ def name(key):
 
 
 # --- wishes ---------------------------------------------------------------------------------
+# CLOSED WORLD (adversarial review 2026-11-26). The first version matched the phrase anywhere in
+# a short message, and "not a happy thanksgiving here, power is out and my dad is in the
+# hospital" got a cheerful fact, while "Happy Thanksgiving cal whats the weather tomorrow" got a
+# fact instead of the weather. A message is a wish only if EVERY word besides the wish itself is
+# greeting vocabulary from this list, or up to four words of a place after "from" or "in". Any
+# other word -- "not", "but", "hate", "weather", a question -- means it is not a wish, and the
+# message goes on to the ladders as if this did not exist.
+_OK = frozenset("""
+    everyone everybody all yall y'all mesh meshers folks friends fam family loved ones
+    and to you your yours too cal us our ya hi hey hello howdy hiya
+    hope have has a an the great good wonderful safe blessed happy merry wishing wish enjoy
+    day holiday holidays morning evening afternoon out there here of
+""".split())
+_PLACE_AFTER = ("from", "in")
+_PLACE_WORDS = 4
 _MAX_WORDS = 15
+# The reply mirrors the name the sender used.
+_OPENER_NAME = {"happy indigenous peoples day": "Indigenous Peoples' Day",
+                "happy indigenous peoples' day": "Indigenous Peoples' Day",
+                "trick or treat": "Halloween"}
 
 
 def _norm(text):
     t = (text or "").lower().replace("’", "'").replace("？", "?")
-    t = re.sub(r"[^\w\s'?.]", " ", t)              # drop emoji and punctuation except ' ? .
+    t = re.sub(r"[^\w\s'?]", " ", t)               # drop emoji and punctuation except ' and ?
     return re.sub(r"\s+", " ", t).strip()
 
 
-def wished(text, day):
-    """The holiday a message wishes someone, if that holiday is today or tomorrow, else None.
-    A question is not a wish, and neither is a long message that happens to contain one."""
+def _only_greeting(rest):
+    """True if the words left after removing the wish are all greeting vocabulary or a place."""
+    budget = 0
+    for w in rest:
+        if w in _OK:
+            budget = 0
+            continue
+        if w in _PLACE_AFTER:
+            budget = _PLACE_WORDS
+            continue
+        if budget > 0 and re.fullmatch(r"[a-z0-9']+", w):
+            budget -= 1
+            continue
+        return False
+    return True
+
+
+def match_wish(text, day):
+    """(holiday key, opener) for a message that is a holiday wish for today or tomorrow, else
+    None. The opener mirrors the sender: "Merry Christmas", "Happy Indigenous Peoples' Day"."""
     t = _norm(text)
     if not t or "?" in t or len(t.split()) > _MAX_WORDS:
         return None
-    t = t.replace(".", " ")
-    t = " " + re.sub(r"\s+", " ", t) + " "
+    words = t.split()
     for d in (day, day + timedelta(days=1)):
         for k in on(d):
-            for w in HOLIDAYS[k][1]:
-                if (" " + w + " ") in t or (" " + w + "s ") in t:
-                    return k
+            for w in sorted(HOLIDAYS[k][1], key=len, reverse=True):
+                ww = w.split()
+                for i in range(len(words) - len(ww) + 1):
+                    seg = words[i:i + len(ww)]
+                    if seg == ww or seg[:-1] + [seg[-1].rstrip("s")] == ww:
+                        if _only_greeting(words[:i] + words[i + len(ww):]):
+                            head = "Merry" if w.startswith("merry") else "Happy"
+                            return k, f"{head} {_OPENER_NAME.get(w, name(k))}"
+                        return None
     return None
 
 
-# --- facts: a shuffled deck per holiday, under a lock ---------------------------------------
+def wished(text, day):
+    """The holiday key a message wishes, or None (see match_wish)."""
+    m = match_wish(text, day)
+    return m[0] if m else None
+
+
+# --- facts: no repeats until every fact has been used, under a lock -------------------------
 def load_facts(path=None):
-    """{key: [fact, ...]}; entries without a source are dropped, never broadcast."""
+    """{key: [fact, ...]}; entries without an https source are dropped, never broadcast."""
     try:
         raw = json.load(open(path or FACTS, encoding="utf-8"))
     except (OSError, ValueError):
@@ -159,43 +206,53 @@ def load_facts(path=None):
     return out
 
 
+def _clean_state(st):
+    """The parts of a state file that have the right shape; anything else is ignored, never
+    trusted and never a crash (review 2026-11-26: {"decks": []} crashed presence all day)."""
+    st = st if isinstance(st, dict) else {}
+    used = st.get("used") if isinstance(st.get("used"), dict) else {}
+    last = st.get("last") if isinstance(st.get("last"), dict) else {}
+    return {"used": {k: [f for f in v if isinstance(f, str)] for k, v in used.items()
+                     if isinstance(k, str) and isinstance(v, list)},
+            "last": {k: v for k, v in last.items() if isinstance(k, str) and isinstance(v, str)}}
+
+
 def draw(key, facts=None, state_path=None, rng=None):
-    """The next fact for `key`, never repeating until every fact has been used. None if there
-    are no facts or the state cannot be written (a fact we cannot record would repeat)."""
-    facts = load_facts() if facts is None else facts
-    pool = facts.get(key) or []
-    if not pool:
-        return None
-    path = state_path or STATE
-    rng = rng or random.Random()
+    """The next fact for `key`: one not used since the cycle began, never the one just said.
+    Tracks USED facts rather than a remaining deck, so editing the facts file mid-cycle cannot
+    bring back facts already said (review 2026-11-26). None if there are no facts or the state
+    cannot be written: a fact we cannot record would repeat."""
     try:
+        facts = load_facts() if facts is None else facts
+        pool = facts.get(key) or []
+        if not pool:
+            return None
+        path = state_path or STATE
+        rng = rng or random.Random()
         fd = os.open(path + ".lock", os.O_CREAT | os.O_RDWR, 0o644)
-    except OSError:
+    except Exception:
         return None
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         try:
-            st = json.load(open(path, encoding="utf-8"))
-            st = st if isinstance(st, dict) else {}
+            st = _clean_state(json.load(open(path, encoding="utf-8")))
         except (OSError, ValueError):
-            st = {}
-        deck = [f for f in (st.get("decks", {}).get(key) or []) if f in pool]
-        if not deck:
-            last = st.get("last", {}).get(key)
-            deck = pool[:]
-            rng.shuffle(deck)
-            # A fresh deck never opens with the fact the old deck closed on.
-            if len(deck) > 1 and deck[0] == last:
-                deck.append(deck.pop(0))
-        fact = deck.pop(0)
-        st.setdefault("decks", {})[key] = deck
-        st.setdefault("last", {})[key] = fact
+            st = _clean_state({})
+        used = [f for f in st["used"].get(key, []) if f in pool]
+        last = st["last"].get(key)
+        avail = [f for f in pool if f not in used]
+        if not avail:
+            used = []
+            avail = [f for f in pool if f != last] or pool[:]
+        fact = rng.choice(avail)
+        st["used"][key] = used + [fact]
+        st["last"][key] = fact
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(st, f, ensure_ascii=False)
         os.replace(tmp, path)
         return fact
-    except OSError:
+    except Exception:
         return None
     finally:
         try:
@@ -207,12 +264,13 @@ def draw(key, facts=None, state_path=None, rng=None):
 MAX_CHARS = 200          # Meshtastic text payload; replies here stay well under it
 
 
-def reply_text(key, fact):
-    return _clip(f"Happy {name(key)}! {fact}")
+def reply_text(key, fact, opener=None):
+    return _clip(f"{opener or 'Happy ' + name(key)}! {fact}")
 
 
 def announce_text(key, fact):
-    return _clip(f"Happy {name(key)}, mesh! {fact}")
+    head = "Merry" if key in ("christmas", "christmas_eve") else "Happy"
+    return _clip(f"{head} {name(key)}, mesh! {fact}")
 
 
 def _clip(s):
@@ -221,23 +279,40 @@ def _clip(s):
 
 # --- the announcement: once per holiday, from 9 AM local ------------------------------------
 ANNOUNCE_FROM_H, ANNOUNCE_UNTIL_H = 9, 21
+ANNOUNCE_MIN_GAP_S = 2 * 3600
 
 
-def plan_announce(cfg, today, local_hour, announced, heard_ts, ch_util, now, quiet_s, max_util):
+def pending(cfg, today, announced):
+    """Holiday keys today that are armed to be announced and have not been. The ordinary
+    presence greeting holds off while this is non-empty, so on a holiday the announcement is the
+    day's one post (review 2026-11-26: both used to go out)."""
+    if (str(cfg.get("HOLIDAY_ANNOUNCE_ENABLED", "false")).lower() != "true"
+            or str(cfg.get("PRESENCE_ENABLED", "false")).lower() != "true" or announced is None):
+        return []
+    return [k for k in on(today) if f"{today.isoformat()}:{k}" not in announced]
+
+
+def plan_announce(cfg, today, local_hour, announced, heard_ts, ch_util, now, quiet_s, max_util,
+                  last_send_ts=None):
     """(holiday key | None, reason). Pure. `announced` is the set of "YYYY-MM-DD:key" already
-    sent. Same quiet-channel and busy-channel rules as the presence greeting; NOT its rarity
-    caps, because the holiday is the reason to speak."""
+    sent. Needs the master switch, PRESENCE_ENABLED and its own flag; same quiet-channel and
+    busy-channel rules as the presence greeting; and at least two hours after Cal's last post.
+    NOT presence's rarity caps, because the holiday is the reason to speak."""
     if str(cfg.get("RESPONDER_ENABLED", "false")).lower() != "true":
         return None, "responder_disabled"
     if str(cfg.get("HOLIDAY_ANNOUNCE_ENABLED", "false")).lower() != "true":
         return None, "holiday_announce_disabled"
+    if str(cfg.get("PRESENCE_ENABLED", "false")).lower() != "true":
+        return None, "presence_disabled"
     if announced is None:
         return None, "history_unreadable"
-    keys = [k for k in on(today) if f"{today.isoformat()}:{k}" not in announced]
+    keys = pending(cfg, today, announced)
     if not keys:
         return None, "no_holiday_to_announce"
     if local_hour is None or not (ANNOUNCE_FROM_H <= local_hour < ANNOUNCE_UNTIL_H):
         return None, "outside_announce_hours"
+    if isinstance(last_send_ts, (int, float)) and now - last_send_ts < ANNOUNCE_MIN_GAP_S:
+        return None, "too_soon_after_last_post"
     if heard_ts is not None and (heard_ts == "unknown" or now - heard_ts < quiet_s):
         return None, "channel_in_conversation_or_unknown"
     if (not isinstance(ch_util, (int, float)) or isinstance(ch_util, bool) or ch_util != ch_util

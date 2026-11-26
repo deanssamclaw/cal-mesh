@@ -33,8 +33,8 @@ def _load(name):
     return mod
 
 
-hol = _load("holidays")
-sys.modules["holidays"] = hol
+hol = _load("usholidays")
+sys.modules["usholidays"] = hol
 responder = _load("responder")
 presence = _load("presence")
 learn = _load("learn")
@@ -112,7 +112,8 @@ def run():
               "Happy Turkey Day mesh", "HAPPY THANKSGIVING", "Happy Thanksgiving, all"):
         ck(f"wish: {t!r}", hol.wished(t, T) == "thanksgiving", hol.wished(t, T))
     for t, why in (("is it thanksgiving?", "a question"),
-                   ("do people say happy thanksgiving on here?", "a question holding a wish"),("Thanksgiving dinner was great", "no wish"),
+                   ("do people say happy thanksgiving on here?", "a question holding a wish"),
+                   ("Happy Thanksgiving everyone?", "a question -- only the question rule refuses this"),("Thanksgiving dinner was great", "no wish"),
                    ("Merry Christmas", "not today or tomorrow"),
                    ("Happy Thanksgiving " + "word " * 15, "too long"),
                    ("unhappy thanksgiving", "not the phrase"), ("", "empty")):
@@ -120,6 +121,20 @@ def run():
     ck("the eve counts: Christmas wished on the 24th", hol.wished("Merry Christmas!", date(2026, 12, 24)) == "christmas")
     ck("New Year wished on New Year's Eve", hol.wished("Happy New Year!", date(2026, 12, 31)) == "new_years_day")
     ck("the day after does not", hol.wished("Happy Thanksgiving", date(2026, 11, 27)) is None)
+    for t in ("Have a happy Thanksgiving, all", "Happy Thanksgiving to you and yours",
+              "Happy Thanksgiving Cal", "happy thanksgiving from Lee's Summit"):
+        ck(f"wish: {t!r}", hol.wished(t, T) == "thanksgiving", hol.wished(t, T))
+    # review 2026-11-26: each of these got a cheerful fact, or lost its real question
+    for t in ("not a happy thanksgiving here, power is out and my dad is in the hospital",
+              "happy thanksgiving to my family but I hate all of you", "happy thanksgiving lol not",
+              "Happy Thanksgiving cal whats the weather tomorrow", "happy thanksgiving cal what is 25 times 4",
+              "happy thanksgiving, is anyone on frequency", "Radio check, happy thanksgiving",
+              "happy thanksgiving testing", "memorial day weekend traffic is awful"):
+        ck(f"not a wish (review): {t[:40]!r}", hol.wished(t, T) is None, hol.wished(t, T))
+    ck("New Year's Eve wish on Jan 1 is not New Year's Day", hol.wished("happy new years eve", date(2027, 1, 1)) is None)
+    ck("opener mirrors Merry", hol.match_wish("Merry Christmas!", date(2026, 12, 24)) == ("christmas", "Merry Christmas"))
+    ck("opener mirrors the name used", hol.match_wish("happy indigenous peoples day", date(2026, 10, 12))
+       == ("columbus_day", "Happy Indigenous Peoples' Day"))
 
     # --- the deck --------------------------------------------------------------------------
     d = tempfile.mkdtemp(prefix="evalhol-")
@@ -132,6 +147,19 @@ def run():
                                                   for i in (0, 4, 8)), seq)
         ck("deck: never the same fact twice in a row", all(a != b for a, b in zip(seq, seq[1:])), seq)
         ck("deck: no facts, no draw", hol.draw("easter", facts=facts, state_path=sp) is None)
+        sp2 = os.path.join(d, "s2.json")
+        f6 = {"thanksgiving": ["F1", "F2", "F3", "F4", "F5", "F6"]}
+        first = [hol.draw("thanksgiving", facts=f6, state_path=sp2, rng=_r.Random(7)) for _ in range(3)]
+        rest = [x for x in f6["thanksgiving"] if x not in first]
+        edited = {"thanksgiving": first + [x + " (reworded)" for x in rest]}
+        nxt = [hol.draw("thanksgiving", facts=edited, state_path=sp2, rng=_r.Random(8)) for _ in range(3)]
+        ck("deck: editing the file mid-cycle never brings back what was said", not set(nxt) & set(first),
+           (first, nxt))
+        for bad_state in ('{"decks": []}', '{"used": []}', '{"used": {"thanksgiving": 5}}',
+                          '{"last": []}', '[]', 'not json'):
+            open(sp2, "w").write(bad_state)
+            got = hol.draw("thanksgiving", facts=f6, state_path=sp2)
+            ck(f"deck: malformed state {bad_state!r} is survived", got in f6["thanksgiving"], got)
         ck("deck: an unwritable state refuses", hol.draw("thanksgiving", facts=facts,
                                                          state_path=os.path.join(d, "nope", "s.json")) is None)
         bad = os.path.join(d, "f.json")
@@ -145,6 +173,8 @@ def run():
         shutil.rmtree(d, ignore_errors=True)
     ck("reply text", hol.reply_text("thanksgiving", "x") == "Happy Thanksgiving! x")
     ck("announce text", hol.announce_text("thanksgiving", "x") == "Happy Thanksgiving, mesh! x")
+    ck("announce text, Merry", hol.announce_text("christmas", "x") == "Merry Christmas, mesh! x")
+    ck("reply text mirrors the opener", hol.reply_text("christmas", "x", "Merry Christmas") == "Merry Christmas! x")
     ck("an oversized line is refused, never truncated", hol.reply_text("thanksgiving", "x" * 300) is None)
 
     # --- the real facts file ---------------------------------------------------------------
@@ -164,7 +194,7 @@ def run():
             ck(f"{k}#{i} no URL", "http" not in f and "www." not in f)
 
     # --- the announcement plan -------------------------------------------------------------
-    on_cfg = {"RESPONDER_ENABLED": "true", "HOLIDAY_ANNOUNCE_ENABLED": "true"}
+    on_cfg = {"RESPONDER_ENABLED": "true", "HOLIDAY_ANNOUNCE_ENABLED": "true", "PRESENCE_ENABLED": "true"}
     P = lambda cfg=on_cfg, day=T, hour=10, ann=frozenset(), heard=None, util=5.0: hol.plan_announce(
         cfg, day, hour, set(ann), heard, util, 1e9, 900, 25)
     ck("announce: due on the day at 10", P() == ("thanksgiving", "announce"), P())
@@ -180,6 +210,12 @@ def run():
     ck("announce: unknown channel waits", P(heard="unknown")[0] is None)
     ck("announce: busy channel waits", P(util=40.0)[0] is None)
     ck("announce: unknown utilization waits", P(util=None)[0] is None)
+    ck("announce: presence switched off means no announcement",
+       P(cfg={"RESPONDER_ENABLED": "true", "HOLIDAY_ANNOUNCE_ENABLED": "true"})[0] is None)
+    ck("announce: not within two hours of Cal's last post",
+       hol.plan_announce(on_cfg, T, 10, set(), None, 5.0, 1e9, 900, 25, last_send_ts=1e9 - 3600)[0] is None)
+    ck("announce: fine three hours after it",
+       hol.plan_announce(on_cfg, T, 10, set(), None, 5.0, 1e9, 900, 25, last_send_ts=1e9 - 3 * 3600)[0] == "thanksgiving")
 
     # --- the reply plan --------------------------------------------------------------------
     st_path = os.path.join(tempfile.mkdtemp(prefix="evalholst-"), "status.json")
@@ -204,6 +240,10 @@ def run():
     ok = plan()
     ck("reply: a wish gets the wish and a fact", ok[0] is True and ok[4] == "Happy Thanksgiving! A sourced fact.", ok[:5])
     ck("reply: to the channel", ok[2] == "^all")
+    ck("reply: the real question is not stolen",
+       plan(rec("Happy Thanksgiving cal whats the weather tomorrow"))[1] == "not_a_holiday_wish")
+    ck("reply: a broken deck is silence, not a crash",
+       plan(draw=lambda k: (_ for _ in ()).throw(TypeError("boom")))[1] == "holiday_no_fact")
     ck("reply: meta names the holiday and the day", ok[6] == {"holiday": "thanksgiving", "day": "2026-11-26"}, ok[6])
     ck("reply: flag off", plan(cfg={"HOLIDAY_REPLY_ENABLED": "false"})[0] is False)
     ck("reply: kill switch", plan(cfg={"RESPONDER_ENABLED": "false"})[1] == "disabled")
@@ -248,6 +288,15 @@ def run():
                   open(os.path.join(base, "data", "holiday_facts.json"), "w"))
         open(os.path.join(base, "config"), "w").write(
             "RESPONDER_ENABLED=true\nHOLIDAY_ANNOUNCE_ENABLED=true\nPRESENCE_ENABLED=true\nPRESENCE_CHANCE=1\n")
+        early = datetime(2026, 11, 26, 8, 0, tzinfo=responder.ZoneInfo("America/Chicago")).timestamp()
+        json.dump({"ts": datetime.fromtimestamp(early - 30).isoformat(), "metrics": {"chUtil": 5.0}},
+                  open(os.path.join(base, "status.json"), "w"))
+        open(os.path.join(base, "inbox.jsonl"), "w").write("")
+        import io, contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            presence.main(["--send"], base=base, now=early)
+        ck("presence: on a holiday the 8 AM greeting holds off for the announcement",
+           not os.path.exists(os.path.join(base, "outbox")))
         now = datetime(2026, 11, 26, 10, 0, tzinfo=responder.ZoneInfo("America/Chicago")).timestamp()
         json.dump({"ts": datetime.fromtimestamp(now - 30).isoformat(), "metrics": {"chUtil": 5.0}},
                   open(os.path.join(base, "status.json"), "w"))
@@ -274,6 +323,26 @@ def run():
         ck("presence: never twice, and no Morning Mesh after it", len(out2) == 1, out2)
         ps2 = _jload(os.path.join(base, "presence-state.json"))
         ck("presence: the record survives the next run", ps2.get("holidays") == ["2026-11-26:thanksgiving"], ps2)
+
+        # TWO REAL PROCESSES AT ONCE (review 2026-11-26: 20 of 20 trials announced twice).
+        import subprocess
+        doubles = 0
+        for trial in range(5):
+            for f in ("presence-state.json",):
+                if os.path.exists(os.path.join(base, f)):
+                    os.remove(os.path.join(base, f))
+            shutil.rmtree(os.path.join(base, "outbox"), ignore_errors=True)
+            code = ("import sys; sys.path.insert(0, %r); import presence; "
+                    "presence.main(['--send'], base=%r, now=%r)" % (HERE, base, now + trial))
+            procs = [subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.DEVNULL,
+                                      stderr=subprocess.PIPE) for _ in range(2)]
+            errs = [pr.communicate()[1] for pr in procs]
+            ob = os.path.join(base, "outbox")
+            n = len([f for f in os.listdir(ob) if not f.startswith(".")]) if os.path.isdir(ob) else 0
+            doubles += n != 1
+            if any(errs):
+                ck("presence: concurrent runs do not crash", False, errs[0][-300:] or errs[1][-300:])
+        ck("presence: two concurrent runs announce exactly once (5 trials)", doubles == 0, doubles)
     finally:
         shutil.rmtree(base, ignore_errors=True)
     return FAILS[:]
@@ -283,12 +352,18 @@ MUTATIONS = {
     "Thanksgiving on the 3rd Thursday": lambda: hol.NTH.__setitem__("thanksgiving", (11, 3, 3)),
     "Memorial Day on the first Monday": lambda: hol.NTH.__setitem__("memorial_day", (5, 0, 1)),
     "Easter off by a week": lambda: setattr(hol, "easter", (lambda f: lambda y: f(y) + timedelta(days=7))(hol.easter)),
-    "questions accepted as wishes": lambda: setattr(hol, "wished",
-        (lambda f: lambda t, d: f((t or "").replace("?", ""), d))(hol.wished)),
+    "questions accepted as wishes": lambda: setattr(hol, "match_wish",
+        (lambda f: lambda t, d: f((t or "").replace("?", ""), d))(hol.match_wish)),
     "deck forgets": lambda: setattr(hol, "draw",
         (lambda f: lambda k, facts=None, state_path=None, rng=None: f(k, facts, state_path + ".x" + str(time.time_ns()) if state_path else None, rng))(hol.draw)),
     "announce any hour": lambda: setattr(hol, "ANNOUNCE_FROM_H", 0),
     "reply ignores the flag": lambda: responder.DEFAULTS.__setitem__("HOLIDAY_REPLY_ENABLED", "true"),
+    "closed world removed": lambda: setattr(hol, "_only_greeting", lambda rest: True),
+    "presence switch ignored": lambda: setattr(hol, "plan_announce",
+        (lambda f: lambda cfg, *a, **k: f(dict(cfg, PRESENCE_ENABLED="true"), *a, **k))(hol.plan_announce)),
+    "no spacing after a post": lambda: setattr(hol, "ANNOUNCE_MIN_GAP_S", 0),
+    "ordinary greeting not held": lambda: setattr(hol, "pending",
+        (lambda f: lambda cfg, today, ann: [] if cfg.get("PRESENCE_CHANCE") else f(cfg, today, ann))(hol.pending)),
     "unsourced facts allowed": lambda: setattr(hol, "load_facts",
         (lambda f: lambda path=None: {k: v + ["unsourced"] for k, v in f(path).items()})(hol.load_facts)),
 }
@@ -300,7 +375,9 @@ if __name__ == "__main__":
     if "--self-test" in sys.argv:
         import copy
         print("self-test -- each mutation must be CAUGHT:")
-        keep = {n: getattr(hol, n) for n in ("easter", "wished", "draw", "ANNOUNCE_FROM_H", "load_facts")}
+        keep = {n: getattr(hol, n) for n in ("easter", "wished", "draw", "ANNOUNCE_FROM_H", "load_facts",
+                                             "_only_greeting", "plan_announce", "ANNOUNCE_MIN_GAP_S",
+                                             "pending", "match_wish")}
         keep_nth = copy.deepcopy(hol.NTH)
         keep_def = dict(responder.DEFAULTS)
         for name, mutate in MUTATIONS.items():

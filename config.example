@@ -238,7 +238,7 @@ PRESENCE_TEST=
 PRESENCE_TZ=America/Chicago
 # A radio status older than this means the bridge may be down: wait.
 PRESENCE_STATUS_MAX_AGE_S=600
-# HOLIDAYS (holidays.py): US federal and popular holidays, computed offline. On the day, from
+# HOLIDAYS (usholidays.py): US federal and popular holidays, computed offline. On the day, from
 # 9 AM on the clock below, the presence timer announces it once with a fact from
 # data/holiday_facts.json (every fact sourced). A holiday wish on the channel ("Happy
 # Thanksgiving") gets the wish back with a fact, never the same one twice in a row: once per
