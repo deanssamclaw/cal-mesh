@@ -158,8 +158,9 @@ So the page publishes a verdict from a closed set, with the evidence under it:
 | `FRESH` | ran on schedule, input flowing, bank agrees with the classifier |
 | `LATE` | no run inside the threshold — everything below it is stale |
 | `STALLED` | the loop is running, but nothing has been received |
-| `FAILING` | the loop is fine, but the last 3 model replies all failed — "nothing new" may be replies that never happened |
+| `FAILING` | the loop is fine, but the last 3 model replies — live, or drafted — all failed |
 | `DRIFT` | banked records would classify differently under the code running now |
+| `STARVED` | everything works, but nobody has asked Cal anything it could learn from in 30 days |
 | `UNKNOWN` | an artefact could not be read — never a cheerful default |
 
 Two rules make it worth trusting. **Liveness is derived from artefacts carrying their own
@@ -181,6 +182,25 @@ is derived from `decisions.jsonl` like everything else — the trailing run of f
 attempts — and three in a row has never happened in healthy operation (40 attempts on record).
 The failing call's stdout and stderr now go to `responder.log`, never to the public trace.
 
+`FAILING` also reads `drafts.jsonl` since 2026-11-25. The CLI login on rflab expired on
+2026-10-24 and every model draft failed for a month, but the responder had not tried a model
+reply since 09-23, so its own count stayed at zero. Drafts run daily and call the same function,
+so they are where a dead model shows first.
+
+`STARVED` was added the same day. Input flowed for 56 days — greetings and radio checks — and
+the strip read `FRESH`, because `STALLED` watches the radio, not the questions. An *ask* is a
+record classified GAP, CLARIFY, NO_TABLE, THROTTLED, REFUSED, or a HIT from any doer except
+sigreport. Over the 53 asks on record the largest gap was 22.7 days, so the threshold is 30. It
+is amber, not red: nothing is broken, there is just nothing to learn from.
+
+### Overheard
+
+The ledger only sees asks addressed to Cal — one in 706 messages from 09-25 to 11-25. `overheard()`
+reads the drafts for the rest: public messages Cal stayed silent on that are question-shaped,
+whether any node threaded a reply (a tapback does not count), whether a doer had an answer, and
+how many model drafts are waiting for a grade. It is published under Learning Loops and written
+to the ledger and to every history line. Propose-only, like everything here.
+
 Thresholds are measured, not chosen. Runs land 24.00 h apart across eight consecutive days, so
 `LATE` is 26 h. The largest natural silence between two inbound records is 39.3 h (median
 0.47 h, p90 11.5 h), so `STALLED` is 48 h — below about 40 h it fires on a genuinely quiet mesh,
@@ -191,7 +211,7 @@ Both checks are read-only and exit with a code, so they compose with a monitor:
     learn.py --check     # 0 fresh · 1 unhealthy · 2 unknown
     learn.py --audit     # re-classify the bank against the current code; per-bucket delta
 
-`eval_health.py` — 62 checks. Every state is driven by a fixture that forces it; the drift check
+`eval_health.py` — 127 checks. Every state is driven by a fixture that forces it; the drift check
 is exercised by putting `DOER_CAPS` back to its pre-fix shape and demanding the audit finds all
 three records; and both browser renderers are executed against live and adversarial payloads.
 Three self-test mutations, including "health always returns FRESH", each of which must fail the
