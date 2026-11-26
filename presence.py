@@ -217,6 +217,58 @@ def _fresh_util(base, cfg, now):
         return None
 
 
+def _holiday_announce(cfg, state, history, heard, util, now, base, channel, send, stamp, state_path):
+    """On a holiday, once, from 9 AM local: "Happy Thanksgiving, mesh! <fact>" (holidays.py).
+
+    Runs ahead of the ordinary greeting and, when it sends, IS that day's presence post: it is
+    written into the same history, so the daily cap keeps a "Morning Mesh" from following it.
+    Outbox source is "holiday", not "presence": a reply to it is not a reply to Cal's radio check
+    and must not earn a signal report. Returns True if it sent (or would have, on a dry run)."""
+    import holidays as _hol
+    from zoneinfo import ZoneInfo
+    try:
+        local = datetime.fromtimestamp(now, ZoneInfo(str(cfg.get("PRESENCE_TZ", DEFAULTS["PRESENCE_TZ"]))))
+    except Exception:
+        return False
+    announced = None
+    if isinstance(state, dict) and history is not None:
+        a = state.get("holidays", [])
+        announced = set(a) if isinstance(a, list) and all(isinstance(x, str) for x in a) else None
+    key, reason = _hol.plan_announce(
+        cfg, local.date(), local.hour, announced,
+        "unknown" if heard is UNKNOWN else heard, util, now,
+        _num(cfg, "PRESENCE_QUIET_S"), _num(cfg, "PRESENCE_MAX_CH_UTIL"))
+    if not key:
+        if reason not in ("no_holiday_to_announce", "holiday_announce_disabled"):
+            print(f"{stamp} presence: holiday {reason}")
+        return False
+    if not send:
+        print(f"{stamp} presence: would announce {_hol.name(key)}; dry run")
+        return True
+    fact = _hol.draw(key, state_path=os.path.join(base, "holiday-state.json"),
+                     facts=_hol.load_facts(os.path.join(base, "data", "holiday_facts.json")))
+    text = _hol.announce_text(key, fact) if fact else None
+    if not text:
+        print(f"{stamp} presence: holiday {key} has no usable fact; not announced")
+        return False
+    tag = f"{local.date().isoformat()}:{key}"
+    # Recorded BEFORE the outbox, as below: a failed write skips one announcement, never repeats it.
+    rec = {"sends": (history + [{"ts": now, "key": "HOLIDAY"}])[-50:],
+           "holidays": (sorted(announced | {tag}))[-40:]}
+    with open(state_path + ".tmp", "w") as f:
+        json.dump(rec, f)
+    os.replace(state_path + ".tmp", state_path)
+    outbox = os.path.join(base, "outbox")
+    os.makedirs(outbox, exist_ok=True)
+    name = f"holiday.{int(now * 1000)}"
+    tmp = os.path.join(outbox, "." + name)
+    with open(tmp, "w") as f:
+        json.dump({"text": text, "dest": "^all", "channel": channel, "source": "holiday"}, f)
+    os.replace(tmp, os.path.join(outbox, name))
+    print(f"{stamp} presence: announced {text!r}")
+    return True
+
+
 def main(argv=None, base=None, now=None):
     import sys
     argv = sys.argv[1:] if argv is None else argv
@@ -233,8 +285,13 @@ def main(argv=None, base=None, now=None):
         state = {}
     history = _history(state)
     channel = int(_num(cfg, "PRESENCE_CHANNEL"))
-    got, reason = plan(cfg, history, _last_heard(base, channel), _fresh_util(base, cfg, now), now=now)
     stamp = datetime.fromtimestamp(now).isoformat(timespec="seconds")
+    heard = _last_heard(base, channel)
+    util = _fresh_util(base, cfg, now)
+    if _holiday_announce(cfg, state, history, heard, util, now, base, channel, "--send" in argv,
+                         stamp, state_path):
+        return 0
+    got, reason = plan(cfg, history, heard, util, now=now)
     if not got:
         print(f"{stamp} presence: {reason}")
         return 0
@@ -245,7 +302,8 @@ def main(argv=None, base=None, now=None):
     # greeting, which is the quiet direction; the other order could send without remembering.
     history = history + [{"ts": now, "key": got["key"]}]
     with open(state_path + ".tmp", "w") as f:
-        json.dump({"sends": history[-50:]}, f)
+        keep = state.get("holidays", []) if isinstance(state, dict) else []
+        json.dump({"sends": history[-50:], "holidays": keep if isinstance(keep, list) else []}, f)
     os.replace(state_path + ".tmp", state_path)
     outbox = os.path.join(base, "outbox")
     os.makedirs(outbox, exist_ok=True)
