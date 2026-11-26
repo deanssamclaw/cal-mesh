@@ -359,6 +359,23 @@ RECORDS = (
         "oracle_key": None,
     },
     {
+        "flag": "ON_THIS_DAY_ENABLED", "name": "on this day", "kind": "doer",
+        "module": "presence.py", "model_runs": False,
+        "answers": "One midday post on a date with an entry: a dated US event and the practical "
+                   "lesson it teaches, Kansas City-area first. Added 2026-11-26.",
+        "trigger": "The presence timer, between 12:00 and 14:00 local, on a date listed in "
+                   "data/on_this_day.json.",
+        "who": "the whole channel",
+        "out_of_scope": [
+            {"limit": "Only dates with an entry; every event and every lesson carries its own "
+                      "https source, and a malformed entry is never loaded.",
+             "where": "ontheday.py:load"},
+            {"limit": "Stands down on a holiday; never into a conversation, a busy channel, or "
+                      "within two hours of Cal's last post.", "where": "ontheday.py:plan_post"},
+        ],
+        "oracle_key": None,
+    },
+    {
         "flag": "SIGREPORT_TEST_EXCHANGE_ENABLED", "name": "test exchange report", "kind": "doer",
         "module": "sigreport.py", "model_runs": False,
         "answers": "The same signal report, for a report inside somebody's test (Received in "

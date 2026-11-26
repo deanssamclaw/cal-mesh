@@ -235,6 +235,110 @@ def _announced(state, history):
     return set(a) if isinstance(a, list) and all(isinstance(x, str) for x in a) else None
 
 
+def _state_for_write(state):
+    """The state to write back: every key kept, but the holiday and on-this-day records are
+    REPAIRED to well-formed values rather than carried forward broken (review 2026-11-26: a
+    malformed "holidays" value preserved forever silenced the holiday announcement for good)."""
+    rec = dict(state) if isinstance(state, dict) else {}
+    for k in ("holidays", "onthisday"):
+        v = rec.get(k, [])
+        rec[k] = v if isinstance(v, list) and all(isinstance(x, str) for x in v) else []
+    rec["onthisday_used"] = _otd_used(rec)
+    return rec
+
+
+def _last_tx(base, history):
+    """When Cal last transmitted ANYTHING: the newest of presence's own sends and sent.jsonl
+    (replies, signal reports). The two-hour gap is about the channel, not about presence."""
+    best = None
+    for h in history or []:
+        if isinstance(h, dict) and isinstance(h.get("ts"), (int, float)) and not isinstance(h.get("ts"), bool):
+            best = h["ts"] if best is None else max(best, h["ts"])
+    try:
+        with open(os.path.join(base, "sent.jsonl"), "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 65536))
+            for ln in f.read().decode("utf-8", "replace").splitlines():
+                try:
+                    t = datetime.fromisoformat(json.loads(ln)["ts"]).timestamp()
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    continue
+                if t == t and t not in (float("inf"), float("-inf")):
+                    best = t if best is None else max(best, t)
+    except OSError:
+        pass
+    return best
+
+
+def _posted(state, history):
+    """The set of "YYYY-MM-DD" with an on-this-day post, or None if the record is malformed."""
+    if not isinstance(state, dict) or history is None:
+        return None
+    a = state.get("onthisday", [])
+    return set(a) if isinstance(a, list) and all(isinstance(x, str) for x in a) else None
+
+
+def _otd_used(state):
+    u = state.get("onthisday_used", {}) if isinstance(state, dict) else {}
+    if not isinstance(u, dict):
+        return {}
+    return {k: [x for x in v if isinstance(x, str)] for k, v in u.items()
+            if isinstance(k, str) and isinstance(v, list)}
+
+
+def _on_this_day(cfg, state, history, heard, util, now, base, channel, send, stamp, state_path):
+    """Midday, only on a date with an entry: "On this day in <year>: <event> <takeaway>"
+    (ontheday.py). Same contract as _holiday_announce: it IS that day's presence post, recorded
+    before the outbox write, under main's lock. Outbox source "onthisday"."""
+    import ontheday as _otd
+    import usholidays as _hol
+    local = _holiday_local(cfg, now)
+    if local is None:
+        return False
+    posted = _posted(state, history)
+    entries = _otd.load(os.path.join(base, "data", "on_this_day.json"))
+    sends = history or []
+    todays, reason = _otd.plan_post(
+        cfg, local.date(), local.hour, posted, "unknown" if heard is UNKNOWN else heard, util, now,
+        _num(cfg, "PRESENCE_QUIET_S"), _num(cfg, "PRESENCE_MAX_CH_UTIL"),
+        last_send_ts=_last_tx(base, sends),
+        holiday_today=bool(_hol.on(local.date())), entries=entries)
+    if not todays:
+        if reason not in ("no_entry_today", "on_this_day_disabled", "already_posted",
+                          "outside_midday"):
+            print(f"{stamp} presence: on-this-day {reason}")
+        return False
+    mmdd = local.date().strftime("%m-%d")
+    used = _otd_used(state)
+    e = _otd.choose(todays, used.get(mmdd, []))
+    text = _otd.text(e) if e else None
+    if not text:
+        return False
+    if not send:
+        print(f"{stamp} presence: would post on-this-day {text!r}; dry run")
+        return True
+    ids = used.get(mmdd, [])
+    if _otd.entry_id(e) in ids:                      # every entry used: this starts a new round
+        ids = []
+    used[mmdd] = ids + [_otd.entry_id(e)]
+    rec = _state_for_write(state)
+    rec.update({"sends": (history + [{"ts": now, "key": "ONTHISDAY"}])[-50:],
+                "onthisday": sorted(posted | {local.date().isoformat()})[-60:],
+                "onthisday_used": used})
+    with open(state_path + ".tmp", "w") as f:
+        json.dump(rec, f)
+    os.replace(state_path + ".tmp", state_path)
+    outbox = os.path.join(base, "outbox")
+    os.makedirs(outbox, exist_ok=True)
+    name = f"onthisday.{int(now * 1000)}.{os.getpid()}.{random.randrange(10 ** 6)}"
+    tmp = os.path.join(outbox, "." + name)
+    with open(tmp, "w") as f:
+        json.dump({"text": text, "dest": "^all", "channel": channel, "source": "onthisday"}, f)
+    os.replace(tmp, os.path.join(outbox, name))
+    print(f"{stamp} presence: posted on-this-day {text!r}")
+    return True
+
+
 def _holiday_announce(cfg, state, history, heard, util, now, base, channel, send, stamp, state_path):
     """On a holiday, once, from 9 AM local: "Happy Thanksgiving, mesh! <fact>" (usholidays.py).
 
@@ -253,7 +357,7 @@ def _holiday_announce(cfg, state, history, heard, util, now, base, channel, send
         cfg, local.date(), local.hour, announced,
         "unknown" if heard is UNKNOWN else heard, util, now,
         _num(cfg, "PRESENCE_QUIET_S"), _num(cfg, "PRESENCE_MAX_CH_UTIL"),
-        last_send_ts=sends[-1]["ts"] if sends else None)
+        last_send_ts=_last_tx(base, sends))
     if not key:
         if reason not in ("no_holiday_to_announce", "holiday_announce_disabled"):
             print(f"{stamp} presence: holiday {reason}")
@@ -269,8 +373,9 @@ def _holiday_announce(cfg, state, history, heard, util, now, base, channel, send
         return False
     tag = f"{local.date().isoformat()}:{key}"
     # Recorded BEFORE the outbox, as below: a failed write skips one announcement, never repeats it.
-    rec = {"sends": (history + [{"ts": now, "key": "HOLIDAY"}])[-50:],
-           "holidays": (sorted(announced | {tag}))[-40:]}
+    rec = _state_for_write(state)
+    rec.update({"sends": (history + [{"ts": now, "key": "HOLIDAY"}])[-50:],
+                "holidays": (sorted(announced | {tag}))[-40:]})
     with open(state_path + ".tmp", "w") as f:
         json.dump(rec, f)
     os.replace(state_path + ".tmp", state_path)
@@ -336,6 +441,21 @@ def _run(argv, base, now, cfg, state_path):
     if held:
         print(f"{stamp} presence: holiday announcement pending; the ordinary greeting waits")
         return 0
+    if _on_this_day(cfg, state, history, heard, util, now, base, channel, "--send" in argv,
+                    stamp, state_path):
+        return 0
+    try:
+        import ontheday as _otd
+        import usholidays as _hol
+        local = _holiday_local(cfg, now)
+        otd_held = bool(local and local.hour < _otd.WINDOW[1]
+                        and _otd.pending(cfg, local.date(), _posted(state, history),
+                                         holiday_today=bool(_hol.on(local.date()))))
+    except Exception:
+        otd_held = False
+    if otd_held:
+        print(f"{stamp} presence: on-this-day post pending; the ordinary greeting waits")
+        return 0
     got, reason = plan(cfg, history, heard, util, now=now)
     if not got:
         print(f"{stamp} presence: {reason}")
@@ -347,8 +467,9 @@ def _run(argv, base, now, cfg, state_path):
     # greeting, which is the quiet direction; the other order could send without remembering.
     history = history + [{"ts": now, "key": got["key"]}]
     with open(state_path + ".tmp", "w") as f:
-        keep = state.get("holidays", []) if isinstance(state, dict) else []
-        json.dump({"sends": history[-50:], "holidays": keep if isinstance(keep, list) else []}, f)
+        rec = _state_for_write(state)
+        rec["sends"] = history[-50:]
+        json.dump(rec, f)
     os.replace(state_path + ".tmp", state_path)
     outbox = os.path.join(base, "outbox")
     os.makedirs(outbox, exist_ok=True)
